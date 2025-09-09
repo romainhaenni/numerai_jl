@@ -156,29 +156,23 @@ function download_dataset(client::NumeraiClient, dataset_type::String, output_pa
 end
 
 function download_with_progress(url::String, output_path::String, name::String)
-    # Use simple download with size indication
+    # Use simple download with status indication
     temp_file = tempname()
     
     try
-        # First get file size
-        response = HTTP.head(url)
-        headers = Dict(response.headers)
-        total_size = haskey(headers, "Content-Length") ? parse(Int, headers["Content-Length"]) : 0
-        
-        if total_size > 0
-            size_mb = round(total_size / 1024 / 1024, digits=1)
-            print("  Size: $(size_mb) MB - Downloading... ")
-        else
-            print("  Downloading... ")
-        end
+        print("  Downloading $name... ")
         
         # Download the file
         Downloads.download(url, temp_file)
         
+        # Get file size after download
+        file_size = filesize(temp_file)
+        size_mb = round(file_size / 1024 / 1024, digits=1)
+        
         # Move to final location
         mv(temp_file, output_path, force=true)
         
-        println("✓")
+        println("✓ ($(size_mb) MB)")
     catch e
         # Cleanup on error
         isfile(temp_file) && rm(temp_file)

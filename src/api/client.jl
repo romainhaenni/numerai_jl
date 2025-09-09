@@ -133,7 +133,7 @@ function download_dataset(client::NumeraiClient, dataset_type::String, output_pa
     
     if show_progress
         println("Downloading $dataset_type dataset...")
-        Downloads.download(url, output_path; progress=true)
+        Downloads.download(url, output_path)
     else
         Downloads.download(url, output_path)
     end

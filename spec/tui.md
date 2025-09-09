@@ -2,6 +2,16 @@
 
 The Numerai Trading System TUI provides a comprehensive real-time monitoring interface directly in your terminal:
 
+**Key Requirements:**
+
+- Pure Julia implementation for ML operations
+- TUI dashboard for real-time monitoring and performance analysis of past rounds
+- Automated tournament participation with scheduled downloads and submissions
+- Progress is shown in the TUI for all tasks (file downloads, trainings, predictions, file uploads)
+- Multi-model ensemble with gradient boosting
+- macOS notifications
+- Optimized for M4 Max's 16 CPU cores and 48GB unified memory
+
 ### **📊 Model Performance Panel**
 - **Live correlation metrics** for each model in your ensemble
 - **Sharpe ratio tracking** to monitor risk-adjusted returns

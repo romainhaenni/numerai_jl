@@ -18,6 +18,7 @@ include("tui/panels.jl")
 include("tui/dashboard.jl")
 include("scheduler/cron.jl")
 include("notifications.jl")
+include("performance/optimization.jl")
 
 export run_tournament, TournamentConfig, TournamentDashboard
 
@@ -64,6 +65,10 @@ end
 
 function run_tournament(; config_path::String="config.toml", headless::Bool=false)
     config = load_config(config_path)
+    
+    # Optimize for M4 Max performance
+    perf_info = Performance.optimize_for_m4_max()
+    println("🚀 Optimized for M4 Max: $(perf_info[:threads]) threads, $(perf_info[:memory_gb])GB RAM")
     
     mkpath(config.data_dir)
     mkpath(config.model_dir)

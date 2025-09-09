@@ -23,7 +23,7 @@ mutable struct TournamentDashboard
     paused::Bool
     show_help::Bool
     selected_model::Int
-    refresh_rate::Int
+    refresh_rate::Float64  # Changed to Float64 for more precise timing
 end
 
 function TournamentDashboard(config)
@@ -57,7 +57,7 @@ function TournamentDashboard(config)
     return TournamentDashboard(
         config, api_client, models, Vector{Dict{Symbol, Any}}(),
         system_info, training_info, Float64[],
-        false, false, false, 1, 1
+        false, false, false, 1, 1.0  # Set refresh rate to 1 second for smoother updates
     )
 end
 
@@ -87,31 +87,74 @@ function run_dashboard(dashboard::TournamentDashboard)
 end
 
 function update_loop(dashboard::TournamentDashboard, start_time::Float64)
+    last_model_update = time()
+    last_render = time()
+    model_update_interval = 30.0  # Update model data every 30 seconds
+    render_interval = dashboard.refresh_rate  # Render at user-specified rate
+    
     while dashboard.running
+        current_time = time()
+        
         if !dashboard.paused
-            dashboard.system_info[:uptime] = Int(time() - start_time)
+            dashboard.system_info[:uptime] = Int(current_time - start_time)
             
+            # Always update system info (lightweight)
             update_system_info!(dashboard)
             
-            if rand() < 0.1
+            # Update model performances less frequently to avoid API rate limits
+            if current_time - last_model_update >= model_update_interval
                 update_model_performances!(dashboard)
+                last_model_update = current_time
             end
             
-            render(dashboard)
+            # Render at consistent intervals
+            if current_time - last_render >= render_interval
+                render(dashboard)
+                last_render = current_time
+            end
         end
         
-        sleep(dashboard.refresh_rate)
+        # Small sleep to prevent busy waiting
+        sleep(0.1)
     end
 end
 
 function read_key()
-    # Simple key reading function
-    # Note: This is a basic implementation, more advanced terminal input handling
-    # would require additional packages or platform-specific code
+    # Improved key reading function with better special key handling
     try
-        return String(read(stdin, 1))
+        # Set stdin to raw mode to capture individual key presses
+        ccall(:jl_tty_set_mode, Int32, (Ptr{Cvoid}, Int32), stdin.handle, 1)
+        
+        first_char = String(read(stdin, 1))
+        
+        # Handle escape sequences for arrow keys and special keys
+        if first_char == "\e"  # ESC character
+            # Try to read the next characters for escape sequences
+            try
+                # Give a small timeout for multi-character sequences
+                available = bytesavailable(stdin)
+                if available > 0 || (sleep(0.001); bytesavailable(stdin) > 0)
+                    second_char = String(read(stdin, 1))
+                    if second_char == "["
+                        third_char = String(read(stdin, 1))
+                        return "\e[$third_char"  # Return full escape sequence
+                    else
+                        return first_char  # Just ESC key
+                    end
+                else
+                    return first_char  # Just ESC key
+                end
+            catch
+                return first_char
+            end
+        else
+            return first_char
+        end
     catch
         return ""
+    finally
+        # Restore normal stdin mode
+        ccall(:jl_tty_set_mode, Int32, (Ptr{Cvoid}, Int32), stdin.handle, 0)
     end
 end
 
@@ -134,12 +177,15 @@ function input_loop(dashboard::TournamentDashboard)
             dashboard.show_help = !dashboard.show_help
         elseif key == "n"
             create_new_model_wizard(dashboard)
-        elseif key == "\e[A"
+        elseif key == "\e[A"  # Up arrow
             dashboard.selected_model = max(1, dashboard.selected_model - 1)
-        elseif key == "\e[B"
+        elseif key == "\e[B"  # Down arrow
             dashboard.selected_model = min(length(dashboard.models), dashboard.selected_model + 1)
-        elseif key == "\r"
+        elseif key == "\r" || key == "\n"  # Enter key
             show_model_details(dashboard, dashboard.selected_model)
+        elseif key == "\e"  # ESC key (standalone)
+            # Do nothing for now, could be used to exit help or modal dialogs
+            continue
         end
     end
 end
@@ -148,7 +194,8 @@ function render(dashboard::TournamentDashboard)
     # Clear screen using ANSI escape sequence
     print("\033[2J\033[H")
     
-    layout = Grid(
+    # Create panels for 6-column grid layout
+    panels = [
         Panels.create_model_performance_panel(dashboard.models),
         Panels.create_staking_panel(get_staking_info(dashboard)),
         Panels.create_predictions_panel(dashboard.predictions_history),
@@ -156,9 +203,12 @@ function render(dashboard::TournamentDashboard)
         Panels.create_system_panel(dashboard.system_info),
         dashboard.training_info[:is_training] ? 
             Panels.create_training_panel(dashboard.training_info) : 
-            (dashboard.show_help ? Panels.create_help_panel() : nothing),
-        layout=(3, 2)
-    )
+            (dashboard.show_help ? Panels.create_help_panel() : nothing)
+    ]
+    
+    # Filter out nothing values and create 6-column grid (2 rows, 3 columns)
+    valid_panels = filter(!isnothing, panels)
+    layout = Grid(valid_panels..., layout=(2, 3))
     
     println(layout)
     
@@ -222,23 +272,92 @@ function get_staking_info(dashboard::TournamentDashboard)::Dict{Symbol, Any}
         round_info = API.get_current_round(dashboard.api_client)
         time_remaining = round_info.close_time - now()
         
+        # Get actual staking data from API for each model
+        total_stake = 0.0
+        total_at_risk = 0.0
+        total_expected_payout = 0.0
+        
+        for model in dashboard.models
+            if model[:is_active]
+                try
+                    # Get actual staking information from API
+                    stake_info = API.get_model_stakes(dashboard.api_client, model[:name])
+                    model_stake = stake_info.total_stake
+                    
+                    total_stake += model_stake
+                    
+                    # Calculate at-risk amount based on actual burn rate from API
+                    burn_rate = get(stake_info, :burn_rate, 0.25)  # Default to 25% if not available
+                    total_at_risk += model_stake * burn_rate
+                    
+                    # Calculate expected payout using real performance metrics
+                    corr_multiplier = get(stake_info, :corr_multiplier, 0.5)
+                    mmc_multiplier = get(stake_info, :mmc_multiplier, 2.0)
+                    expected_payout = model_stake * (
+                        corr_multiplier * model[:corr] + 
+                        mmc_multiplier * model[:mmc]
+                    )
+                    total_expected_payout += expected_payout
+                    
+                    # Update model with actual stake
+                    model[:stake] = model_stake
+                catch e
+                    # Fallback to model's stored stake if API call fails
+                    model_stake = get(model, :stake, 0.0)
+                    total_stake += model_stake
+                    total_at_risk += model_stake * 0.25
+                    total_expected_payout += model_stake * model[:corr] * 0.5
+                end
+            end
+        end
+        
+        # Determine submission status by checking latest submissions
+        submission_status = try
+            latest_submission = API.get_latest_submission(dashboard.api_client)
+            if latest_submission.round == round_info.number
+                "Submitted"
+            else
+                "Pending"
+            end
+        catch
+            "Unknown"
+        end
+        
         return Dict(
-            :total_stake => sum(m -> get(m, :stake, 0.0), dashboard.models),
-            :at_risk => sum(m -> get(m, :stake, 0.0) * 0.25, dashboard.models),
-            :expected_payout => sum(m -> get(m, :stake, 0.0) * m[:corr] * 0.5, dashboard.models),
+            :total_stake => round(total_stake, digits=2),
+            :at_risk => round(total_at_risk, digits=2),
+            :expected_payout => round(total_expected_payout, digits=2),
             :current_round => round_info.number,
-            :submission_status => "Submitted",
-            :time_remaining => "$(Dates.hour(time_remaining))h $(Dates.minute(time_remaining))m"
+            :submission_status => submission_status,
+            :time_remaining => format_time_remaining(time_remaining)
         )
-    catch
+    catch e
+        @warn "Failed to get staking info from API" exception=e
+        # Fallback to model-based calculations
+        total_stake = sum(m -> get(m, :stake, 0.0), dashboard.models)
         return Dict(
-            :total_stake => 0.0,
-            :at_risk => 0.0,
-            :expected_payout => 0.0,
+            :total_stake => round(total_stake, digits=2),
+            :at_risk => round(total_stake * 0.25, digits=2),
+            :expected_payout => round(sum(m -> get(m, :stake, 0.0) * m[:corr] * 0.5, dashboard.models), digits=2),
             :current_round => 0,
             :submission_status => "Unknown",
             :time_remaining => "N/A"
         )
+    end
+end
+
+function format_time_remaining(time_remaining::Dates.Period)::String
+    hours = Dates.value(Dates.Hour(time_remaining))
+    minutes = Dates.value(Dates.Minute(time_remaining)) % 60
+    
+    if hours > 24
+        days = hours ÷ 24
+        hours_remainder = hours % 24
+        return "$(days)d $(hours_remainder)h"
+    elseif hours > 0
+        return "$(hours)h $(minutes)m"
+    else
+        return "$(minutes)m"
     end
 end
 
@@ -439,7 +558,7 @@ function create_new_model_wizard(dashboard::TournamentDashboard)
     )
     
     # Display wizard panel (in real implementation, this would be interactive)
-    dashboard.help_visible = false  # Hide help to show wizard
+    dashboard.show_help = false  # Hide help to show wizard
     
     # For now, just create a default model
     new_model = Dict(
@@ -506,7 +625,7 @@ function show_model_details(dashboard::TournamentDashboard, model_idx::Int)
     
     # In a real implementation, this would show a separate view
     # For now, we just log the event
-    dashboard.help_visible = false  # Could show details instead of help
+    dashboard.show_help = false  # Could show details instead of help
 end
 
 export TournamentDashboard, run_dashboard, add_event!, start_training

@@ -43,3 +43,4 @@ The terminal UI provides real-time monitoring with:
 - `p` - Pause/Resume training
 - `s` - Start Training
 - `h` - Show Help
+- `n` - create new model with wizard for any settings

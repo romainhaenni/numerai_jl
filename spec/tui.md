@@ -23,7 +23,7 @@ The Numerai Trading System TUI provides a comprehensive real-time monitoring int
 - Auto-scaling to show relevant data ranges
 
 ### **🔔 Recent Events Log**
-- **Timestamped event stream** with 10 most recent activities
+- **Timestamped event stream** with 30 most recent activities
 - **Color-coded messages** by type:
   - 🟢 Green for successful submissions
   - 🔴 Red for errors requiring attention
@@ -33,22 +33,23 @@ The Numerai Trading System TUI provides a comprehensive real-time monitoring int
 
 ### **⚙️ System Status Bar**
 - **CPU usage percentage** with performance core utilization
-- **Memory consumption** in GB (crucial for 128GB M3 Max monitoring)
+- **Memory consumption** in GB (crucial for 48GB M4 Max monitoring)
 - **Active vs total models** counter
 - **System uptime** formatted as days/hours/minutes
 - Real-time resource monitoring without external tools
 
 ### **Interactive Controls**
-- **`q`** - Gracefully quit the application
-- **`r`** - Manually refresh all data
-- **`s`** - Access settings and configuration
+- `q` - Quit
+- `p` - Pause/Resume training
+- `s` - Start Training
+- `h` - Show Help
+- `n` - create new model with wizard for any settings
 - Keyboard-driven interface for efficiency
 
 ### **Visual Design Elements**
 - **Panel-based layout** with clear separation of concerns
 - **6-column grid system** for responsive information display
 - **Emoji indicators** for quick visual parsing (🤖📊💰📈🔔⚙️)
-- **Ratatouille-powered rendering** for smooth terminal graphics
 - Optimized for standard terminal sizes while scaling gracefully
 
 ### **Real-time Updates**
@@ -58,7 +59,7 @@ The Numerai Trading System TUI provides a comprehensive real-time monitoring int
 - No polling required - push-based updates for efficiency
 
 ### **Integration Features**
-- **Synchronized with notification system** - events appear in TUI, Telegram, and macOS simultaneously
+- **Synchronized with notification system** - events appear in macOS simultaneously
 - **Direct connection to ML pipeline** - shows training progress in real-time
 - **API status monitoring** - displays connection health to Numerai servers
 - **Performance telemetry** - integrates with Elixir's telemetry system

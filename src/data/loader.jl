@@ -1,7 +1,7 @@
-module DataLoader
+module TournamentDataLoader
 
 using DataFrames
-using Parquet2
+using Parquet
 using CSV
 using JSON3
 using ProgressMeter
@@ -23,7 +23,7 @@ function load_parquet(filepath::String; show_progress::Bool=true)::DataFrame
         println("Loading $(basename(filepath))...")
     end
     
-    df = DataFrame(read_parquet(filepath))
+    df = DataFrame(Parquet.read_parquet(filepath))
     
     if show_progress
         println("Loaded $(nrow(df)) rows, $(ncol(df)) columns")

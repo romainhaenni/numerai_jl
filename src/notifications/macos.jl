@@ -1,4 +1,4 @@
-module Notifications
+module MacOSNotifications
 
 using Dates
 

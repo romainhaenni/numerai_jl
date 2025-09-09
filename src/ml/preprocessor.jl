@@ -1,4 +1,4 @@
-module Preprocessor
+module MLPreprocessor
 
 using DataFrames
 using Statistics

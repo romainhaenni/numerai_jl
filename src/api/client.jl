@@ -64,7 +64,7 @@ end
 function get_current_round(client::NumeraiClient)::Schemas.Round
     query = """
     query {
-        rounds {
+        rounds(tournament: 8, take: 5) {
             number
             openTime
             closeTime
@@ -74,15 +74,36 @@ function get_current_round(client::NumeraiClient)::Schemas.Round
     """
     
     result = graphql_query(client, query)
-    round_data = result.rounds[1]
     
+    # Check if we have rounds
+    if !haskey(result, "rounds") || isempty(result["rounds"])
+        error("No rounds found in API response")
+    end
+    
+    # Find the current active round (first one that hasn't resolved yet)
+    current_time = now()
+    for round_data in result["rounds"]
+        close_time = parse_datetime_safe(get(round_data, "closeTime", nothing))
+        if close_time > current_time
+            # This round is still active
+            return Schemas.Round(
+                round_data["number"],
+                parse_datetime_safe(get(round_data, "openTime", nothing)),
+                close_time,
+                parse_datetime_safe(get(round_data, "resolveTime", nothing)),
+                true  # is_active
+            )
+        end
+    end
+    
+    # If no active round, return the most recent one as inactive
+    round_data = result["rounds"][1]
     return Schemas.Round(
-        round_data.number,
-        parse_datetime_safe(get(round_data, :openTime, nothing)),
-        parse_datetime_safe(get(round_data, :closeTime, nothing)),
-        parse_datetime_safe(get(round_data, :resolveTime, nothing)),
-        true
-    )
+        round_data["number"],
+        parse_datetime_safe(get(round_data, "openTime", nothing)),
+        parse_datetime_safe(get(round_data, "closeTime", nothing)),
+        parse_datetime_safe(get(round_data, "resolveTime", nothing)),
+        false  # not active
 end
 
 function get_model_performance(client::NumeraiClient, model_name::String)::Schemas.ModelPerformance
@@ -329,8 +350,8 @@ function get_models_for_user(client::NumeraiClient)::Vector{String}
     try
         response = graphql_query(client, query)
         
-        if haskey(response, "data") && haskey(response["data"], "v3UserProfile")
-            user_profile = response["data"]["v3UserProfile"]
+        if haskey(response, "v3UserProfile")
+            user_profile = response["v3UserProfile"]
             if haskey(user_profile, "models") && !isnothing(user_profile["models"])
                 model_names = String[]
                 for model in user_profile["models"]
@@ -357,32 +378,34 @@ end
 
 function get_dataset_info(client::NumeraiClient)::Schemas.DatasetInfo
     # Query actual dataset information from API
+    # Note: The v5 dataset endpoints are standard, not from GraphQL
     query = """
     query {
-        dataset {
-            version
-            trainDataUrl
-            validationDataUrl
-            liveDataUrl
-            featuresUrl
+        rounds(tournament: 8, take: 1) {
+            number
+            openTime
+            closeTime
+            resolveTime
         }
     }
     """
     
     try
         response = graphql_query(client, query)
-        if haskey(response, "data") && haskey(response["data"], "dataset")
-            data = response["data"]["dataset"]
+        # Dataset v5 uses standard URLs, not GraphQL endpoints
+        # We just verify connection is working
+        if haskey(response, "rounds") && !isempty(response["rounds"])
+            # Connection verified, return v5 dataset info
             return Schemas.DatasetInfo(
-                get(data, "version", "v5.0"),
-                get(data, "trainDataUrl", "v5.0/train.parquet"),
-                get(data, "validationDataUrl", "v5.0/validation.parquet"),
-                get(data, "liveDataUrl", "v5.0/live.parquet"),
-                get(data, "featuresUrl", "v5.0/features.json")
+                "v5.0",
+                "v5.0/train.parquet",
+                "v5.0/validation.parquet", 
+                "v5.0/live.parquet",
+                "v5.0/features.json"
             )
         end
     catch e
-        @warn "Failed to fetch dataset info from API: $e. Using default v5.0 dataset."
+        @warn "Failed to verify API connection: $e. Using default v5.0 dataset."
     end
     
     # Fallback to v5.0 defaults if API call fails

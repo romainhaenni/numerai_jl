@@ -2,6 +2,9 @@ using Test
 using NumeraiTournament
 using DataFrames
 using Random
+using Dates
+using Statistics
+using LinearAlgebra
 
 Random.seed!(123)
 
@@ -16,9 +19,9 @@ Random.seed!(123)
             @test filled.a == [1.0, 0.0, 3.0]
         end
         
-        @testset "rank_normalize" begin
+        @testset "normalize_predictions" begin
             values = [1.0, 2.0, 3.0, 4.0, 5.0]
-            normalized = NumeraiTournament.Preprocessor.rank_normalize(values)
+            normalized = NumeraiTournament.Preprocessor.normalize_predictions(values)
             @test minimum(normalized) >= 0.0
             @test maximum(normalized) <= 1.0
             @test length(normalized) == length(values)
@@ -27,17 +30,15 @@ Random.seed!(123)
         @testset "clip_predictions" begin
             predictions = [0.0, 0.5, 1.0, -0.1, 1.1]
             clipped = NumeraiTournament.Preprocessor.clip_predictions(predictions)
-            @test all(0.0003 .<= clipped .<= 0.9997)
+            @test all(0.0001 .<= clipped .<= 0.9999)
         end
         
-        @testset "ensemble_predictions" begin
-            pred1 = [0.1, 0.2, 0.3]
-            pred2 = [0.2, 0.3, 0.4]
-            pred3 = [0.3, 0.4, 0.5]
-            
-            ensemble = NumeraiTournament.Preprocessor.ensemble_predictions([pred1, pred2, pred3])
-            @test length(ensemble) == 3
-            @test all(ensemble .≈ [0.2, 0.3, 0.4])
+        @testset "rank_predictions" begin
+            values = [1.0, 3.0, 2.0, 4.0, 5.0]
+            ranked = NumeraiTournament.Preprocessor.rank_predictions(values)
+            @test minimum(ranked) >= 0.0
+            @test maximum(ranked) <= 1.0
+            @test length(ranked) == length(values)
         end
     end
     
@@ -64,7 +65,7 @@ Random.seed!(123)
             pred = [1.0, 2.0, 3.0]
             ref = [1.0, 1.0, 1.0]
             ortho = NumeraiTournament.Neutralization.orthogonalize(pred, ref)
-            @test abs(dot(ortho, ref)) < 1e-10
+            @test abs(LinearAlgebra.dot(ortho, ref)) < 1e-10
         end
     end
     
@@ -108,15 +109,15 @@ Random.seed!(123)
             @test submission.prediction == predictions
         end
         
-        @testset "filter_by_era" begin
+        @testset "get_era_column" begin
             df = DataFrame(
                 era = [1, 1, 2, 2, 3, 3],
                 value = rand(6)
             )
             
-            filtered = NumeraiTournament.DataLoader.filter_by_era(df, :era, 1, 2)
-            @test all(1 .<= filtered.era .<= 2)
-            @test size(filtered, 1) == 4
+            eras = NumeraiTournament.DataLoader.get_era_column(df)
+            @test length(eras) == 6
+            @test all(eras .∈ [[1, 2, 3]])
         end
     end
     

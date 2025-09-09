@@ -4,6 +4,9 @@ using LinearAlgebra
 using Distributed
 using ThreadsX
 using Statistics
+using CSV
+using DataFrames
+using Parquet
 
 function optimize_for_m4_max()
     # Set optimal number of threads for M4 Max (16 performance cores)
@@ -105,8 +108,6 @@ function memory_efficient_load(file_path::String;
 end
 
 function load_csv_chunked(file_path::String, chunk_size::Int)
-    using CSV, DataFrames
-    
     chunks = DataFrame[]
     
     # Read CSV in chunks
@@ -126,8 +127,6 @@ function load_csv_chunked(file_path::String, chunk_size::Int)
 end
 
 function load_parquet_chunked(file_path::String, chunk_size::Int)
-    using Parquet
-    
     # Open parquet file
     pf = Parquet.File(file_path)
     

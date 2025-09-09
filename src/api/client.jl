@@ -116,17 +116,28 @@ function get_model_performance(client::NumeraiClient, model_name::String)::Schem
 end
 
 function download_dataset(client::NumeraiClient, dataset_type::String, output_path::String; show_progress::Bool=true)
-    urls = Dict(
-        "train" => "$(DATA_BASE_URL)/v5/train_int8.parquet",
-        "validation" => "$(DATA_BASE_URL)/v5/validation_int8.parquet",
-        "live" => "$(DATA_BASE_URL)/v5/live_int8.parquet",
-        "features" => "$(DATA_BASE_URL)/v5/features.json"
+    # Map dataset types to v5.0 filenames
+    dataset_files = Dict(
+        "train" => "v5.0/train.parquet",
+        "validation" => "v5.0/validation.parquet",
+        "live" => "v5.0/live.parquet",
+        "features" => "v5.0/features.json"
     )
     
-    url = get(urls, dataset_type, nothing)
-    if url === nothing
+    filename = get(dataset_files, dataset_type, nothing)
+    if filename === nothing
         error("Unknown dataset type: $dataset_type")
     end
+    
+    # Get signed URL from Numerai API
+    query = """
+    query(\$filename: String!) {
+        dataset(filename: \$filename)
+    }
+    """
+    
+    result = graphql_query(client, query, Dict("filename" => filename))
+    url = result.dataset
     
     mkpath(dirname(output_path))
     
@@ -316,11 +327,11 @@ end
 
 function get_dataset_info(client::NumeraiClient)::Schemas.DatasetInfo
     return Schemas.DatasetInfo(
-        "v5",
-        "$(DATA_BASE_URL)/v5/train_int8.parquet",
-        "$(DATA_BASE_URL)/v5/validation_int8.parquet",
-        "$(DATA_BASE_URL)/v5/live_int8.parquet",
-        "$(DATA_BASE_URL)/v5/features.json"
+        "v5.0",
+        "v5.0/train.parquet",
+        "v5.0/validation.parquet",
+        "v5.0/live.parquet",
+        "v5.0/features.json"
     )
 end
 

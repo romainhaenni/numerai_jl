@@ -7,8 +7,8 @@ using ThreadsX
 
 include("api/schemas.jl")
 include("api/client.jl")
-include("data/loader.jl")
-include("data/preprocessor.jl")
+include("ml/dataloader.jl")
+include("ml/preprocessor.jl")
 include("ml/neutralization.jl")
 include("ml/models.jl")
 include("ml/ensemble.jl")
@@ -17,7 +17,7 @@ include("tui/charts.jl")
 include("tui/panels.jl")
 include("tui/dashboard.jl")
 include("scheduler/cron.jl")
-include("notifications/macos.jl")
+include("notifications.jl")
 
 export run_tournament, TournamentConfig, TournamentDashboard
 
@@ -69,11 +69,11 @@ function run_tournament(; config_path::String="config.toml", headless::Bool=fals
     mkpath(config.model_dir)
     
     if headless
-        scheduler = TournamentScheduler(config)
-        start_scheduler(scheduler)
+        scheduler = Scheduler.TournamentScheduler(config)
+        Scheduler.start_scheduler(scheduler)
     else
-        dashboard = TournamentDashboard(config)
-        run_dashboard(dashboard)
+        dashboard = Dashboard.TournamentDashboard(config)
+        Dashboard.run_dashboard(dashboard)
     end
 end
 

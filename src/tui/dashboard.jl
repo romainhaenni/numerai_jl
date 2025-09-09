@@ -200,6 +200,21 @@ function update_model_performances!(dashboard::TournamentDashboard)
     end
 end
 
+# Function for test compatibility - updates a single model's performance directly
+function update_model_performance!(dashboard::TournamentDashboard, model_name::String, 
+                                   corr::Float64, mmc::Float64, fnc::Float64, stake::Float64)
+    for model in dashboard.models
+        if model[:name] == model_name
+            model[:corr] = corr
+            model[:mmc] = mmc
+            model[:fnc] = fnc
+            model[:stake] = stake
+            model[:is_active] = true
+            break
+        end
+    end
+end
+
 function get_staking_info(dashboard::TournamentDashboard)::Dict{Symbol, Any}
     try
         round_info = API.get_current_round(dashboard.api_client)

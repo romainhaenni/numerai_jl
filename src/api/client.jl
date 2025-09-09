@@ -370,7 +370,7 @@ function get_dataset_info(client::NumeraiClient)::Schemas.DatasetInfo
     """
     
     try
-        response = make_request(client, query)
+        response = graphql_query(client, query)
         if haskey(response, "data") && haskey(response["data"], "dataset")
             data = response["data"]["dataset"]
             return Schemas.DatasetInfo(

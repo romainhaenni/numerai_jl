@@ -72,18 +72,27 @@ function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Vector{F
     eval_set = []
     if X_val !== nothing && y_val !== nothing
         dval = DMatrix(X_val, label=y_val)
-        push!(eval_set, ("validation", dval))
+        push!(eval_set, dval)
     end
     
     verbose_eval = verbose ? 1 : 0
     
-    model.model = xgboost(
-        dtrain;
-        num_round=model.num_rounds,
-        params=model.params,
-        watchlist=eval_set,
-        verbose_eval=verbose_eval
-    )
+    if !isempty(eval_set)
+        model.model = xgboost(
+            dtrain;
+            num_round=model.num_rounds,
+            params=model.params,
+            watchlist=eval_set,
+            verbose_eval=verbose_eval
+        )
+    else
+        model.model = xgboost(
+            dtrain;
+            num_round=model.num_rounds,
+            params=model.params,
+            verbose_eval=verbose_eval
+        )
+    end
     
     return model
 end
@@ -95,21 +104,34 @@ function train!(model::LightGBMModel, X_train::Matrix{Float64}, y_train::Vector{
     
     estimator = LGBMRegression(;
         objective=model.params["objective"],
-        metric=model.params["metric"],
+        metric=[model.params["metric"]],
         num_leaves=model.params["num_leaves"],
         learning_rate=model.params["learning_rate"],
         feature_fraction=model.params["feature_fraction"],
         bagging_fraction=model.params["bagging_fraction"],
         bagging_freq=model.params["bagging_freq"],
-        n_estimators=model.params["n_estimators"],
-        num_thread=model.params["num_threads"],
+        num_iterations=model.params["n_estimators"],
+        num_threads=model.params["num_threads"],
         verbosity=verbose ? 1 : -1
     )
     
+    # Use the correct parameter names for LightGBM.jl v2.0.0
     if X_val !== nothing && y_val !== nothing
-        fit!(estimator, X_train, y_train; eval_set=[(X_val, y_val)])
+        LightGBM.fit!(estimator, X_train, y_train, (X_val, y_val);
+                     verbosity=verbose ? 1 : -1,
+                     is_row_major=false,
+                     weights=Float32[],
+                     init_score=Float64[],
+                     group=Int64[],
+                     truncate_booster=false)
     else
-        fit!(estimator, X_train, y_train)
+        LightGBM.fit!(estimator, X_train, y_train;
+                     verbosity=verbose ? 1 : -1,
+                     is_row_major=false,
+                     weights=Float32[],
+                     init_score=Float64[],
+                     group=Int64[],
+                     truncate_booster=false)
     end
     
     model.model = estimator
@@ -135,7 +157,12 @@ function predict(model::LightGBMModel, X::Matrix{Float64})::Vector{Float64}
     
     predictions = LightGBM.predict(model.model, X)
     
-    return predictions
+    # Convert to Vector if it's a Matrix (LightGBM.jl v2.0.0 sometimes returns Matrix)
+    if predictions isa Matrix
+        return vec(predictions)
+    else
+        return predictions
+    end
 end
 
 function cross_validate(model_constructor::Function, X::Matrix{Float64}, y::Vector{Float64}, 

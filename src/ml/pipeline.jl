@@ -143,7 +143,7 @@ function predict(pipeline::MLPipeline, df::DataFrame;
             println("Applying feature neutralization...")
         end
         
-        eras = haskey(df, :era) ? Int.(df.era) : ones(Int, size(X, 1))
+        eras = "era" in names(df) ? Int.(df.era) : ones(Int, size(X, 1))
         predictions = Neutralization.smart_neutralize(
             predictions, X, eras,
             proportion=pipeline.config[:neutralize_proportion]

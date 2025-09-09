@@ -53,19 +53,25 @@ using Statistics
         
         # Test preprocessing
         @testset "Data Preprocessing" begin
-            preprocessor = NumeraiTournament.Preprocessor.DataPreprocessor(
-                feature_cols=["feature_$i" for i in 1:n_features],
-                target_col="target_cyrus_v4_20"
-            )
+            # Test fillna function
+            data_with_na = copy(train_data)
+            # Convert column to allow missing values
+            data_with_na[!, "feature_1"] = Vector{Union{Float64, Missing}}(data_with_na[!, "feature_1"])
+            data_with_na[1:10, "feature_1"] .= missing
+            filled_data = NumeraiTournament.Preprocessor.fillna(data_with_na)
+            @test !any(ismissing.(filled_data[!, "feature_1"]))
             
-            X_train, y_train = NumeraiTournament.Preprocessor.preprocess(
-                preprocessor, train_data
-            )
+            # Test normalize_predictions function
+            raw_preds = rand(100) 
+            normalized_preds = NumeraiTournament.Preprocessor.normalize_predictions(raw_preds)
+            @test all(0.0 .<= normalized_preds .<= 1.0)
+            @test length(normalized_preds) == length(raw_preds)
             
-            @test size(X_train, 1) == n_samples
-            @test size(X_train, 2) == n_features
-            @test length(y_train) == n_samples
-            @test all(isfinite.(X_train))  # Check for finite values
+            # Test gaussianize function
+            values = rand(100) * 10
+            gauss_values = NumeraiTournament.Preprocessor.gaussianize(values)
+            @test length(gauss_values) == length(values)
+            @test all(isfinite.(gauss_values))
         end
         
         # Test feature neutralization
@@ -89,7 +95,7 @@ using Statistics
             # Test XGBoost model
             xgb_model = NumeraiTournament.Models.XGBoostModel(
                 "test_xgb",
-                n_estimators=10,
+                num_rounds=10,
                 max_depth=3
             )
             
@@ -105,7 +111,7 @@ using Statistics
             lgb_model = NumeraiTournament.Models.LightGBMModel(
                 "test_lgb",
                 n_estimators=10,
-                max_depth=3
+                num_leaves=7
             )
             
             NumeraiTournament.Models.train!(
@@ -123,7 +129,7 @@ using Statistics
             y_train = rand(100)
             
             models = [
-                NumeraiTournament.Models.XGBoostModel("xgb1", n_estimators=10),
+                NumeraiTournament.Models.XGBoostModel("xgb1", num_rounds=10),
                 NumeraiTournament.Models.LightGBMModel("lgb1", n_estimators=10)
             ]
             

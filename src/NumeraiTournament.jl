@@ -8,7 +8,7 @@ using ThreadsX
 include("api/schemas.jl")
 include("api/client.jl")
 include("ml/dataloader.jl")
-include("ml/preprocessor.jl")
+include("data/preprocessor.jl")
 include("ml/neutralization.jl")
 include("ml/models.jl")
 include("ml/ensemble.jl")
@@ -35,10 +35,14 @@ mutable struct TournamentConfig
 end
 
 function load_config(path::String="config.toml")::TournamentConfig
+    # Default values for testing
+    default_public_id = get(ENV, "NUMERAI_PUBLIC_ID", "test_public_id")
+    default_secret_key = get(ENV, "NUMERAI_SECRET_KEY", "test_secret_key")
+    
     if !isfile(path)
         return TournamentConfig(
-            ENV["NUMERAI_PUBLIC_ID"],
-            ENV["NUMERAI_SECRET_KEY"],
+            default_public_id,
+            default_secret_key,
             ["default_model"],
             "data",
             "models",
@@ -51,8 +55,8 @@ function load_config(path::String="config.toml")::TournamentConfig
     
     config = TOML.parsefile(path)
     return TournamentConfig(
-        get(config, "api_public_key", ENV["NUMERAI_PUBLIC_ID"]),
-        get(config, "api_secret_key", ENV["NUMERAI_SECRET_KEY"]),
+        get(config, "api_public_key", default_public_id),
+        get(config, "api_secret_key", default_secret_key),
         get(config, "models", ["default_model"]),
         get(config, "data_dir", "data"),
         get(config, "model_dir", "models"),

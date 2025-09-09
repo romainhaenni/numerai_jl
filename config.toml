@@ -1,14 +1,14 @@
 # Numerai Tournament Configuration
 
 # Model names to manage
-models = ["example_model"]
+models = ["numeraijl"]
 
 # Data storage directories
 data_dir = "data"
 model_dir = "models"
 
 # Automation settings
-auto_submit = false
+auto_submit = true
 stake_amount = 0.0
 
 # System resources

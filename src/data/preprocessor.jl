@@ -4,6 +4,7 @@ using DataFrames
 using Statistics
 using StatsBase
 using LinearAlgebra
+using Distributions
 
 function fillna(df::DataFrame, value::Float64=0.0)::DataFrame
     df_copy = copy(df)
@@ -17,6 +18,10 @@ function rank_normalize(values::Vector{Float64})::Vector{Float64}
     n = length(values)
     ranks = ordinalrank(values)
     return (ranks .- 0.5) ./ n
+end
+
+function rank_predictions(predictions::Vector{Float64})::Vector{Float64}
+    return rank_normalize(predictions)
 end
 
 function gaussianize(values::Vector{Float64})::Vector{Float64}
@@ -153,7 +158,7 @@ function reduce_memory_usage(df::DataFrame)::DataFrame
     return result
 end
 
-export fillna, rank_normalize, gaussianize, neutralize_series, normalize_predictions,
+export fillna, rank_normalize, rank_predictions, gaussianize, neutralize_series, normalize_predictions,
        feature_importance_filter, create_era_weighted_features, clip_predictions,
        ensemble_predictions, reduce_memory_usage
 

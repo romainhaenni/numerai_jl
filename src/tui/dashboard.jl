@@ -5,6 +5,7 @@ using Term: Panel, Grid
 using Dates
 using ThreadsX
 using Statistics
+using JSON3
 using ..API
 using ..Pipeline
 using ..DataLoader
@@ -31,6 +32,7 @@ mutable struct TournamentDashboard
     system_info::Dict{Symbol, Any}
     training_info::Dict{Symbol, Any}
     predictions_history::Vector{Float64}
+    performance_history::Dict{String, Vector{Dict{Symbol, Any}}}  # Historical performance tracking
     running::Bool
     paused::Bool
     show_help::Bool
@@ -68,9 +70,15 @@ function TournamentDashboard(config)
         :eta => "N/A"
     )
     
+    # Initialize performance history for each model
+    performance_history = Dict{String, Vector{Dict{Symbol, Any}}}()
+    for model in config.models
+        performance_history[model] = Vector{Dict{Symbol, Any}}()
+    end
+    
     return TournamentDashboard(
         config, api_client, models, Vector{Dict{Symbol, Any}}(),
-        system_info, training_info, Float64[],
+        system_info, training_info, Float64[], performance_history,
         false, false, false, 1, 1.0,  # Set refresh rate to 1 second for smoother updates
         false, nothing  # wizard_active and wizard_state
     )
@@ -275,6 +283,27 @@ function update_model_performances!(dashboard::TournamentDashboard)
             model[:fnc] = perf.fnc
             model[:sharpe] = perf.sharpe
             model[:is_active] = true
+            
+            # Track historical performance
+            model_name = model[:name]
+            if !haskey(dashboard.performance_history, model_name)
+                dashboard.performance_history[model_name] = Vector{Dict{Symbol, Any}}()
+            end
+            
+            # Add to history with timestamp
+            push!(dashboard.performance_history[model_name], Dict(
+                :timestamp => Dates.now(),
+                :corr => perf.corr,
+                :mmc => perf.mmc,
+                :fnc => perf.fnc,
+                :sharpe => perf.sharpe,
+                :stake => get(model, :stake, 0.0)
+            ))
+            
+            # Keep only last 100 entries per model to manage memory
+            if length(dashboard.performance_history[model_name]) > 100
+                popfirst!(dashboard.performance_history[model_name])
+            end
         catch e
             model[:is_active] = false
         end
@@ -769,7 +798,31 @@ function show_model_details(dashboard::TournamentDashboard, model_idx::Int)
     end
     
     model = dashboard.models[model_idx]
-    add_event!(dashboard, :info, "Viewing details for $(model[:name])")
+    model_name = model[:name]
+    
+    # Display historical performance if available
+    if haskey(dashboard.performance_history, model_name) && !isempty(dashboard.performance_history[model_name])
+        history = dashboard.performance_history[model_name]
+        
+        # Calculate statistics
+        corr_values = [h[:corr] for h in history]
+        mmc_values = [h[:mmc] for h in history]
+        fnc_values = [h[:fnc] for h in history]
+        sharpe_values = [h[:sharpe] for h in history]
+        
+        # Create detailed analytics message
+        analytics_msg = """
+        📊 Historical Performance for $(model_name):
+        • CORR: μ=$(round(mean(corr_values), digits=4)), σ=$(round(std(corr_values), digits=4))
+        • MMC:  μ=$(round(mean(mmc_values), digits=4)), σ=$(round(std(mmc_values), digits=4))
+        • Sharpe: $(round(mean(sharpe_values), digits=3))
+        • Samples: $(length(history))
+        """
+        
+        add_event!(dashboard, :info, analytics_msg)
+    else
+        add_event!(dashboard, :warning, "No historical data for $(model_name)")
+    end
     
     # Create detailed model information panel
     details_text = """
@@ -777,7 +830,7 @@ function show_model_details(dashboard::TournamentDashboard, model_idx::Int)
     
     Name: $(model[:name])
     Type: $(get(model, :type, "Unknown"))
-    Status: $(model[:status] == "active" ? "🟢 Active" : "🔴 Inactive")
+    Status: $(model[:is_active] ? "🟢 Active" : "🔴 Inactive")
     
     $(Term.highlight("Performance Metrics"))
     • Correlation: $(round(model[:corr], digits=4))
@@ -811,6 +864,81 @@ function show_model_details(dashboard::TournamentDashboard, model_idx::Int)
     dashboard.show_help = false  # Could show details instead of help
 end
 
-export TournamentDashboard, run_dashboard, add_event!, start_training
+function save_performance_history(dashboard::TournamentDashboard, filepath::String="performance_history.json")
+    try
+        # Convert history to a format suitable for JSON serialization
+        history_data = Dict{String, Any}()
+        for (model_name, history) in dashboard.performance_history
+            history_data[model_name] = [Dict(
+                "timestamp" => string(h[:timestamp]),
+                "corr" => h[:corr],
+                "mmc" => h[:mmc],
+                "fnc" => h[:fnc],
+                "sharpe" => h[:sharpe],
+                "stake" => h[:stake]
+            ) for h in history]
+        end
+        
+        open(filepath, "w") do io
+            JSON3.write(io, history_data)
+        end
+        
+        add_event!(dashboard, :success, "Performance history saved to $filepath")
+    catch e
+        add_event!(dashboard, :error, "Failed to save history: $e")
+    end
+end
+
+function load_performance_history!(dashboard::TournamentDashboard, filepath::String="performance_history.json")
+    if !isfile(filepath)
+        return
+    end
+    
+    try
+        history_data = JSON3.read(read(filepath, String))
+        
+        for (model_name, history) in history_data
+            dashboard.performance_history[String(model_name)] = [Dict{Symbol, Any}(
+                :timestamp => DateTime(h["timestamp"]),
+                :corr => Float64(h["corr"]),
+                :mmc => Float64(h["mmc"]),
+                :fnc => Float64(h["fnc"]),
+                :sharpe => Float64(h["sharpe"]),
+                :stake => Float64(h["stake"])
+            ) for h in history]
+        end
+        
+        add_event!(dashboard, :success, "Performance history loaded from $filepath")
+    catch e
+        add_event!(dashboard, :error, "Failed to load history: $e")
+    end
+end
+
+function get_performance_summary(dashboard::TournamentDashboard, model_name::String)
+    if !haskey(dashboard.performance_history, model_name) || isempty(dashboard.performance_history[model_name])
+        return nothing
+    end
+    
+    history = dashboard.performance_history[model_name]
+    corr_values = [h[:corr] for h in history]
+    mmc_values = [h[:mmc] for h in history]
+    fnc_values = [h[:fnc] for h in history]
+    sharpe_values = [h[:sharpe] for h in history]
+    
+    return Dict(
+        :count => length(history),
+        :corr_mean => mean(corr_values),
+        :corr_std => std(corr_values),
+        :corr_max => maximum(corr_values),
+        :corr_min => minimum(corr_values),
+        :mmc_mean => mean(mmc_values),
+        :mmc_std => std(mmc_values),
+        :fnc_mean => mean(fnc_values),
+        :sharpe_mean => mean(sharpe_values),
+        :last_update => history[end][:timestamp]
+    )
+end
+
+export TournamentDashboard, run_dashboard, add_event!, start_training, save_performance_history, load_performance_history!, get_performance_summary
 
 end

@@ -76,12 +76,24 @@ function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
     ensemble = Ensemble.ModelEnsemble(pipeline.models)
     
     if verbose
-        println("\nTraining $(length(pipeline.models)) models...")
+        println("\n🤖 Training $(length(pipeline.models)) models...")
+        prog = ProgressMeter.Progress(length(pipeline.models), desc="Training models: ", showspeed=false)
     end
     
-    Ensemble.train_ensemble!(ensemble, X_train, y_train, 
-                           X_val=X_val, y_val=y_val,
-                           parallel=parallel, verbose=verbose)
+    # Train models with progress tracking
+    for (i, model) in enumerate(ensemble.models)
+        if verbose
+            ProgressMeter.update!(prog, i-1, desc="Training $(model.name): ")
+        end
+        Models.train!(model, X_train, y_train, X_val=X_val, y_val=y_val, verbose=false)
+        if verbose
+            ProgressMeter.update!(prog, i)
+        end
+    end
+    
+    if verbose
+        ProgressMeter.finish!(prog)
+    end
     
     if pipeline.config[:ensemble_type] == :optimized && !isnothing(X_val)
         if verbose

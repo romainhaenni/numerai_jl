@@ -131,13 +131,48 @@ function download_dataset(client::NumeraiClient, dataset_type::String, output_pa
     mkpath(dirname(output_path))
     
     if show_progress
-        println("Downloading $dataset_type dataset...")
-        Downloads.download(url, output_path)
+        println("📥 Downloading $dataset_type dataset...")
+        
+        # Download with progress callback
+        download_with_progress(url, output_path, dataset_type)
+        
+        println("✅ Downloaded $dataset_type dataset")
     else
         Downloads.download(url, output_path)
     end
     
     return output_path
+end
+
+function download_with_progress(url::String, output_path::String, name::String)
+    # Use simple download with size indication
+    temp_file = tempname()
+    
+    try
+        # First get file size
+        response = HTTP.head(url)
+        headers = Dict(response.headers)
+        total_size = haskey(headers, "Content-Length") ? parse(Int, headers["Content-Length"]) : 0
+        
+        if total_size > 0
+            size_mb = round(total_size / 1024 / 1024, digits=1)
+            print("  Size: $(size_mb) MB - Downloading... ")
+        else
+            print("  Downloading... ")
+        end
+        
+        # Download the file
+        Downloads.download(url, temp_file)
+        
+        # Move to final location
+        mv(temp_file, output_path, force=true)
+        
+        println("✓")
+    catch e
+        # Cleanup on error
+        isfile(temp_file) && rm(temp_file)
+        rethrow(e)
+    end
 end
 
 function get_submission_status(client::NumeraiClient, model_name::String, round_number::Int)

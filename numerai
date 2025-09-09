@@ -11,7 +11,7 @@ using ArgParse
 function parse_commandline()
     s = ArgParseSettings(
         description = "Numerai Tournament Trading System",
-        version = "0.1.4",
+        version = "0.1.5",
         add_version = true
     )
 
@@ -63,7 +63,7 @@ function main()
     config = NumeraiTournament.load_config(config_path)
     
     if args["verbose"]
-        println("🚀 Numerai Tournament System v0.1.4")
+        println("🚀 Numerai Tournament System v0.1.5")
         println("📊 Configuration loaded from: $config_path")
         println("🤖 Models: $(join(config.models, ", "))")
         println("💾 Data directory: $(config.data_dir)")

@@ -82,9 +82,9 @@ function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models
                 config.name;
                 max_depth=get(config.params, :max_depth, 6),
                 learning_rate=get(config.params, :learning_rate, 0.01),
-                n_estimators=get(config.params, :n_estimators, 100),
-                colsample_bytree=get(config.params, :colsample_bytree, 0.1),
-                subsample=get(config.params, :subsample, 0.8)
+                num_rounds=get(config.params, :n_estimators, 100),  # Map n_estimators to num_rounds
+                colsample_bytree=get(config.params, :colsample_bytree, 0.1)
+                # Note: XGBoost doesn't accept subsample in constructor
             ))
         elseif config.type == "lightgbm"
             push!(models, Models.LightGBMModel(
@@ -100,7 +100,7 @@ function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models
                 config.name;
                 max_depth=get(config.params, :max_depth, 6),
                 learning_rate=get(config.params, :learning_rate, 0.01),
-                nrounds=get(config.params, :nrounds, 100),
+                nrounds=get(config.params, :n_estimators, 100),  # Map n_estimators to nrounds
                 colsample=get(config.params, :colsample, 0.1),
                 subsample=get(config.params, :subsample, 0.8)
             ))

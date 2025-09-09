@@ -17,7 +17,7 @@ struct CronExpression
     expression::String
 end
 
-function parse_cron_field(field::String, min_val::Int, max_val::Int)
+function parse_cron_field(field::AbstractString, min_val::Int, max_val::Int)
     if field == "*"
         return collect(min_val:max_val)
     elseif occursin("/", field)

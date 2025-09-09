@@ -194,11 +194,11 @@ using Statistics
         
         @test isa(scheduler, NumeraiTournament.Scheduler.TournamentScheduler)
         @test scheduler.running == false
-        @test length(scheduler.timers) == 0
+        @test length(scheduler.cron_jobs) == 0
         
-        # Test timer setup
-        NumeraiTournament.Scheduler.setup_timers!(scheduler)
-        @test length(scheduler.timers) > 0
+        # Test cron job setup
+        NumeraiTournament.Scheduler.setup_cron_jobs!(scheduler)
+        @test length(scheduler.cron_jobs) > 0
     end
     
     @testset "Dashboard Components" begin

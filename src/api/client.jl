@@ -419,8 +419,136 @@ function get_dataset_info(client::NumeraiClient)::Schemas.DatasetInfo
     )
 end
 
+function get_model_stakes(client::NumeraiClient, model_name::String)
+    """
+    Get staking information for a specific model including total stake,
+    burn rate, and multipliers for scoring calculations.
+    """
+    query = """
+    query(\$modelName: String!) {
+        v3UserProfile(modelName: \$modelName) {
+            nmrStaked
+            stake {
+                value
+                confidence
+                burnRate
+            }
+            roundModelPerformances(last: 1) {
+                corrMultiplier
+                mmcMultiplier
+                roundNumber
+            }
+        }
+    }
+    """
+    
+    try
+        result = graphql_query(client, query, Dict("modelName" => model_name))
+        profile = result.v3UserProfile
+        
+        # Extract stake information
+        total_stake = get(profile, :nmrStaked, 0.0)
+        
+        # Extract burn rate and multipliers with defaults
+        stake_info = get(profile, :stake, Dict())
+        burn_rate = get(stake_info, :burnRate, 0.25)  # Default 25% burn rate
+        
+        # Get multipliers from recent performance
+        round_perfs = get(profile, :roundModelPerformances, [])
+        if !isempty(round_perfs)
+            latest_perf = round_perfs[end]
+            corr_multiplier = get(latest_perf, :corrMultiplier, 0.5)
+            mmc_multiplier = get(latest_perf, :mmcMultiplier, 2.0)
+        else
+            corr_multiplier = 0.5  # Default correlation multiplier
+            mmc_multiplier = 2.0   # Default MMC multiplier
+        end
+        
+        return Dict(
+            :total_stake => total_stake,
+            :burn_rate => burn_rate,
+            :corr_multiplier => corr_multiplier,
+            :mmc_multiplier => mmc_multiplier
+        )
+    catch e
+        @warn "Failed to fetch stake information for model $model_name: $e"
+        # Return defaults if API call fails
+        return Dict(
+            :total_stake => 0.0,
+            :burn_rate => 0.25,
+            :corr_multiplier => 0.5,
+            :mmc_multiplier => 2.0
+        )
+    end
+end
+
+function get_latest_submission(client::NumeraiClient)
+    """
+    Get the latest submission across all models for the user.
+    Returns submission details including round number and timestamp.
+    """
+    query = """
+    query {
+        v3UserProfile {
+            models {
+                name
+                latestSubmission {
+                    id
+                    filename
+                    roundNumber
+                    selectedStakeValue
+                }
+            }
+        }
+    }
+    """
+    
+    try
+        result = graphql_query(client, query)
+        profile = result.v3UserProfile
+        models = get(profile, :models, [])
+        
+        # Find the most recent submission across all models
+        latest_round = 0
+        latest_submission = nothing
+        
+        for model in models
+            submission = get(model, :latestSubmission, nothing)
+            if submission !== nothing
+                round_num = get(submission, :roundNumber, 0)
+                if round_num > latest_round
+                    latest_round = round_num
+                    latest_submission = submission
+                    # Add model name to submission info
+                    latest_submission = merge(
+                        Dict(pairs(submission)),
+                        Dict(:model_name => get(model, :name, "unknown"))
+                    )
+                end
+            end
+        end
+        
+        if latest_submission !== nothing
+            # Return a named tuple with round and other info
+            return (
+                round = get(latest_submission, :roundNumber, 0),
+                id = get(latest_submission, :id, ""),
+                filename = get(latest_submission, :filename, ""),
+                model_name = get(latest_submission, :model_name, "unknown")
+            )
+        else
+            # No submissions found
+            return (round = 0, id = "", filename = "", model_name = "")
+        end
+    catch e
+        @warn "Failed to fetch latest submission: $e"
+        # Return empty submission if API call fails
+        return (round = 0, id = "", filename = "", model_name = "")
+    end
+end
+
 export NumeraiClient, get_current_round, get_model_performance, download_dataset,
        submit_predictions, get_models_for_user, get_dataset_info, get_submission_status,
-       get_live_dataset_id, upload_predictions_multipart
+       get_live_dataset_id, upload_predictions_multipart, get_model_stakes, get_latest_submission
 
 end

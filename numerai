@@ -48,6 +48,17 @@ end
 function main()
     args = parse_commandline()
     
+    # Load environment variables from .env if it exists
+    env_file = joinpath(@__DIR__, ".env")
+    if isfile(env_file)
+        for line in readlines(env_file)
+            if !startswith(line, "#") && contains(line, "=")
+                key, value = split(line, "=", limit=2)
+                ENV[strip(key)] = strip(value)
+            end
+        end
+    end
+    
     config_path = args["config"]
     config = NumeraiTournament.load_config(config_path)
     
@@ -115,13 +126,11 @@ function main()
     if args["train"]
         println("🧠 Training models...")
         
-        using .DataLoader, .Pipeline
-        
-        train_df = DataLoader.load_training_data(
+        train_df = NumeraiTournament.DataLoader.load_training_data(
             joinpath(config.data_dir, "train.parquet"),
             sample_pct=0.1
         )
-        val_df = DataLoader.load_training_data(
+        val_df = NumeraiTournament.DataLoader.load_training_data(
             joinpath(config.data_dir, "validation.parquet")
         )
         
@@ -130,14 +139,14 @@ function main()
             names(train_df)
         )
         
-        pipeline = Pipeline.MLPipeline(
+        pipeline = NumeraiTournament.Pipeline.MLPipeline(
             feature_cols=feature_cols,
             target_col="target_cyrus_v4_20",
             neutralize=true,
             neutralize_proportion=0.5
         )
         
-        Pipeline.train!(pipeline, train_df, val_df, verbose=true)
+        NumeraiTournament.Pipeline.train!(pipeline, train_df, val_df, verbose=true)
         
         println("✅ Training completed")
         return

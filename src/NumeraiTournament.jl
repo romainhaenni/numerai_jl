@@ -13,12 +13,12 @@ include("ml/neutralization.jl")
 include("ml/models.jl")
 include("ml/ensemble.jl")
 include("ml/pipeline.jl")
+include("notifications.jl")
+include("performance/optimization.jl")
 include("tui/charts.jl")
 include("tui/panels.jl")
 include("tui/dashboard.jl")
 include("scheduler/cron.jl")
-include("notifications.jl")
-include("performance/optimization.jl")
 
 export run_tournament, TournamentConfig, TournamentDashboard
 

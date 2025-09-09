@@ -46,7 +46,7 @@ end
 function get_current_round(client::NumeraiClient)::Schemas.Round
     query = """
     query {
-        rounds(first: 1) {
+        round {
             number
             openTime
             closeTime
@@ -56,7 +56,7 @@ function get_current_round(client::NumeraiClient)::Schemas.Round
     """
     
     result = graphql_query(client, query)
-    round_data = result.rounds[1]
+    round_data = result.round
     
     return Schemas.Round(
         round_data.number,
@@ -77,10 +77,8 @@ function get_model_performance(client::NumeraiClient, model_name::String)::Schem
                 fnc
                 tc
             }
-            stake {
-                value
-            }
-            sharpe
+            nmrStaked
+            corr20V2Percentile
         }
     }
     """
@@ -95,8 +93,8 @@ function get_model_performance(client::NumeraiClient, model_name::String)::Schem
         get(profile.latestRanks, :mmc, 0.0),
         get(profile.latestRanks, :fnc, 0.0),
         get(profile.latestRanks, :tc, 0.0),
-        get(profile, :sharpe, 0.0),
-        get(profile.stake, :value, 0.0)
+        get(profile, :corr20V2Percentile, 0.0),  # Using percentile as sharpe proxy
+        get(profile, :nmrStaked, 0.0)
     )
 end
 
@@ -192,14 +190,14 @@ end
 function get_live_dataset_id(client::NumeraiClient)
     query = """
     query {
-        rounds(first: 1) {
+        round {
             datasetId
         }
     }
     """
     
     result = graphql_query(client, query)
-    return result.rounds[1].datasetId
+    return result.round.datasetId
 end
 
 function upload_predictions_multipart(client::NumeraiClient, model_id::String, predictions_path::String, round_number::Int)
@@ -261,7 +259,7 @@ end
 function get_models_for_user(client::NumeraiClient)::Vector{String}
     query = """
     query {
-        account {
+        v3User {
             models {
                 name
                 id
@@ -271,7 +269,7 @@ function get_models_for_user(client::NumeraiClient)::Vector{String}
     """
     
     result = graphql_query(client, query)
-    return [model.name for model in result.account.models]
+    return [model.name for model in result.v3User.models]
 end
 
 function get_dataset_info(client::NumeraiClient)::Schemas.DatasetInfo

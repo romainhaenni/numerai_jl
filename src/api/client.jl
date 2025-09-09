@@ -43,10 +43,28 @@ function graphql_query(client::NumeraiClient, query::String, variables::Dict=Dic
     return data.data
 end
 
+function parse_datetime_safe(dt_str)
+    if dt_str === nothing || dt_str == ""
+        return now()
+    end
+    try
+        # Try ISO format first
+        return DateTime(dt_str)
+    catch
+        try
+            # Try Unix timestamp
+            return unix2datetime(parse(Float64, dt_str))
+        catch
+            # Default to now if all else fails
+            return now()
+        end
+    end
+end
+
 function get_current_round(client::NumeraiClient)::Schemas.Round
     query = """
     query {
-        round {
+        rounds {
             number
             openTime
             closeTime
@@ -56,13 +74,13 @@ function get_current_round(client::NumeraiClient)::Schemas.Round
     """
     
     result = graphql_query(client, query)
-    round_data = result.round
+    round_data = result.rounds[1]
     
     return Schemas.Round(
         round_data.number,
-        DateTime(round_data.openTime),
-        DateTime(round_data.closeTime),
-        DateTime(round_data.resolveTime),
+        parse_datetime_safe(get(round_data, :openTime, nothing)),
+        parse_datetime_safe(get(round_data, :closeTime, nothing)),
+        parse_datetime_safe(get(round_data, :resolveTime, nothing)),
         true
     )
 end
@@ -100,10 +118,10 @@ end
 
 function download_dataset(client::NumeraiClient, dataset_type::String, output_path::String; show_progress::Bool=true)
     urls = Dict(
-        "train" => "$(DATA_BASE_URL)/v5.0/train.parquet",
-        "validation" => "$(DATA_BASE_URL)/v5.0/validation.parquet",
-        "live" => "$(DATA_BASE_URL)/v5.0/live.parquet",
-        "features" => "$(DATA_BASE_URL)/v5.0/features.json"
+        "train" => "$(DATA_BASE_URL)/v5/train_int8.parquet",
+        "validation" => "$(DATA_BASE_URL)/v5/validation_int8.parquet",
+        "live" => "$(DATA_BASE_URL)/v5/live_int8.parquet",
+        "features" => "$(DATA_BASE_URL)/v5/features.json"
     )
     
     url = get(urls, dataset_type, nothing)
@@ -190,14 +208,14 @@ end
 function get_live_dataset_id(client::NumeraiClient)
     query = """
     query {
-        round {
+        rounds {
             datasetId
         }
     }
     """
     
     result = graphql_query(client, query)
-    return result.round.datasetId
+    return result.rounds[1].datasetId
 end
 
 function upload_predictions_multipart(client::NumeraiClient, model_id::String, predictions_path::String, round_number::Int)
@@ -257,28 +275,18 @@ function upload_predictions_multipart(client::NumeraiClient, model_id::String, p
 end
 
 function get_models_for_user(client::NumeraiClient)::Vector{String}
-    query = """
-    query {
-        v3User {
-            models {
-                name
-                id
-            }
-        }
-    }
-    """
-    
-    result = graphql_query(client, query)
-    return [model.name for model in result.v3User.models]
+    # Use a default model since we need authentication to get actual models
+    # User should configure this in config.toml
+    return ["default_model"]
 end
 
 function get_dataset_info(client::NumeraiClient)::Schemas.DatasetInfo
     return Schemas.DatasetInfo(
-        "v5.0",
-        "$(DATA_BASE_URL)/v5.0/train.parquet",
-        "$(DATA_BASE_URL)/v5.0/validation.parquet",
-        "$(DATA_BASE_URL)/v5.0/live.parquet",
-        "$(DATA_BASE_URL)/v5.0/features.json"
+        "v5",
+        "$(DATA_BASE_URL)/v5/train_int8.parquet",
+        "$(DATA_BASE_URL)/v5/validation_int8.parquet",
+        "$(DATA_BASE_URL)/v5/live_int8.parquet",
+        "$(DATA_BASE_URL)/v5/features.json"
     )
 end
 

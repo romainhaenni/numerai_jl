@@ -1,48 +1,16 @@
 # Numerai Tournament Configuration
 
-# API Credentials (can also be set via environment variables)
-# api_public_key = "YOUR_PUBLIC_KEY"
-# api_secret_key = "YOUR_SECRET_KEY"
+# Model names to manage
+models = ["example_model"]
 
-# Models to manage
-models = ["main_model", "experimental_model"]
-
-# Data storage
+# Data storage directories
 data_dir = "data"
 model_dir = "models"
 
-# Tournament settings
-auto_submit = true
+# Automation settings
+auto_submit = false
 stake_amount = 0.0
 
-# System settings
-max_workers = 16  # Optimized for M4 Max
+# System resources
+max_workers = 8
 notification_enabled = true
-
-# Training parameters
-[training]
-target_column = "target_cyrus_v4_20"
-neutralize = true
-neutralize_proportion = 0.5
-ensemble_type = "weighted"  # Options: weighted, optimized, stacking
-
-# XGBoost parameters
-[xgboost]
-max_depth = 5
-learning_rate = 0.01
-colsample_bytree = 0.1
-num_rounds = 1000
-
-# LightGBM parameters
-[lightgbm]
-num_leaves = 31
-learning_rate = 0.01
-feature_fraction = 0.1
-n_estimators = 1000
-
-# Scheduler settings
-[scheduler]
-weekend_round_time = "18:00"  # Saturday 18:00 UTC
-daily_round_time = "18:00"     # Tuesday-Friday 18:00 UTC
-weekly_retrain = true          # Retrain models weekly
-auto_download = true           # Auto-download new data

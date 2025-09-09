@@ -36,7 +36,7 @@ NUMERAI_SECRET_KEY=your_secret_key
 
 ### Interactive Dashboard
 ```bash
-./bin/numerai dashboard
+./numerai
 ```
 
 **Keyboard Controls:**
@@ -51,7 +51,7 @@ NUMERAI_SECRET_KEY=your_secret_key
 
 ### Automated Scheduler
 ```bash
-./bin/numerai schedule
+./numerai --headless
 ```
 
 Runs continuously and:
@@ -65,17 +65,22 @@ Runs continuously and:
 
 **Download tournament data:**
 ```bash
-./bin/numerai download
+./numerai --download
 ```
 
 **Train models:**
 ```bash
-./bin/numerai train
+./numerai --train
 ```
 
 **Submit predictions:**
 ```bash
-./bin/numerai submit --model main_model
+./numerai --submit --model main_model
+```
+
+**Show model performances:**
+```bash
+./numerai --performance
 ```
 
 ## Configuration

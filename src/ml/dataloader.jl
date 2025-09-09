@@ -230,9 +230,53 @@ function combine_predictions(predictions_dict::Dict{String, Vector{Float64}},
     return combined
 end
 
+# Tournament data structure for comprehensive data loading
+struct TournamentData
+    train::DataFrame
+    validation::DataFrame
+    live::DataFrame
+    features::Vector{String}
+    targets::Vector{String}
+end
+
+# Load features.json file to get feature and target names
+function load_features_json(filepath::String)
+    if !isfile(filepath)
+        error("Features file not found: $filepath")
+    end
+    
+    features_data = JSON3.read(read(filepath, String))
+    
+    feature_names = features_data.feature_sets.medium
+    target_names = collect(keys(features_data.targets))
+    
+    return feature_names, String.(target_names)
+end
+
+# Load all tournament data files at once
+function load_tournament_data(data_dir::String; show_progress::Bool=true)::TournamentData
+    train_path = joinpath(data_dir, "train.parquet")
+    val_path = joinpath(data_dir, "validation.parquet")
+    live_path = joinpath(data_dir, "live.parquet")
+    features_path = joinpath(data_dir, "features.json")
+    
+    if show_progress
+        println("Loading tournament data from $data_dir")
+    end
+    
+    # Use existing load functions
+    train_df = load_training_data(train_path, sample_frac=1.0)
+    val_df = load_training_data(val_path, sample_frac=1.0)  # validation uses same format as training
+    live_df = load_live_data(live_path)
+    
+    features, targets = load_features_json(features_path)
+    
+    return TournamentData(train_df, val_df, live_df, features, targets)
+end
+
 export load_training_data, load_live_data, get_feature_columns, get_target_column,
        get_target_columns, get_era_column, split_by_era, create_submission_dataframe,
        save_predictions, load_features_metadata, get_feature_groups, validate_data,
-       combine_predictions
+       combine_predictions, TournamentData, load_tournament_data, load_features_json
 
 end

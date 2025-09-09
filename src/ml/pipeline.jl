@@ -9,9 +9,24 @@ using ..Models
 using ..Ensemble
 using ..Neutralization
 
+# Configuration struct for model creation
+struct ModelConfig
+    type::String  # "xgboost", "lightgbm", "evotrees"
+    name::String  # Optional model name
+    params::Dict{Symbol, Any}  # Model-specific parameters
+    
+    function ModelConfig(type::String, params::Dict=Dict(); name::String="")
+        if name == ""
+            name = "$(type)_model_$(rand(1000:9999))"
+        end
+        new(lowercase(type), name, params)
+    end
+end
+
 mutable struct MLPipeline
     config::Dict{Symbol, Any}
     models::Vector{Models.NumeraiModel}
+    model_configs::Vector{ModelConfig}  # Store configurations
     ensemble::Union{Nothing, Ensemble.ModelEnsemble}
     feature_cols::Vector{String}
     target_col::String
@@ -23,7 +38,8 @@ function MLPipeline(;
     neutralize::Bool=true,
     neutralize_proportion::Float64=0.5,
     ensemble_type::Symbol=:weighted,
-    models::Vector{Models.NumeraiModel}=Models.NumeraiModel[])
+    models::Vector{Models.NumeraiModel}=Models.NumeraiModel[],
+    model_configs::Vector{ModelConfig}=ModelConfig[])
     
     config = Dict(
         :neutralize => neutralize,
@@ -33,16 +49,67 @@ function MLPipeline(;
         :normalize_predictions => true
     )
     
-    if isempty(models)
+    # If model_configs provided, create models from them
+    if !isempty(model_configs)
+        models = create_models_from_configs(model_configs)
+    elseif isempty(models)
+        # Default models if none provided
         models = [
             Models.XGBoostModel("xgb_deep", max_depth=8, learning_rate=0.01, colsample_bytree=0.1),
             Models.XGBoostModel("xgb_shallow", max_depth=4, learning_rate=0.02, colsample_bytree=0.2),
             Models.LightGBMModel("lgbm_small", num_leaves=31, learning_rate=0.01, feature_fraction=0.1),
             Models.LightGBMModel("lgbm_large", num_leaves=63, learning_rate=0.005, feature_fraction=0.15)
         ]
+        # Create configs from existing models for consistency
+        model_configs = [
+            ModelConfig("xgboost", Dict(:max_depth=>8, :learning_rate=>0.01, :colsample_bytree=>0.1), name="xgb_deep"),
+            ModelConfig("xgboost", Dict(:max_depth=>4, :learning_rate=>0.02, :colsample_bytree=>0.2), name="xgb_shallow"),
+            ModelConfig("lightgbm", Dict(:num_leaves=>31, :learning_rate=>0.01, :feature_fraction=>0.1), name="lgbm_small"),
+            ModelConfig("lightgbm", Dict(:num_leaves=>63, :learning_rate=>0.005, :feature_fraction=>0.15), name="lgbm_large")
+        ]
     end
     
-    return MLPipeline(config, models, nothing, feature_cols, target_col)
+    return MLPipeline(config, models, model_configs, nothing, feature_cols, target_col)
+end
+
+# Helper function to create models from configs
+function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models.NumeraiModel}
+    models = Models.NumeraiModel[]
+    
+    for config in configs
+        if config.type == "xgboost"
+            push!(models, Models.XGBoostModel(
+                config.name;
+                max_depth=get(config.params, :max_depth, 6),
+                learning_rate=get(config.params, :learning_rate, 0.01),
+                n_estimators=get(config.params, :n_estimators, 100),
+                colsample_bytree=get(config.params, :colsample_bytree, 0.1),
+                subsample=get(config.params, :subsample, 0.8)
+            ))
+        elseif config.type == "lightgbm"
+            push!(models, Models.LightGBMModel(
+                config.name;
+                num_leaves=get(config.params, :num_leaves, 31),
+                learning_rate=get(config.params, :learning_rate, 0.01),
+                n_estimators=get(config.params, :n_estimators, 100),
+                feature_fraction=get(config.params, :feature_fraction, 0.1),
+                bagging_fraction=get(config.params, :bagging_fraction, 0.8)
+            ))
+        elseif config.type == "evotrees"
+            push!(models, Models.EvoTreesModel(
+                config.name;
+                max_depth=get(config.params, :max_depth, 6),
+                learning_rate=get(config.params, :learning_rate, 0.01),
+                nrounds=get(config.params, :nrounds, 100),
+                colsample=get(config.params, :colsample, 0.1),
+                subsample=get(config.params, :subsample, 0.8)
+            ))
+        else
+            @warn "Unknown model type: $(config.type), skipping"
+        end
+    end
+    
+    return models
 end
 
 function prepare_data(pipeline::MLPipeline, df::DataFrame)::Tuple{Matrix{Float64}, Vector{Float64}, Vector{Int}}
@@ -276,6 +343,6 @@ function cross_validate_pipeline(pipeline::MLPipeline, df::DataFrame;
     return cv_scores
 end
 
-export MLPipeline, train!, predict, evaluate, save_predictions, cross_validate_pipeline
+export MLPipeline, ModelConfig, train!, predict, evaluate, save_predictions, cross_validate_pipeline, create_models_from_configs
 
 end

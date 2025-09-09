@@ -172,8 +172,16 @@ function create_status_line(dashboard::TournamentDashboard)::String
 end
 
 function update_system_info!(dashboard::TournamentDashboard)
-    dashboard.system_info[:cpu_usage] = rand(10:40)
-    dashboard.system_info[:memory_used] = rand() * 20 + 5
+    # Get actual CPU usage (average across all cores)
+    loadavg = Sys.loadavg()
+    cpu_count = Sys.CPU_THREADS
+    dashboard.system_info[:cpu_usage] = min(100, round(Int, (loadavg[1] / cpu_count) * 100))
+    
+    # Get actual memory usage in GB
+    total_memory = Sys.total_memory() / (1024^3)  # Convert to GB
+    free_memory = Sys.free_memory() / (1024^3)    # Convert to GB
+    dashboard.system_info[:memory_used] = round(total_memory - free_memory, digits=1)
+    
     dashboard.system_info[:active_models] = count(m -> m[:is_active], dashboard.models)
 end
 
@@ -258,8 +266,10 @@ function simulate_training(dashboard::TournamentDashboard)
         
         dashboard.training_info[:current_epoch] = epoch
         dashboard.training_info[:progress] = (epoch / dashboard.training_info[:total_epochs]) * 100
-        dashboard.training_info[:loss] = 0.5 / epoch
-        dashboard.training_info[:val_score] = min(0.03, 0.001 * epoch)
+        
+        # Use realistic loss decay pattern for demonstration
+        dashboard.training_info[:loss] = 0.5 * exp(-0.1 * epoch)
+        dashboard.training_info[:val_score] = min(0.03, 0.002 * sqrt(epoch))
         
         remaining_epochs = dashboard.training_info[:total_epochs] - epoch
         dashboard.training_info[:eta] = "$(remaining_epochs * 2)s"
@@ -270,7 +280,10 @@ function simulate_training(dashboard::TournamentDashboard)
     dashboard.training_info[:is_training] = false
     add_event!(dashboard, :success, "Training completed for $(dashboard.training_info[:current_model])")
     
-    push!(dashboard.predictions_history, rand())
+    # Store actual validation score instead of random value
+    if dashboard.training_info[:val_score] > 0
+        push!(dashboard.predictions_history, dashboard.training_info[:val_score])
+    end
 end
 
 function create_new_model_wizard(dashboard::TournamentDashboard)

@@ -37,9 +37,14 @@ mutable struct TournamentConfig
 end
 
 function load_config(path::String="config.toml")::TournamentConfig
-    # Default values for testing
-    default_public_id = get(ENV, "NUMERAI_PUBLIC_ID", "test_public_id")
-    default_secret_key = get(ENV, "NUMERAI_SECRET_KEY", "test_secret_key")
+    # Get API credentials from environment variables
+    default_public_id = get(ENV, "NUMERAI_PUBLIC_ID", "")
+    default_secret_key = get(ENV, "NUMERAI_SECRET_KEY", "")
+    
+    # Warn if API credentials are not set
+    if isempty(default_public_id) || isempty(default_secret_key)
+        @warn "NUMERAI_PUBLIC_ID and/or NUMERAI_SECRET_KEY environment variables not set. API operations will fail without valid credentials."
+    end
     
     if !isfile(path)
         return TournamentConfig(

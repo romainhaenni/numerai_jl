@@ -182,7 +182,9 @@ function diversity_score(predictions_matrix::Matrix{Float64})::Float64
     
     avg_correlation = mean(correlations)
     
-    return 1.0 - avg_correlation
+    # Clamp the result to [0, 1] range
+    # avg_correlation ranges from -1 to 1, so (1 - avg_correlation) / 2 maps to [0, 1]
+    return (1.0 - avg_correlation) / 2.0
 end
 
 export ModelEnsemble, train_ensemble!, predict_ensemble, optimize_weights,

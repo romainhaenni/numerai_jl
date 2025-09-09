@@ -10,8 +10,8 @@ function get_feature_exposures(predictions::Vector{Float64}, features::Matrix{Fl
         error("Predictions length must match features rows")
     end
     
-    Q, R = qr(features)
-    exposures = R \ (Q' * predictions)
+    # Use least squares to solve for exposures
+    exposures = features \ predictions
     
     return exposures
 end

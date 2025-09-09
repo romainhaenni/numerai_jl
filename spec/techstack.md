@@ -57,12 +57,12 @@
 - **Distributed.jl** - Multi-process parallelism
 - **ThreadsX.jl** - Parallel collection operations
 - **FLoops.jl** - Fast parallel loops
-- **Dagger.jl** - Task-based parallelism (like Elixir tasks)
+- **Dagger.jl** - Task-based parallelism
 
 ### **Scheduling & Automation**
 - **Cron.jl** - Cron-like job scheduling
 - **BackgroundTasks.jl** - Async task management
-- **Actors.jl** - Actor model implementation (Erlang-style)
+- **Actors.jl** - Actor model implementation
 - **ConcurrentSim.jl** - Discrete event simulation
 
 ### **Database & Persistence**
@@ -81,16 +81,16 @@
 - **ArgParse.jl** - Command-line argument parsing
 
 ### **Development Tools**
-- **Revise.jl** - Hot code reloading (better than Elixir)
+- **Revise.jl** - Hot code reloading
 - **BenchmarkTools.jl** - Performance benchmarking
 - **ProfileView.jl** - Performance profiling
 - **Debugger.jl** - Interactive debugging
 - **Test.jl** - Built-in testing framework
 
-### **M3 Max Optimization**
+### **M4 Max Optimization**
 
 #### **Hardware Acceleration**
-- **Metal.jl** - Direct Metal GPU programming for M3
+- **Metal.jl** - Direct Metal GPU programming for M4
 - **AppleAccelerate.jl** - Apple's Accelerate framework
 - **BLAS.set_num_threads()** - CPU core management
 - **LoopVectorization.jl** - SIMD optimizations
@@ -117,16 +117,16 @@ Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
 ```
 
 ### **Deployment Architecture**
-- **SystemD service** - Linux deployment (same as Elixir)
-- **LaunchAgent** - macOS auto-start (same as Elixir)
+- **SystemD service** - Linux deployment
+- **LaunchAgent** - macOS auto-start
 - **PackageCompiler.jl** - Create standalone executables
 - **Docker** - Containerization with Julia base images
 
 ### **Performance Expectations**
 - **2-10x faster** than Python for numerical operations
 - **Near C-level performance** for tight loops
-- **Native Metal.jl** provides better M3 GPU utilization than PyTorch MPS
+- **Native Metal.jl** provides better M4 GPU utilization than PyTorch MPS
 - **First-time compilation** causes initial delay (solved by precompilation)
 - **Memory usage** comparable to Python, less than Elixir for numerical work
 
-This Julia stack provides superior numerical performance while maintaining similar capabilities for automation, monitoring, and notifications, making it an excellent choice for compute-intensive Numerai tournament participation on M3 Max hardware.
+This Julia stack provides superior numerical performance while maintaining similar capabilities for automation, monitoring, and notifications, making it an excellent choice for compute-intensive Numerai tournament participation on M4 Max hardware.

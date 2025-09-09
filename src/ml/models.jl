@@ -2,6 +2,7 @@ module Models
 
 using XGBoost
 using LightGBM
+using EvoTrees
 using DataFrames
 using Random
 using Statistics
@@ -19,6 +20,12 @@ end
 
 mutable struct LightGBMModel <: NumeraiModel
     model::Union{Nothing, LGBMRegression}
+    params::Dict{String, Any}
+    name::String
+end
+
+mutable struct EvoTreesModel <: NumeraiModel
+    model::Union{Nothing, EvoTrees.EvoTree}
     params::Dict{String, Any}
     name::String
 end
@@ -61,6 +68,28 @@ function LightGBMModel(name::String="lgbm_default";
     )
     
     return LightGBMModel(nothing, params, name)
+end
+
+function EvoTreesModel(name::String="evotrees_default";
+                      max_depth::Int=5,
+                      learning_rate::Float64=0.01,
+                      subsample::Float64=0.8,
+                      colsample::Float64=0.8,
+                      nrounds::Int=1000)
+    params = Dict(
+        "loss" => :mse,
+        "metric" => :mse,
+        "max_depth" => max_depth,
+        "eta" => learning_rate,
+        "rowsample" => subsample,
+        "colsample" => colsample,
+        "nrounds" => nrounds,
+        "nbins" => 64,
+        "monotone_constraints" => Dict{Int, Int}(),
+        "device" => "cpu"
+    )
+    
+    return EvoTreesModel(nothing, params, name)
 end
 
 function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
@@ -150,6 +179,46 @@ function train!(model::LightGBMModel, X_train::Matrix{Float64}, y_train::Vector{
     return model
 end
 
+function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
+               X_val::Union{Nothing, Matrix{Float64}}=nothing,
+               y_val::Union{Nothing, Vector{Float64}}=nothing,
+               verbose::Bool=false)
+    
+    # Prepare configuration for EvoTrees
+    config = EvoTrees.EvoTreeRegressor(;
+        loss=model.params["loss"],
+        metric=model.params["metric"],
+        max_depth=model.params["max_depth"],
+        eta=model.params["eta"],
+        rowsample=model.params["rowsample"],
+        colsample=model.params["colsample"],
+        nrounds=model.params["nrounds"],
+        nbins=model.params["nbins"],
+        monotone_constraints=model.params["monotone_constraints"],
+        device=model.params["device"]
+    )
+    
+    # Train the model
+    if X_val !== nothing && y_val !== nothing
+        # Train with validation set for early stopping
+        model.model = EvoTrees.fit_evotree(config; 
+                                          x_train=X_train, 
+                                          y_train=y_train,
+                                          x_eval=X_val,
+                                          y_eval=y_val,
+                                          print_every_n=verbose ? 100 : 0,
+                                          early_stopping_rounds=10)
+    else
+        # Train without validation set
+        model.model = EvoTrees.fit_evotree(config; 
+                                          x_train=X_train, 
+                                          y_train=y_train,
+                                          print_every_n=verbose ? 100 : 0)
+    end
+    
+    return model
+end
+
 function predict(model::XGBoostModel, X::Matrix{Float64})::Vector{Float64}
     if model.model === nothing
         error("Model not trained yet")
@@ -169,6 +238,21 @@ function predict(model::LightGBMModel, X::Matrix{Float64})::Vector{Float64}
     predictions = LightGBM.predict(model.model, X)
     
     # Convert to Vector if it's a Matrix (LightGBM.jl v2.0.0 sometimes returns Matrix)
+    if predictions isa Matrix
+        return vec(predictions)
+    else
+        return predictions
+    end
+end
+
+function predict(model::EvoTreesModel, X::Matrix{Float64})::Vector{Float64}
+    if model.model === nothing
+        error("Model not trained yet")
+    end
+    
+    predictions = EvoTrees.predict(model.model, X)
+    
+    # Convert to Vector if it's a Matrix
     if predictions isa Matrix
         return vec(predictions)
     else
@@ -228,6 +312,22 @@ function feature_importance(model::LightGBMModel)::Dict{String, Float64}
     return Dict(zip(feature_names, importance))
 end
 
+function feature_importance(model::EvoTreesModel)::Dict{String, Float64}
+    if model.model === nothing
+        error("Model not trained yet")
+    end
+    
+    importance = EvoTrees.importance(model.model)
+    
+    # Convert importance to dictionary with feature names
+    feature_dict = Dict{String, Float64}()
+    for i in 1:length(importance)
+        feature_dict["feature_$(i)"] = importance[i]
+    end
+    
+    return feature_dict
+end
+
 function save_model(model::NumeraiModel, filepath::String)
     if model.model === nothing
         error("Model not trained yet")
@@ -237,6 +337,8 @@ function save_model(model::NumeraiModel, filepath::String)
         XGBoost.save(model.model, filepath)
     elseif model isa LightGBMModel
         LightGBM.savemodel(model.model, filepath)
+    elseif model isa EvoTreesModel
+        EvoTrees.save(model.model, filepath)
     end
     
     println("Model saved to $filepath")
@@ -252,7 +354,12 @@ function load_model!(model::LightGBMModel, filepath::String)
     return model
 end
 
-export NumeraiModel, XGBoostModel, LightGBMModel, train!, predict, 
+function load_model!(model::EvoTreesModel, filepath::String)
+    model.model = EvoTrees.load(filepath)
+    return model
+end
+
+export NumeraiModel, XGBoostModel, LightGBMModel, EvoTreesModel, train!, predict, 
        cross_validate, feature_importance, save_model, load_model!
 
 end

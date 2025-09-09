@@ -176,17 +176,27 @@ Random.seed!(123)
             @test model.params["objective"] == "regression"
             @test model.params["metric"] == "rmse"
         end
+        
+        @testset "EvoTreesModel creation" begin
+            model = NumeraiTournament.Models.EvoTreesModel("test_evotrees")
+            @test model.name == "test_evotrees"
+            @test model.params["loss"] == :mse
+            @test model.params["metric"] == :mse
+            @test model.params["max_depth"] == 5
+            @test model.params["eta"] == 0.01
+        end
     end
     
     @testset "Ensemble" begin
         @testset "ModelEnsemble creation" begin
             models = [
                 NumeraiTournament.Models.XGBoostModel("xgb1"),
-                NumeraiTournament.Models.LightGBMModel("lgbm1")
+                NumeraiTournament.Models.LightGBMModel("lgbm1"),
+                NumeraiTournament.Models.EvoTreesModel("evotrees1")
             ]
             
             ensemble = NumeraiTournament.Ensemble.ModelEnsemble(models)
-            @test length(ensemble.models) == 2
+            @test length(ensemble.models) == 3
             @test sum(ensemble.weights) ≈ 1.0
         end
         

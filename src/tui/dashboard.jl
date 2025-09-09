@@ -1,6 +1,7 @@
 module Dashboard
 
 using Term
+using Term: Panel, Grid
 using Dates
 using ThreadsX
 using ..API
@@ -62,8 +63,10 @@ function run_dashboard(dashboard::TournamentDashboard)
     dashboard.running = true
     start_time = time()
     
-    Term.clear()
-    Term.hide_cursor()
+    # Clear screen using ANSI escape sequence
+    print("\033[2J\033[H")
+    # Hide cursor using ANSI escape sequence  
+    print("\033[?25l")
     
     try
         add_event!(dashboard, :info, "Dashboard started")
@@ -74,8 +77,10 @@ function run_dashboard(dashboard::TournamentDashboard)
         
     finally
         dashboard.running = false
-        Term.show_cursor()
-        Term.clear()
+        # Show cursor using ANSI escape sequence
+        print("\033[?25h")
+        # Clear screen using ANSI escape sequence
+        print("\033[2J\033[H")
     end
 end
 
@@ -97,9 +102,20 @@ function update_loop(dashboard::TournamentDashboard, start_time::Float64)
     end
 end
 
+function read_key()
+    # Simple key reading function
+    # Note: This is a basic implementation, more advanced terminal input handling
+    # would require additional packages or platform-specific code
+    try
+        return String(read(stdin, 1))
+    catch
+        return ""
+    end
+end
+
 function input_loop(dashboard::TournamentDashboard)
     while dashboard.running
-        key = Term.read_key()
+        key = read_key()
         
         if key == "q"
             dashboard.running = false
@@ -127,7 +143,8 @@ function input_loop(dashboard::TournamentDashboard)
 end
 
 function render(dashboard::TournamentDashboard)
-    Term.clear()
+    # Clear screen using ANSI escape sequence
+    print("\033[2J\033[H")
     
     layout = Grid(
         Panels.create_model_performance_panel(dashboard.models),

@@ -1,9 +1,11 @@
 module Panels
 
 using Term
+using Term: Panel, Tables
 using Dates
 using DataFrames
 using ..Charts
+using Statistics: mean, std
 
 function create_model_performance_panel(performances::Vector{Dict{Symbol, Any}})::Panel
     if isempty(performances)
@@ -24,7 +26,7 @@ function create_model_performance_panel(performances::Vector{Dict{Symbol, Any}})
             ])
         end
         
-        content = Table(rows, box=:ROUNDED)
+        content = Tables.Table(rows, box=:ROUNDED)
     end
     
     return Panel(

@@ -1,7 +1,6 @@
 module Scheduler
 
 using Dates
-using Cron
 using ..API
 using ..DataLoader
 using ..Pipeline
@@ -12,7 +11,7 @@ mutable struct TournamentScheduler
     config::Any
     api_client::API.NumeraiClient
     pipeline::Union{Nothing, Pipeline.MLPipeline}
-    jobs::Vector{CronJob}
+    timers::Vector{Timer}
     running::Bool
     dashboard::Union{Nothing, Dashboard.TournamentDashboard}
 end
@@ -24,7 +23,7 @@ function TournamentScheduler(config)
         config,
         api_client,
         nothing,
-        CronJob[],
+        Timer[],
         false,
         nothing
     )
@@ -37,7 +36,7 @@ function start_scheduler(scheduler::TournamentScheduler; with_dashboard::Bool=fa
         scheduler.dashboard = Dashboard.TournamentDashboard(scheduler.config)
     end
     
-    setup_jobs!(scheduler)
+    setup_timers!(scheduler)
     
     println("🚀 Numerai Tournament Scheduler Started")
     println("Configured for $(length(scheduler.config.models)) models")
@@ -52,20 +51,58 @@ function start_scheduler(scheduler::TournamentScheduler; with_dashboard::Bool=fa
     end
 end
 
-function setup_jobs!(scheduler::TournamentScheduler)
-    push!(scheduler.jobs, CronJob("0 18 * * 6", () -> weekend_round_job(scheduler)))
+function setup_timers!(scheduler::TournamentScheduler)
+    # Weekend round job - every Saturday at 18:00
+    push!(scheduler.timers, Timer(0.0, interval=3600.0) do timer
+        if is_weekend_round_time()
+            weekend_round_job(scheduler)
+        end
+    end)
     
-    push!(scheduler.jobs, CronJob("0 */2 * * 6-7", () -> check_and_submit(scheduler)))
+    # Check and submit - every 2 hours on weekends
+    push!(scheduler.timers, Timer(0.0, interval=7200.0) do timer
+        if is_weekend()
+            check_and_submit(scheduler)
+        end
+    end)
     
-    push!(scheduler.jobs, CronJob("0 18 * * 2-5", () -> daily_round_job(scheduler)))
+    # Daily round job - weekdays at 18:00
+    push!(scheduler.timers, Timer(0.0, interval=3600.0) do timer
+        if is_daily_round_time()
+            daily_round_job(scheduler)
+        end
+    end)
     
-    push!(scheduler.jobs, CronJob("0 12 * * 1", () -> weekly_update_job(scheduler)))
+    # Weekly update - every Monday at 12:00
+    push!(scheduler.timers, Timer(0.0, interval=3600.0) do timer
+        if is_weekly_update_time()
+            weekly_update_job(scheduler)
+        end
+    end)
     
-    push!(scheduler.jobs, CronJob("0 * * * *", () -> hourly_monitoring(scheduler)))
-    
-    for job in scheduler.jobs
-        start(job)
-    end
+    # Hourly monitoring
+    push!(scheduler.timers, Timer(0.0, interval=3600.0) do timer
+        hourly_monitoring(scheduler)
+    end)
+end
+
+function is_weekend_round_time()
+    now_time = now()
+    return dayofweek(now_time) == 6 && hour(now_time) == 18 && minute(now_time) < 5
+end
+
+function is_weekend()
+    return dayofweek(now()) in [6, 7]
+end
+
+function is_daily_round_time()
+    now_time = now()
+    return dayofweek(now_time) in [2, 3, 4, 5] && hour(now_time) == 18 && minute(now_time) < 5
+end
+
+function is_weekly_update_time()
+    now_time = now()
+    return dayofweek(now_time) == 1 && hour(now_time) == 12 && minute(now_time) < 5
 end
 
 function weekend_round_job(scheduler::TournamentScheduler)
@@ -150,7 +187,7 @@ function hourly_monitoring(scheduler::TournamentScheduler)
             end
         end
     catch e
-        
+        # Silent fail for monitoring
     end
 end
 
@@ -189,18 +226,22 @@ end
 function train_models(scheduler::TournamentScheduler)
     log_event(scheduler, :info, "Training models...")
     
-    data = DataLoader.load_tournament_data(scheduler.config.data_dir)
+    train_path = joinpath(scheduler.config.data_dir, "train.parquet")
+    val_path = joinpath(scheduler.config.data_dir, "validation.parquet")
     
-    features, _ = DataLoader.load_features_json(joinpath(scheduler.config.data_dir, "features.json"))
+    train_df = DataLoader.load_training_data(train_path, sample_pct=0.1)
+    val_df = DataLoader.load_training_data(val_path)
+    
+    feature_cols = filter(name -> startswith(name, "feature_"), names(train_df))
     
     scheduler.pipeline = Pipeline.MLPipeline(
-        feature_cols=features,
+        feature_cols=feature_cols,
         target_col="target_cyrus_v4_20",
         neutralize=true,
         neutralize_proportion=0.5
     )
     
-    Pipeline.train!(scheduler.pipeline, data.train, data.validation, verbose=true)
+    Pipeline.train!(scheduler.pipeline, train_df, val_df, verbose=true)
     
     log_event(scheduler, :success, "Model training completed")
 end
@@ -218,16 +259,25 @@ function generate_and_submit_predictions(scheduler::TournamentScheduler, round_n
     
     log_event(scheduler, :info, "Generating predictions for round #$round_number")
     
-    live_data = DataLoader.load_parquet(joinpath(scheduler.config.data_dir, "live.parquet"))
+    live_path = joinpath(scheduler.config.data_dir, "live.parquet")
+    live_df = DataLoader.load_live_data(live_path)
     
     for model_name in scheduler.config.models
         try
+            predictions = Pipeline.predict(scheduler.pipeline, live_df)
+            
+            # Create submission dataframe
+            submission_df = DataLoader.create_submission_dataframe(
+                live_df.id,
+                predictions
+            )
+            
             predictions_path = joinpath(
                 scheduler.config.data_dir,
                 "predictions_$(model_name)_round$(round_number).csv"
             )
             
-            Pipeline.save_predictions(scheduler.pipeline, live_data, predictions_path, model_name=model_name)
+            DataLoader.save_predictions(submission_df, predictions_path)
             
             if scheduler.config.auto_submit
                 API.submit_predictions(scheduler.api_client, model_name, predictions_path)
@@ -286,8 +336,8 @@ end
 function stop_scheduler(scheduler::TournamentScheduler)
     scheduler.running = false
     
-    for job in scheduler.jobs
-        stop(job)
+    for timer in scheduler.timers
+        close(timer)
     end
     
     log_event(scheduler, :info, "Scheduler stopped")

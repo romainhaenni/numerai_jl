@@ -2,7 +2,7 @@ module DataLoader
 
 using DataFrames
 using CSV
-using Parquet2
+using Parquet
 using Statistics
 using ProgressMeter
 using JSON3
@@ -17,7 +17,7 @@ function load_training_data(path::String; sample_pct::Float64=1.0)::DataFrame
     if ext == ".csv"
         df = CSV.read(path, DataFrame)
     elseif ext == ".parquet"
-        df = Parquet2.readfile(path) |> DataFrame
+        df = DataFrame(Parquet.read_parquet(path))
     else
         error("Unsupported file format: $ext")
     end
@@ -42,7 +42,7 @@ function load_live_data(path::String)::DataFrame
     if ext == ".csv"
         df = CSV.read(path, DataFrame)
     elseif ext == ".parquet"
-        df = Parquet2.readfile(path) |> DataFrame
+        df = DataFrame(Parquet.read_parquet(path))
     else
         error("Unsupported file format: $ext")
     end

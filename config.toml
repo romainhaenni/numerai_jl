@@ -9,7 +9,7 @@ model_dir = "models"
 
 # Automation settings
 auto_submit = true
-stake_amount = 0.0
+stake_amount = 0.1
 
 # System resources
 max_workers = 8

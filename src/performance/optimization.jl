@@ -78,16 +78,76 @@ function chunked_processing(f::Function, data::AbstractArray;
 end
 
 function memory_efficient_load(file_path::String; 
-                              max_memory_gb::Float64=8.0)
+                              max_memory_gb::Float64=8.0,
+                              chunk_size::Int=100000)
     file_size_gb = filesize(file_path) / 1024^3
     
     if file_size_gb > max_memory_gb
         @warn "File size ($file_size_gb GB) exceeds memory limit ($max_memory_gb GB). Using chunked loading."
-        return nothing  # Implement chunked loading based on file type
+        
+        # Determine file type
+        ext = lowercase(splitext(file_path)[2])
+        
+        if ext == ".csv"
+            # Chunked CSV loading
+            return load_csv_chunked(file_path, chunk_size)
+        elseif ext == ".parquet"
+            # Chunked Parquet loading
+            return load_parquet_chunked(file_path, chunk_size)
+        else
+            @warn "Unsupported file type for chunked loading: $ext"
+            return nothing
+        end
     else
         # Regular loading for files that fit in memory
         return file_path
     end
+end
+
+function load_csv_chunked(file_path::String, chunk_size::Int)
+    using CSV, DataFrames
+    
+    chunks = DataFrame[]
+    
+    # Read CSV in chunks
+    for chunk in CSV.Rows(file_path, limit=chunk_size, reusebuffer=true)
+        df_chunk = DataFrame(chunk)
+        push!(chunks, df_chunk)
+        
+        # Process chunk immediately if needed to reduce memory
+        if length(chunks) > 10  # Combine every 10 chunks
+            combined = vcat(chunks...)
+            chunks = [combined]
+        end
+    end
+    
+    # Combine all chunks
+    return vcat(chunks...)
+end
+
+function load_parquet_chunked(file_path::String, chunk_size::Int)
+    using Parquet
+    
+    # Open parquet file
+    pf = Parquet.File(file_path)
+    
+    chunks = DataFrame[]
+    row_groups = Parquet.nrowgroups(pf)
+    
+    for i in 1:row_groups
+        # Read one row group at a time
+        df_chunk = DataFrame(Parquet.read(pf, i))
+        push!(chunks, df_chunk)
+        
+        # Process chunk immediately if needed
+        if length(chunks) > 5  # Combine every 5 row groups
+            combined = vcat(chunks...)
+            chunks = [combined]
+        end
+    end
+    
+    # Combine all chunks
+    return vcat(chunks...)
 end
 
 function benchmark_function(f::Function, args...; 

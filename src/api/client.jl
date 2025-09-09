@@ -314,8 +314,38 @@ function upload_predictions_multipart(client::NumeraiClient, model_id::String, p
 end
 
 function get_models_for_user(client::NumeraiClient)::Vector{String}
-    # Use a default model since we need authentication to get actual models
-    # User should configure this in config.toml
+    query = """
+    query {
+        v3UserProfile {
+            username
+            models {
+                name
+                id
+            }
+        }
+    }
+    """
+    
+    try
+        response = graphql_query(client, query)
+        
+        if haskey(response, "data") && haskey(response["data"], "v3UserProfile")
+            user_profile = response["data"]["v3UserProfile"]
+            if haskey(user_profile, "models") && !isnothing(user_profile["models"])
+                model_names = String[]
+                for model in user_profile["models"]
+                    if haskey(model, "name") && !isnothing(model["name"])
+                        push!(model_names, model["name"])
+                    end
+                end
+                return isempty(model_names) ? ["default_model"] : model_names
+            end
+        end
+    catch e
+        @warn "Failed to fetch user models: $e. Using default model."
+    end
+    
+    # Fallback to default model if API call fails or returns no models
     return ["default_model"]
 end
 

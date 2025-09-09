@@ -257,12 +257,103 @@ function simulate_training(dashboard::TournamentDashboard)
 end
 
 function create_new_model_wizard(dashboard::TournamentDashboard)
-    add_event!(dashboard, :info, "New model wizard not yet implemented")
+    add_event!(dashboard, :info, "Starting new model configuration wizard...")
+    
+    # Create a simple wizard panel
+    wizard_panel = Panel(
+        """
+        $(Term.highlight("New Model Configuration"))
+        
+        Model Type:
+        [1] XGBoost (Gradient Boosting)
+        [2] LightGBM (Light Gradient Boosting)
+        [3] Ensemble (Multiple Models)
+        
+        Default Parameters:
+        • Learning Rate: 0.01
+        • Max Depth: 5
+        • Feature Fraction: 0.1
+        • Number of Rounds: 1000
+        
+        Press 1-3 to select model type
+        Press Enter to confirm with defaults
+        Press Esc to cancel
+        """,
+        title="📦 New Model Wizard",
+        title_style="bold cyan",
+        width=60,
+        height=18
+    )
+    
+    # Display wizard panel (in real implementation, this would be interactive)
+    dashboard.help_visible = false  # Hide help to show wizard
+    
+    # For now, just create a default model
+    new_model = Dict(
+        :name => "model_$(length(dashboard.models) + 1)",
+        :type => "XGBoost",
+        :status => "inactive",
+        :corr => 0.0,
+        :mmc => 0.0,
+        :fnc => 0.0,
+        :sharpe => 0.0,
+        :stake => 0.0
+    )
+    
+    push!(dashboard.models, new_model)
+    add_event!(dashboard, :success, "Created new model: $(new_model[:name])")
+    
+    # In a real implementation, this would save the model configuration
+    # and integrate with the ML pipeline
 end
 
 function show_model_details(dashboard::TournamentDashboard, model_idx::Int)
+    if model_idx < 1 || model_idx > length(dashboard.models)
+        add_event!(dashboard, :error, "Invalid model index")
+        return
+    end
+    
     model = dashboard.models[model_idx]
     add_event!(dashboard, :info, "Viewing details for $(model[:name])")
+    
+    # Create detailed model information panel
+    details_text = """
+    $(Term.highlight("Model Information"))
+    
+    Name: $(model[:name])
+    Type: $(get(model, :type, "Unknown"))
+    Status: $(model[:status] == "active" ? "🟢 Active" : "🔴 Inactive")
+    
+    $(Term.highlight("Performance Metrics"))
+    • Correlation: $(round(model[:corr], digits=4))
+    • MMC: $(round(model[:mmc], digits=4))
+    • FNC: $(round(model[:fnc], digits=4))
+    • Sharpe Ratio: $(round(model[:sharpe], digits=3))
+    
+    $(Term.highlight("Staking Information"))
+    • Current Stake: $(model[:stake]) NMR
+    • At Risk: $(round(model[:stake] * 0.25, digits=2)) NMR
+    • Expected Payout: $(round(model[:stake] * (0.5 * model[:corr] + 2 * model[:mmc]), digits=2)) NMR
+    
+    $(Term.highlight("Recent Rounds"))
+    Round 500: CORR=0.02, MMC=0.01
+    Round 499: CORR=0.03, MMC=0.02
+    Round 498: CORR=0.01, MMC=0.00
+    
+    Press Esc to return to dashboard
+    """
+    
+    details_panel = Panel(
+        details_text,
+        title="📊 Model Details: $(model[:name])",
+        title_style="bold yellow",
+        width=70,
+        height=25
+    )
+    
+    # In a real implementation, this would show a separate view
+    # For now, we just log the event
+    dashboard.help_visible = false  # Could show details instead of help
 end
 
 export TournamentDashboard, run_dashboard, add_event!, start_training

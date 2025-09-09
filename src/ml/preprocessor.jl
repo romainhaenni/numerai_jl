@@ -3,6 +3,7 @@ module Preprocessor
 using DataFrames
 using Statistics
 using StatsBase
+using Distributions
 
 function fillna(df::DataFrame, value::Float64=0.5)::DataFrame
     df_filled = copy(df)

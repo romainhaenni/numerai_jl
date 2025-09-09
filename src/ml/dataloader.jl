@@ -5,6 +5,7 @@ using CSV
 using Parquet2
 using Statistics
 using ProgressMeter
+using JSON3
 
 function load_training_data(path::String; sample_pct::Float64=1.0)::DataFrame
     if !isfile(path)

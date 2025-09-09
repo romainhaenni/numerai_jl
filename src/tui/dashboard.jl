@@ -12,6 +12,8 @@ using ..DataLoader
 using ..Panels
 using ..Notifications
 
+include("dashboard_commands.jl")
+
 mutable struct ModelWizardState
     step::Int
     model_name::String
@@ -40,6 +42,8 @@ mutable struct TournamentDashboard
     refresh_rate::Float64  # Changed to Float64 for more precise timing
     wizard_active::Bool
     wizard_state::Union{Nothing, ModelWizardState}
+    command_buffer::String  # For slash commands
+    command_mode::Bool  # Track if we're in command mode
 end
 
 function TournamentDashboard(config)
@@ -80,7 +84,8 @@ function TournamentDashboard(config)
         config, api_client, models, Vector{Dict{Symbol, Any}}(),
         system_info, training_info, Float64[], performance_history,
         false, false, false, 1, 1.0,  # Set refresh rate to 1 second for smoother updates
-        false, nothing  # wizard_active and wizard_state
+        false, nothing,  # wizard_active and wizard_state
+        "", false  # command_buffer and command_mode
     )
 end
 
@@ -190,6 +195,26 @@ function input_loop(dashboard::TournamentDashboard)
             if length(key) == 1
                 handle_wizard_input(dashboard, key[1])
             end
+        elseif dashboard.command_mode
+            # Handle command mode input
+            if key == "\r" || key == "\n"  # Enter - execute command
+                execute_command(dashboard, dashboard.command_buffer)
+                dashboard.command_buffer = ""
+                dashboard.command_mode = false
+            elseif key == "\e"  # ESC - cancel command
+                dashboard.command_buffer = ""
+                dashboard.command_mode = false
+                add_event!(dashboard, :info, "Command cancelled")
+            elseif key == "\b" || key == "\x7f"  # Backspace
+                if length(dashboard.command_buffer) > 0
+                    dashboard.command_buffer = dashboard.command_buffer[1:end-1]
+                end
+            elseif length(key) == 1 && isprint(key[1])
+                dashboard.command_buffer *= key
+            end
+        elseif key == "/"  # Start command mode
+            dashboard.command_mode = true
+            dashboard.command_buffer = ""
         elseif key == "q"
             dashboard.running = false
         elseif key == "p"
@@ -254,10 +279,15 @@ function render(dashboard::TournamentDashboard)
 end
 
 function create_status_line(dashboard::TournamentDashboard)::String
-    status = dashboard.paused ? "PAUSED" : "RUNNING"
-    selected = dashboard.models[dashboard.selected_model][:name]
-    
-    return "Status: $status | Selected: $selected | Press 'h' for help | 'q' to quit"
+    if dashboard.command_mode
+        # Show command input line
+        return "Command: /$(dashboard.command_buffer)_"
+    else
+        status = dashboard.paused ? "PAUSED" : "RUNNING"
+        selected = dashboard.models[dashboard.selected_model][:name]
+        
+        return "Status: $status | Selected: $selected | Press '/' for commands | 'h' for help | 'q' to quit"
+    end
 end
 
 function update_system_info!(dashboard::TournamentDashboard)

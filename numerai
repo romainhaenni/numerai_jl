@@ -11,7 +11,7 @@ using ArgParse
 function parse_commandline()
     s = ArgParseSettings(
         description = "Numerai Tournament Trading System",
-        version = "0.1.5",
+        version = "0.1.6",
         add_version = true
     )
 

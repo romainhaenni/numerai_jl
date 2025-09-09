@@ -1,35 +1,52 @@
-# Numerai Tournament Trading System - Julia Implementation
+# Numerai Tournament System - Julia Implementation
 
 A production-ready Julia application for automated participation in the Numerai tournament, optimized for M4 Max Mac Studio.
 
 ## Features
 
-- 🤖 **Multi-Model Ensemble**: XGBoost and LightGBM with advanced feature neutralization
-- 📊 **Real-time TUI Dashboard**: Monitor performance, staking, and predictions
-- ⏰ **Automated Scheduler**: Handles all tournament rounds automatically
-- 🔔 **macOS Notifications**: Native alerts for important events
-- 🚀 **M4 Max Optimized**: Leverages 16 CPU cores and 48GB unified memory
-- 📈 **Live Performance Tracking**: Real-time correlation, MMC, FNC, and Sharpe metrics
+- **Pure Julia ML Implementation** - XGBoost and LightGBM models with ensemble management
+- **TUI Dashboard** - Real-time monitoring with performance metrics, model status, and event logs
+- **Automated Tournament Participation** - Scheduled data downloads, training, and submissions
+- **Feature Neutralization** - Built-in feature neutralization for improved consistency
+- **macOS Notifications** - Native alerts for important events
+- **M4 Max Optimization** - Leverages all 16 CPU cores and 48GB unified memory
 
 ## Installation
 
-1. Install Julia 1.10+ from https://julialang.org/downloads/
+### Prerequisites
 
-2. Clone the repository:
+- Julia 1.10 or higher
+- macOS (optimized for Apple Silicon)
+- Numerai API credentials
+
+### Setup
+
+1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/numerai_jl.git
+git clone https://github.com/romainhaenni/numerai_jl.git
 cd numerai_jl
 ```
 
-3. Install dependencies:
+2. Install Julia dependencies:
 ```bash
-julia --project=. -e "using Pkg; Pkg.instantiate()"
+julia -e "using Pkg; Pkg.activate(\".\"); Pkg.instantiate()"
 ```
 
-4. Set up your Numerai API credentials in `.env`:
+3. Configure your API credentials in `.env`:
 ```bash
-NUMERAI_PUBLIC_ID=your_public_key
-NUMERAI_SECRET_KEY=your_secret_key
+NUMERAI_PUBLIC_ID=your_public_id_here
+NUMERAI_SECRET_KEY=your_secret_key_here
+```
+
+4. Configure tournament settings in `config.toml`:
+```toml
+models = ["your_model_name"]
+data_dir = "data"
+model_dir = "models"
+auto_submit = false
+stake_amount = 0.0
+max_workers = 16
+notification_enabled = true
 ```
 
 ## Usage
@@ -39,151 +56,153 @@ NUMERAI_SECRET_KEY=your_secret_key
 ./numerai
 ```
 
-**Keyboard Controls:**
-- `q` - Quit
-- `p` - Pause/Resume training
-- `s` - Start training
-- `r` - Refresh data
-- `n` - New model wizard
-- `h` - Toggle help
-- `↑/↓` - Navigate models
-- `Enter` - View model details
-
-### Automated Scheduler
+### Headless Mode (for automation)
 ```bash
 ./numerai --headless
 ```
 
-Runs continuously and:
-- Downloads data for each round
-- Trains/updates models
-- Generates and submits predictions
-- Monitors performance
-- Sends macOS notifications
+### Command-Line Operations
 
-### Manual Operations
-
-**Download tournament data:**
+#### Download Tournament Data
 ```bash
 ./numerai --download
 ```
 
-**Train models:**
+#### Train Models
 ```bash
 ./numerai --train
 ```
 
-**Submit predictions:**
+#### Submit Predictions
 ```bash
-./numerai --submit --model main_model
+./numerai --submit
 ```
 
-**Show model performances:**
+#### View Model Performance
 ```bash
 ./numerai --performance
 ```
 
-## Configuration
+### TUI Dashboard Controls
 
-Edit `config.toml` to customize:
-
-```toml
-# Models to manage
-models = ["main_model", "experimental_model"]
-
-# Tournament settings
-auto_submit = true
-stake_amount = 100.0
-
-# Training parameters
-[training]
-target_column = "target_cyrus_v4_20"
-neutralize = true
-neutralize_proportion = 0.5
-```
-
-## TUI Dashboard
-
-The dashboard provides six real-time panels:
-
-### 📊 Model Performance
-- Live correlation metrics for each model
-- MMC, FNC, and Sharpe ratios
-- Active/inactive status indicators
-
-### 💰 Staking Status
-- Total NMR staked
-- At-risk amounts
-- Expected payouts
-- Current round information
-
-### 📈 Live Predictions
-- Sparkline visualization of predictions
-- Statistical summaries
-- Historical trends
-
-### 🔔 Recent Events
-- Timestamped activity log
-- Color-coded by severity
-- Submission confirmations
-
-### ⚙️ System Status
-- CPU and memory usage
-- Active model count
-- System uptime
-
-### 🚀 Training Progress
-- Real-time training metrics
-- Epoch progress
-- Validation scores
+- `q` - Quit
+- `p` - Pause/Resume training
+- `s` - Start Training
+- `h` - Show Help
+- `n` - Create new model
 
 ## Architecture
 
 ### Core Modules
 
-- **API Client**: GraphQL interface for Numerai API
-- **ML Pipeline**: Ensemble model training and prediction
-- **Feature Neutralization**: Advanced neutralization techniques
-- **Data Pipeline**: Efficient Parquet file handling
-- **TUI Dashboard**: Term.jl-based real-time interface
-- **Scheduler**: Cron-based tournament automation
-- **Notifications**: Native macOS alerts
+- **API Client** (`src/api/client.jl`) - GraphQL API integration
+- **ML Pipeline** (`src/ml/`) - Model training and prediction
+- **TUI Dashboard** (`src/tui/`) - Terminal user interface
+- **Scheduler** (`src/scheduler/`) - Automated tournament participation
+- **Notifications** (`src/notifications.jl`) - macOS alerts
+- **Performance** (`src/performance/`) - M4 Max optimizations
 
-### Performance Optimizations
+### Data Flow
 
-- Multi-threaded training using all 16 cores
-- Memory-efficient data structures
-- Lazy data loading for large datasets
-- Optimized feature neutralization algorithms
+1. **Data Download** - Fetches latest tournament data (train, validation, live)
+2. **Feature Engineering** - Preprocessing and feature neutralization
+3. **Model Training** - XGBoost/LightGBM ensemble training
+4. **Prediction Generation** - Creates submissions for live data
+5. **Submission Upload** - Automatically uploads to Numerai
 
 ## Testing
 
 Run the test suite:
 ```bash
-julia --project=. test/runtests.jl
+julia test/test_main.jl
+```
+
+Run specific tests:
+```bash
+julia test/test_api.jl        # Test API connectivity
+julia test/test_download.jl   # Test data downloads
+julia test/test_tui.jl        # Test TUI components
+```
+
+## Performance Optimization
+
+The system automatically optimizes for M4 Max:
+- Configures BLAS for optimal thread usage
+- Manages memory allocation for large datasets
+- Parallel processing with ThreadsX.jl
+- Efficient data loading with Parquet.jl
+
+For best performance, run Julia with multiple threads:
+```bash
+julia -t 16 ./numerai
 ```
 
 ## Tournament Schedule
 
-- **Weekend Rounds**: Saturday 18:00 UTC - Monday 14:30 UTC
-- **Daily Rounds**: Tuesday-Friday (shorter windows)
-- **Automatic Participation**: Scheduler handles all submissions
+The scheduler automatically handles:
+- **Weekend Rounds** - Saturday 18:00 UTC
+- **Daily Rounds** - Tuesday-Friday 18:00 UTC
+- **Weekly Retraining** - Monday 12:00 UTC
+- **Hourly Monitoring** - Performance tracking and alerts
 
-## Requirements
+## Troubleshooting
 
-- macOS (optimized for M4 Max)
-- Julia 1.10+
-- 8GB+ RAM recommended
-- Active Numerai account
-- API credentials
+### Common Issues
+
+1. **API Authentication Failed**
+   - Verify credentials in `.env`
+   - Check API key permissions on numer.ai
+
+2. **Download Errors**
+   - Ensure stable internet connection
+   - Check available disk space
+
+3. **Memory Issues**
+   - Reduce `sample_pct` in training
+   - Lower `max_workers` in config
+
+4. **TUI Display Issues**
+   - Ensure terminal supports Unicode
+   - Try different terminal emulator
+
+## Development
+
+### Project Structure
+```
+numerai_jl/
+├── src/                  # Source code
+│   ├── api/             # API client
+│   ├── ml/              # ML pipeline
+│   ├── tui/             # Dashboard
+│   └── scheduler/       # Automation
+├── test/                # Test suite
+├── data/                # Tournament data
+├── models/              # Trained models
+├── config.toml          # Configuration
+└── numerai              # Executable
+```
+
+### Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests
+5. Submit a pull request
 
 ## License
 
-MIT License
+MIT License - See LICENSE file for details
+
+## Acknowledgments
+
+- Numerai for providing the tournament platform
+- Julia ML community for excellent packages
+- Term.jl for TUI capabilities
 
 ## Support
 
 For issues or questions:
 - Open an issue on GitHub
-- Check Numerai forums: https://forum.numer.ai/
-- Review official docs: https://docs.numer.ai/
+- Check Numerai forums for tournament-specific questions
+- Review documentation in `spec/` directory

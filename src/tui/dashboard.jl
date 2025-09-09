@@ -11,6 +11,18 @@ using ..DataLoader
 using ..Panels
 using ..Notifications
 
+mutable struct ModelWizardState
+    step::Int
+    model_name::String
+    model_type::String
+    learning_rate::Float64
+    max_depth::Int
+    feature_fraction::Float64
+    num_rounds::Int
+    neutralize::Bool
+    neutralize_proportion::Float64
+end
+
 mutable struct TournamentDashboard
     config::Any
     api_client::API.NumeraiClient
@@ -24,6 +36,8 @@ mutable struct TournamentDashboard
     show_help::Bool
     selected_model::Int
     refresh_rate::Float64  # Changed to Float64 for more precise timing
+    wizard_active::Bool
+    wizard_state::Union{Nothing, ModelWizardState}
 end
 
 function TournamentDashboard(config)
@@ -57,7 +71,8 @@ function TournamentDashboard(config)
     return TournamentDashboard(
         config, api_client, models, Vector{Dict{Symbol, Any}}(),
         system_info, training_info, Float64[],
-        false, false, false, 1, 1.0  # Set refresh rate to 1 second for smoother updates
+        false, false, false, 1, 1.0,  # Set refresh rate to 1 second for smoother updates
+        false, nothing  # wizard_active and wizard_state
     )
 end
 
@@ -162,7 +177,12 @@ function input_loop(dashboard::TournamentDashboard)
     while dashboard.running
         key = read_key()
         
-        if key == "q"
+        if dashboard.wizard_active
+            # Handle wizard-specific input
+            if length(key) == 1
+                handle_wizard_input(dashboard, key[1])
+            end
+        elseif key == "q"
             dashboard.running = false
         elseif key == "p"
             dashboard.paused = !dashboard.paused
@@ -195,20 +215,29 @@ function render(dashboard::TournamentDashboard)
     print("\033[2J\033[H")
     
     # Create panels for 6-column grid layout
-    panels = [
-        Panels.create_model_performance_panel(dashboard.models),
-        Panels.create_staking_panel(get_staking_info(dashboard)),
-        Panels.create_predictions_panel(dashboard.predictions_history),
-        Panels.create_events_panel(dashboard.events),
-        Panels.create_system_panel(dashboard.system_info),
-        dashboard.training_info[:is_training] ? 
-            Panels.create_training_panel(dashboard.training_info) : 
-            (dashboard.show_help ? Panels.create_help_panel() : nothing)
-    ]
-    
-    # Filter out nothing values and create 6-column grid (2 rows, 3 columns)
-    valid_panels = filter(!isnothing, panels)
-    layout = Grid(valid_panels..., layout=(2, 3))
+    if dashboard.wizard_active
+        # Show wizard interface
+        panels = [
+            render_wizard_panel(dashboard),
+            Panels.create_events_panel(dashboard.events)
+        ]
+        layout = Grid(panels..., layout=(1, 2))
+    else
+        panels = [
+            Panels.create_model_performance_panel(dashboard.models),
+            Panels.create_staking_panel(get_staking_info(dashboard)),
+            Panels.create_predictions_panel(dashboard.predictions_history),
+            Panels.create_events_panel(dashboard.events),
+            Panels.create_system_panel(dashboard.system_info),
+            dashboard.training_info[:is_training] ? 
+                Panels.create_training_panel(dashboard.training_info) : 
+                (dashboard.show_help ? Panels.create_help_panel() : nothing)
+        ]
+        
+        # Filter out nothing values and create 6-column grid (2 rows, 3 columns)
+        valid_panels = filter(!isnothing, panels)
+        layout = Grid(valid_panels..., layout=(2, 3))
+    end
     
     println(layout)
     
@@ -531,52 +560,206 @@ end
 function create_new_model_wizard(dashboard::TournamentDashboard)
     add_event!(dashboard, :info, "Starting new model configuration wizard...")
     
-    # Create a simple wizard panel
-    wizard_panel = Panel(
-        """
-        $(Term.highlight("New Model Configuration"))
-        
-        Model Type:
-        [1] XGBoost (Gradient Boosting)
-        [2] LightGBM (Light Gradient Boosting)
-        [3] Ensemble (Multiple Models)
-        
-        Default Parameters:
-        • Learning Rate: 0.01
-        • Max Depth: 5
-        • Feature Fraction: 0.1
-        • Number of Rounds: 1000
-        
-        Press 1-3 to select model type
-        Press Enter to confirm with defaults
-        Press Esc to cancel
-        """,
-        title="📦 New Model Wizard",
-        title_style="bold cyan",
-        width=60,
-        height=18
+    # Initialize wizard state
+    dashboard.wizard_state = ModelWizardState(
+        1,  # step
+        "model_$(length(dashboard.models) + 1)",  # model_name
+        "XGBoost",  # model_type
+        0.01,  # learning_rate
+        5,  # max_depth
+        0.1,  # feature_fraction
+        1000,  # num_rounds
+        true,  # neutralize
+        0.5  # neutralize_proportion
     )
     
-    # Display wizard panel (in real implementation, this would be interactive)
-    dashboard.show_help = false  # Hide help to show wizard
+    dashboard.wizard_active = true
+    dashboard.show_help = false
+end
+
+function render_wizard_panel(dashboard::TournamentDashboard)
+    if isnothing(dashboard.wizard_state)
+        return Panel("Error: Wizard state not initialized", title="Error")
+    end
     
-    # For now, just create a default model
+    ws = dashboard.wizard_state
+    
+    content = if ws.step == 1
+        """
+        $(Term.highlight("Step 1: Model Name"))
+        
+        Enter model name: $(ws.model_name)_
+        
+        Press Enter to continue
+        Press Backspace to edit
+        Press Esc to cancel
+        """
+    elseif ws.step == 2
+        """
+        $(Term.highlight("Step 2: Model Type"))
+        
+        Select model type:
+        $(ws.model_type == "XGBoost" ? "▶" : " ") [1] XGBoost (Gradient Boosting)
+        $(ws.model_type == "LightGBM" ? "▶" : " ") [2] LightGBM (Light Gradient Boosting)  
+        $(ws.model_type == "EvoTrees" ? "▶" : " ") [3] EvoTrees (Pure Julia Boosting)
+        $(ws.model_type == "Ensemble" ? "▶" : " ") [4] Ensemble (Multiple Models)
+        
+        Press 1-4 to select
+        Press Enter to continue
+        """
+    elseif ws.step == 3
+        """
+        $(Term.highlight("Step 3: Training Parameters"))
+        
+        Learning Rate: $(ws.learning_rate)
+        Max Depth: $(ws.max_depth)
+        Feature Fraction: $(ws.feature_fraction)
+        Number of Rounds: $(ws.num_rounds)
+        
+        Press ↑/↓ to navigate, ←/→ to adjust
+        Press Enter to continue
+        """
+    elseif ws.step == 4
+        """
+        $(Term.highlight("Step 4: Neutralization Settings"))
+        
+        Feature Neutralization: $(ws.neutralize ? "✅ Enabled" : "❌ Disabled")
+        Neutralization Proportion: $(ws.neutralize_proportion)
+        
+        Press Space to toggle neutralization
+        Press ←/→ to adjust proportion
+        Press Enter to continue
+        """
+    elseif ws.step == 5
+        """
+        $(Term.highlight("Step 5: Review & Confirm"))
+        
+        Model Configuration:
+        • Name: $(ws.model_name)
+        • Type: $(ws.model_type)
+        • Learning Rate: $(ws.learning_rate)
+        • Max Depth: $(ws.max_depth)
+        • Feature Fraction: $(ws.feature_fraction)
+        • Rounds: $(ws.num_rounds)
+        • Neutralization: $(ws.neutralize ? "Yes ($(ws.neutralize_proportion))" : "No")
+        
+        Press Enter to create model
+        Press Esc to cancel
+        """
+    else
+        "Unknown wizard step"
+    end
+    
+    Panel(
+        content,
+        title="📦 New Model Wizard - Step $(ws.step)/5",
+        title_style="bold cyan",
+        width=60,
+        height=20
+    )
+end
+
+function handle_wizard_input(dashboard::TournamentDashboard, key::Char)
+    if isnothing(dashboard.wizard_state)
+        return
+    end
+    
+    ws = dashboard.wizard_state
+    
+    if key == '\e'  # Escape
+        dashboard.wizard_active = false
+        dashboard.wizard_state = nothing
+        add_event!(dashboard, :info, "Model creation cancelled")
+        return
+    end
+    
+    if ws.step == 1  # Model name
+        if key == '\r'  # Enter
+            ws.step = 2
+        elseif key == '\b'  # Backspace
+            if length(ws.model_name) > 0
+                ws.model_name = ws.model_name[1:end-1]
+            end
+        elseif isprint(key)
+            ws.model_name *= key
+        end
+    elseif ws.step == 2  # Model type
+        if key == '1'
+            ws.model_type = "XGBoost"
+        elseif key == '2'
+            ws.model_type = "LightGBM"
+        elseif key == '3'
+            ws.model_type = "EvoTrees"
+        elseif key == '4'
+            ws.model_type = "Ensemble"
+        elseif key == '\r'
+            ws.step = 3
+        end
+    elseif ws.step == 3  # Training parameters
+        if key == '\r'
+            ws.step = 4
+        end
+        # Additional parameter adjustment logic could be added here
+    elseif ws.step == 4  # Neutralization
+        if key == ' '
+            ws.neutralize = !ws.neutralize
+        elseif key == '\r'
+            ws.step = 5
+        end
+    elseif ws.step == 5  # Confirm
+        if key == '\r'
+            finalize_model_creation(dashboard)
+        end
+    end
+end
+
+function finalize_model_creation(dashboard::TournamentDashboard)
+    ws = dashboard.wizard_state
+    
+    # Create new model configuration
     new_model = Dict(
-        :name => "model_$(length(dashboard.models) + 1)",
-        :type => "XGBoost",
-        :status => "inactive",
+        :name => ws.model_name,
+        :type => ws.model_type,
+        :status => "configured",
         :corr => 0.0,
         :mmc => 0.0,
         :fnc => 0.0,
         :sharpe => 0.0,
-        :stake => 0.0
+        :stake => 0.0,
+        :config => Dict(
+            :learning_rate => ws.learning_rate,
+            :max_depth => ws.max_depth,
+            :feature_fraction => ws.feature_fraction,
+            :num_rounds => ws.num_rounds,
+            :neutralize => ws.neutralize,
+            :neutralize_proportion => ws.neutralize_proportion
+        )
     )
     
-    push!(dashboard.models, new_model)
-    add_event!(dashboard, :success, "Created new model: $(new_model[:name])")
+    # Save model configuration to file
+    config_dir = joinpath(dirname(@__FILE__), "..", "..", "models")
+    mkpath(config_dir)
     
-    # In a real implementation, this would save the model configuration
-    # and integrate with the ML pipeline
+    config_file = joinpath(config_dir, "$(ws.model_name).toml")
+    open(config_file, "w") do io
+        println(io, "[model]")
+        println(io, "name = \"$(ws.model_name)\"")
+        println(io, "type = \"$(ws.model_type)\"")
+        println(io, "")
+        println(io, "[parameters]")
+        println(io, "learning_rate = $(ws.learning_rate)")
+        println(io, "max_depth = $(ws.max_depth)")
+        println(io, "feature_fraction = $(ws.feature_fraction)")
+        println(io, "num_rounds = $(ws.num_rounds)")
+        println(io, "neutralize = $(ws.neutralize)")
+        println(io, "neutralize_proportion = $(ws.neutralize_proportion)")
+    end
+    
+    push!(dashboard.models, new_model)
+    add_event!(dashboard, :success, "Created new model: $(ws.model_name) (config saved to $(config_file))")
+    
+    dashboard.wizard_active = false
+    dashboard.wizard_state = nothing
 end
 
 function show_model_details(dashboard::TournamentDashboard, model_idx::Int)

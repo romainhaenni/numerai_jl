@@ -147,11 +147,101 @@ function get_submission_status(client::NumeraiClient, model_name::String, round_
 end
 
 function submit_predictions(client::NumeraiClient, model_name::String, predictions_path::String)
+    if !isfile(predictions_path)
+        error("Predictions file not found: $predictions_path")
+    end
+    
+    # First, get the upload URL
     query = """
-    mutation(\$modelId: String!, \$filename: String!) {
+    mutation(\$filename: String!, \$modelId: String!) {
         createSignalsSubmission(
+            filename: \$filename,
+            modelId: \$modelId
+        ) {
+            id
+            filename
+            uploadUrl
+        }
+    }
+    """
+    
+    result = graphql_query(client, query, Dict(
+        "filename" => basename(predictions_path),
+        "modelId" => model_name
+    ))
+    
+    submission_id = result.createSignalsSubmission.id
+    upload_url = result.createSignalsSubmission.uploadUrl
+    
+    # Upload the file to S3
+    file_content = read(predictions_path)
+    upload_response = HTTP.put(
+        upload_url,
+        Dict("Content-Type" => "text/csv"),
+        file_content
+    )
+    
+    if upload_response.status != 200
+        error("Failed to upload predictions: $(upload_response.status)")
+    end
+    
+    println("Successfully uploaded predictions for model: $model_name")
+    return submission_id
+end
+
+function get_live_dataset_id(client::NumeraiClient)
+    query = """
+    query {
+        rounds(first: 1) {
+            datasetId
+        }
+    }
+    """
+    
+    result = graphql_query(client, query)
+    return result.rounds[1].datasetId
+end
+
+function upload_predictions_multipart(client::NumeraiClient, model_id::String, predictions_path::String, round_number::Int)
+    if !isfile(predictions_path)
+        error("Predictions file not found: $predictions_path")
+    end
+    
+    # Get AWS S3 presigned URL for upload
+    query = """
+    mutation(\$filename: String!, \$modelId: String!) {
+        v3SubmissionUpload(
+            filename: \$filename,
+            modelId: \$modelId
+        ) {
+            filename
+            url
+        }
+    }
+    """
+    
+    result = graphql_query(client, query, Dict(
+        "filename" => basename(predictions_path),
+        "modelId" => model_id
+    ))
+    
+    upload_url = result.v3SubmissionUpload.url
+    
+    # Upload the file
+    file_content = read(predictions_path)
+    response = HTTP.put(upload_url, [], file_content)
+    
+    if response.status != 200
+        error("Failed to upload predictions: $(response.status)")
+    end
+    
+    # Confirm submission
+    confirm_query = """
+    mutation(\$filename: String!, \$modelId: String!, \$version: Int!) {
+        v3SubmitPredictions(
+            filename: \$filename,
             modelId: \$modelId,
-            filename: \$filename
+            version: \$version
         ) {
             id
             filename
@@ -159,16 +249,13 @@ function submit_predictions(client::NumeraiClient, model_name::String, predictio
     }
     """
     
-    if !isfile(predictions_path)
-        error("Predictions file not found: $predictions_path")
-    end
-    
-    result = graphql_query(client, query, Dict(
-        "modelId" => model_name,
-        "filename" => basename(predictions_path)
+    confirm_result = graphql_query(client, confirm_query, Dict(
+        "filename" => basename(predictions_path),
+        "modelId" => model_id,
+        "version" => 3
     ))
     
-    return result.createSignalsSubmission
+    return confirm_result.v3SubmitPredictions.id
 end
 
 function get_models_for_user(client::NumeraiClient)::Vector{String}
@@ -198,6 +285,7 @@ function get_dataset_info(client::NumeraiClient)::Schemas.DatasetInfo
 end
 
 export NumeraiClient, get_current_round, get_model_performance, download_dataset,
-       submit_predictions, get_models_for_user, get_dataset_info, get_submission_status
+       submit_predictions, get_models_for_user, get_dataset_info, get_submission_status,
+       get_live_dataset_id, upload_predictions_multipart
 
 end

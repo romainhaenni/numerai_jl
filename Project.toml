@@ -17,6 +17,7 @@ JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 LightGBM = "7acf609c-83a4-11e9-1ffb-b912bcd3b04a"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 MLJ = "add582a8-e3ab-11e8-2d5e-e98b27df1bc7"
+OrderedCollections = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
 Parquet = "626c502c-15b0-58ad-a749-f091afb673ae"
 Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
@@ -30,6 +31,7 @@ UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 XGBoost = "009559a3-9522-5dbb-924b-0b6ed2b22bb9"
 
 [compat]
+OrderedCollections = "1.8.1"
 julia = "1.10"
 
 [extras]

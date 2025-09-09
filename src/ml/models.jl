@@ -6,6 +6,7 @@ using DataFrames
 using Random
 using Statistics
 using ThreadsX
+using OrderedCollections
 
 abstract type NumeraiModel end
 
@@ -69,28 +70,38 @@ function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Vector{F
     
     dtrain = DMatrix(X_train, label=y_train)
     
-    eval_set = []
+    # Train model with individual parameters instead of params dict
     if X_val !== nothing && y_val !== nothing
         dval = DMatrix(X_val, label=y_val)
-        push!(eval_set, dval)
-    end
-    
-    verbose_eval = verbose ? 1 : 0
-    
-    if !isempty(eval_set)
+        watchlist = OrderedDict("train" => dtrain, "eval" => dval)
+        
+        # Train model with validation set
         model.model = xgboost(
             dtrain;
             num_round=model.num_rounds,
-            params=model.params,
-            watchlist=eval_set,
-            verbose_eval=verbose_eval
+            max_depth=model.params["max_depth"],
+            eta=model.params["learning_rate"],
+            colsample_bytree=model.params["colsample_bytree"],
+            objective=model.params["objective"],
+            eval_metric=model.params["eval_metric"],
+            tree_method=model.params["tree_method"],
+            device=model.params["device"],
+            nthread=model.params["nthread"],
+            watchlist=watchlist
         )
     else
+        # Train model without validation set
         model.model = xgboost(
             dtrain;
             num_round=model.num_rounds,
-            params=model.params,
-            verbose_eval=verbose_eval
+            max_depth=model.params["max_depth"],
+            eta=model.params["learning_rate"],
+            colsample_bytree=model.params["colsample_bytree"],
+            objective=model.params["objective"],
+            eval_metric=model.params["eval_metric"],
+            tree_method=model.params["tree_method"],
+            device=model.params["device"],
+            nthread=model.params["nthread"]
         )
     end
     

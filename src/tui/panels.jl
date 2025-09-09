@@ -1,7 +1,8 @@
 module Panels
 
 using Term
-using Term: Panel, Tables
+using Term: Panel
+import Term.Tables as TermTables
 using Dates
 using DataFrames
 using ..Charts
@@ -26,7 +27,7 @@ function create_model_performance_panel(performances::Vector{Dict{Symbol, Any}})
             ])
         end
         
-        content = Tables.Table(rows, box=:ROUNDED)
+        content = TermTables.Table(rows, box=:ROUNDED)
     end
     
     return Panel(

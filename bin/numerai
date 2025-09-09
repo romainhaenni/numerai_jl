@@ -1,0 +1,128 @@
+#!/usr/bin/env julia
+
+using Pkg
+Pkg.activate(@__DIR__ * "/..")
+
+using NumeraiTournament
+using ArgParse
+
+function parse_commandline()
+    s = ArgParseSettings(
+        description = "Numerai Tournament Trading System",
+        version = "1.0.0",
+        add_version = true
+    )
+
+    @add_arg_table! s begin
+        "command"
+            help = "Command to run: dashboard, train, submit, download, schedule"
+            required = true
+        
+        "--config", "-c"
+            help = "Path to configuration file"
+            default = "config.toml"
+        
+        "--model", "-m"
+            help = "Model name to use"
+            default = "default_model"
+        
+        "--headless"
+            help = "Run without TUI (for scheduling)"
+            action = :store_true
+        
+        "--data-dir", "-d"
+            help = "Directory for data storage"
+            default = "data"
+        
+        "--verbose", "-v"
+            help = "Enable verbose output"
+            action = :store_true
+    end
+
+    return parse_args(s)
+end
+
+function main()
+    args = parse_commandline()
+    
+    command = args["command"]
+    config_path = args["config"]
+    
+    if command == "dashboard"
+        println("🚀 Starting Numerai Tournament Dashboard...")
+        NumeraiTournament.run_tournament(config_path=config_path, headless=false)
+        
+    elseif command == "schedule"
+        println("⏰ Starting Numerai Tournament Scheduler...")
+        NumeraiTournament.run_tournament(config_path=config_path, headless=true)
+        
+    elseif command == "train"
+        println("🤖 Training models...")
+        config = NumeraiTournament.load_config(config_path)
+        
+        api_client = NumeraiTournament.API.NumeraiClient(
+            config.api_public_key,
+            config.api_secret_key
+        )
+        
+        NumeraiTournament.API.download_dataset(api_client, "train", joinpath(config.data_dir, "train.parquet"))
+        NumeraiTournament.API.download_dataset(api_client, "validation", joinpath(config.data_dir, "validation.parquet"))
+        NumeraiTournament.API.download_dataset(api_client, "features", joinpath(config.data_dir, "features.json"))
+        
+        data = NumeraiTournament.DataLoader.load_tournament_data(config.data_dir)
+        features, _ = NumeraiTournament.DataLoader.load_features_json(joinpath(config.data_dir, "features.json"))
+        
+        pipeline = NumeraiTournament.Pipeline.MLPipeline(
+            feature_cols=features,
+            target_col="target_cyrus_v4_20"
+        )
+        
+        NumeraiTournament.Pipeline.train!(pipeline, data.train, data.validation, verbose=true)
+        
+        println("✅ Training completed!")
+        
+    elseif command == "submit"
+        println("📤 Submitting predictions...")
+        config = NumeraiTournament.load_config(config_path)
+        model_name = args["model"]
+        
+        api_client = NumeraiTournament.API.NumeraiClient(
+            config.api_public_key,
+            config.api_secret_key
+        )
+        
+        round_info = NumeraiTournament.API.get_current_round(api_client)
+        predictions_path = joinpath(config.data_dir, "predictions_$(model_name)_round$(round_info.number).csv")
+        
+        if isfile(predictions_path)
+            NumeraiTournament.API.submit_predictions(api_client, model_name, predictions_path)
+            println("✅ Predictions submitted for $model_name!")
+        else
+            println("❌ No predictions file found at $predictions_path")
+        end
+        
+    elseif command == "download"
+        println("📥 Downloading tournament data...")
+        config = NumeraiTournament.load_config(config_path)
+        
+        api_client = NumeraiTournament.API.NumeraiClient(
+            config.api_public_key,
+            config.api_secret_key
+        )
+        
+        NumeraiTournament.API.download_dataset(api_client, "train", joinpath(config.data_dir, "train.parquet"))
+        NumeraiTournament.API.download_dataset(api_client, "validation", joinpath(config.data_dir, "validation.parquet"))
+        NumeraiTournament.API.download_dataset(api_client, "live", joinpath(config.data_dir, "live.parquet"))
+        NumeraiTournament.API.download_dataset(api_client, "features", joinpath(config.data_dir, "features.json"))
+        
+        println("✅ Data download completed!")
+        
+    else
+        println("❌ Unknown command: $command")
+        println("Available commands: dashboard, train, submit, download, schedule")
+    end
+end
+
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end

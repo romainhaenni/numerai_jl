@@ -104,6 +104,7 @@ function get_current_round(client::NumeraiClient)::Schemas.Round
         parse_datetime_safe(get(round_data, "closeTime", nothing)),
         parse_datetime_safe(get(round_data, "resolveTime", nothing)),
         false  # not active
+    )
 end
 
 function get_model_performance(client::NumeraiClient, model_name::String)::Schemas.ModelPerformance

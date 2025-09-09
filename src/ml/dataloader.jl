@@ -265,8 +265,8 @@ function load_tournament_data(data_dir::String; show_progress::Bool=true)::Tourn
     end
     
     # Use existing load functions
-    train_df = load_training_data(train_path, sample_frac=1.0)
-    val_df = load_training_data(val_path, sample_frac=1.0)  # validation uses same format as training
+    train_df = load_training_data(train_path, sample_pct=1.0)
+    val_df = load_training_data(val_path, sample_pct=1.0)  # validation uses same format as training
     live_df = load_live_data(live_path)
     
     features, targets = load_features_json(features_path)

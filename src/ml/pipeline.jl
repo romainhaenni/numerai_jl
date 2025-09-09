@@ -4,7 +4,7 @@ using DataFrames
 using Statistics
 using ProgressMeter
 using ..DataLoader
-using ..MLPreprocessor
+using ..Preprocessor
 using ..Models
 using ..Ensemble
 using ..Neutralization
@@ -48,7 +48,7 @@ end
 function prepare_data(pipeline::MLPipeline, df::DataFrame)::Tuple{Matrix{Float64}, Vector{Float64}, Vector{Int}}
     feature_data = DataLoader.get_feature_columns(df, pipeline.feature_cols)
     
-    feature_data = MLPreprocessor.fillna(feature_data, 0.5)
+    feature_data = Preprocessor.fillna(feature_data, 0.5)
     
     X = Matrix{Float64}(feature_data)
     
@@ -129,7 +129,7 @@ function predict(pipeline::MLPipeline, df::DataFrame;
     end
     
     feature_data = DataLoader.get_feature_columns(df, pipeline.feature_cols)
-    feature_data = MLPreprocessor.fillna(feature_data, 0.5)
+    feature_data = Preprocessor.fillna(feature_data, 0.5)
     X = Matrix{Float64}(feature_data)
     
     if verbose
@@ -151,11 +151,11 @@ function predict(pipeline::MLPipeline, df::DataFrame;
     end
     
     if pipeline.config[:normalize_predictions] && !return_raw
-        predictions = MLPreprocessor.normalize_predictions(predictions)
+        predictions = Preprocessor.normalize_predictions(predictions)
     end
     
     if pipeline.config[:clip_predictions] && !return_raw
-        predictions = MLPreprocessor.clip_predictions(predictions)
+        predictions = Preprocessor.clip_predictions(predictions)
     end
     
     return predictions

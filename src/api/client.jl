@@ -96,7 +96,6 @@ function get_model_performance(client::NumeraiClient, model_name::String)::Schem
                 tc
             }
             nmrStaked
-            corr20V2Percentile
         }
     }
     """
@@ -111,7 +110,7 @@ function get_model_performance(client::NumeraiClient, model_name::String)::Schem
         get(profile.latestRanks, :mmc, 0.0),
         get(profile.latestRanks, :fnc, 0.0),
         get(profile.latestRanks, :tc, 0.0),
-        get(profile, :corr20V2Percentile, 0.0),  # Using percentile as sharpe proxy
+        0.0,  # Sharpe not directly available
         get(profile, :nmrStaked, 0.0)
     )
 end

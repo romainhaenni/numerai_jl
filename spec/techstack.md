@@ -1,5 +1,9 @@
 ## Julia Tech Stack for Numerai Tournament System
 
+Implement the core modules as specified: API client, ML pipeline with feature neutralization, ensemble management, TUI dashboard, scheduler, and notification system.
+
+The program runs in the terminal (provide an executable) and is monitored by the user through a comprehensible TUI.
+
 ### **Core Language & Runtime**
 - **Julia 1.10+** - High-performance scientific computing language
 - **LLVM backend** - Native compilation with JIT optimization

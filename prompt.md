@@ -1,14 +1,8 @@
-**Implement a complete Numerai tournament trading system in Julia for M4 Max Mac Studio based on the provided spec:**
-
 Your job is to create a production-ready Julia application following the specifications in the reference documents in @spec.
 
+Follow the @scratchpad.md and choose the most important thing. Before making changes search codebase (don't assume not implemented) using subagents. You may use up to 100 parallel subagents for all operations but only 1 subagent for build/tests of Julia.
 
-
-Implement the core modules as specified: API client, ML pipeline with feature neutralization, ensemble management, TUI dashboard, scheduler, and notification system.
-
-The program runs in the terminal (provide an executable) and is monitored by the user through a comprehensible TUI.
-
-Make a commit and push your changes after every single file edit. You will need to write end to end and unit tests for the project.
+Make a commit and push your changes after every single file edit. You will need to write and run end to end and unit tests for the project.
 
 Use @scratchpad.md as a scratchpad for your work. Store long term plans and todo lists there.
 

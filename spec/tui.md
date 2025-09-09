@@ -12,6 +12,7 @@ The Numerai Trading System TUI provides a comprehensive real-time monitoring int
 - macOS notifications
 - Optimized for M4 Max's 16 CPU cores and 48GB unified memory
 
+
 ### **📊 Model Performance Panel**
 - **Live correlation metrics** for each model in your ensemble
 - **Sharpe ratio tracking** to monitor risk-adjusted returns

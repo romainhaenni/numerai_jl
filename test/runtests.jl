@@ -209,3 +209,6 @@ Random.seed!(123)
 end
 
 println("\n✅ All tests passed!")
+
+# Run end-to-end tests
+include("test_e2e.jl")

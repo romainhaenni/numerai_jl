@@ -3,6 +3,7 @@ module Performance
 using LinearAlgebra
 using Distributed
 using ThreadsX
+using Statistics
 
 function optimize_for_m4_max()
     # Set optimal number of threads for M4 Max (16 performance cores)

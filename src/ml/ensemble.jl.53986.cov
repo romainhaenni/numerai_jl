@@ -1,0 +1,193 @@
+        - module Ensemble
+        - 
+        - using Statistics
+        - using Random
+        - using ThreadsX
+        - using ..Models
+        - 
+        - struct ModelEnsemble
+        3     models::Vector{<:Models.NumeraiModel}
+        -     weights::Vector{Float64}
+        -     name::String
+        - end
+        - 
+        9 function ModelEnsemble(models::Vector{<:Models.NumeraiModel}; 
+        -                       weights::Union{Nothing, Vector{Float64}}=nothing,
+        -                       name::String="ensemble")
+        3     n_models = length(models)
+        -     
+        3     if weights === nothing
+        9         weights = fill(1.0 / n_models, n_models)
+        -     else
+        0         if length(weights) != n_models
+        0             error("Number of weights must match number of models")
+        -         end
+        0         weights = weights ./ sum(weights)
+        -     end
+        -     
+        3     return ModelEnsemble(models, weights, name)
+        - end
+        - 
+        2 function train_ensemble!(ensemble::ModelEnsemble, X_train::Matrix{Float64}, y_train::Vector{Float64};
+        -                         X_val::Union{Nothing, Matrix{Float64}}=nothing,
+        -                         y_val::Union{Nothing, Vector{Float64}}=nothing,
+        -                         parallel::Bool=true,
+        -                         verbose::Bool=false)
+        -     
+        1     if parallel && Threads.nthreads() > 1
+        0         ThreadsX.foreach(ensemble.models) do model
+        -             if verbose
+        -                 println("Training $(model.name)...")
+        -             end
+        -             Models.train!(model, X_train, y_train, X_val=X_val, y_val=y_val, verbose=false)
+        -         end
+        -     else
+        1         for model in ensemble.models
+        2             if verbose
+        0                 println("Training $(model.name)...")
+        -             end
+        3             Models.train!(model, X_train, y_train, X_val=X_val, y_val=y_val, verbose=false)
+        2         end
+        -     end
+        -     
+        1     return ensemble
+        - end
+        - 
+        4 function predict_ensemble(ensemble::ModelEnsemble, X::Matrix{Float64}; 
+        -                          return_individual::Bool=false)::Union{Vector{Float64}, Tuple{Vector{Float64}, Matrix{Float64}}}
+        2     n_samples = size(X, 1)
+        2     n_models = length(ensemble.models)
+        4     predictions_matrix = Matrix{Float64}(undef, n_samples, n_models)
+        -     
+        2     ThreadsX.foreach(enumerate(ensemble.models)) do (i, model)
+        6         predictions_matrix[:, i] = Models.predict(model, X)
+        -     end
+        -     
+        2     weighted_predictions = predictions_matrix * ensemble.weights
+        -     
+        2     if return_individual
+        0         return weighted_predictions, predictions_matrix
+        -     else
+        2         return weighted_predictions
+        -     end
+        - end
+        - 
+        0 function optimize_weights(ensemble::ModelEnsemble, X_val::Matrix{Float64}, y_val::Vector{Float64};
+        -                          metric::Function=cor, n_iterations::Int=1000)::Vector{Float64}
+        0     n_models = length(ensemble.models)
+        -     
+        0     predictions_matrix = Matrix{Float64}(undef, size(X_val, 1), n_models)
+        0     for (i, model) in enumerate(ensemble.models)
+        0         predictions_matrix[:, i] = Models.predict(model, X_val)
+        0     end
+        -     
+        0     best_weights = ensemble.weights
+        0     best_score = metric(predictions_matrix * best_weights, y_val)
+        -     
+        0     for _ in 1:n_iterations
+        0         trial_weights = rand(n_models)
+        0         trial_weights = trial_weights ./ sum(trial_weights)
+        -         
+        0         trial_predictions = predictions_matrix * trial_weights
+        0         trial_score = metric(trial_predictions, y_val)
+        -         
+        0         if trial_score > best_score
+        0             best_score = trial_score
+        0             best_weights = trial_weights
+        -         end
+        0     end
+        -     
+        0     return best_weights
+        - end
+        - 
+        - function bagging_ensemble(model_constructor::Function, n_models::Int, 
+        -                          X_train::Matrix{Float64}, y_train::Vector{Float64};
+        -                          sample_ratio::Float64=0.8,
+        -                          feature_ratio::Float64=0.8,
+        -                          parallel::Bool=true)::ModelEnsemble
+        -     n_samples = size(X_train, 1)
+        -     n_features = size(X_train, 2)
+        -     
+        -     n_sample_subset = Int(floor(n_samples * sample_ratio))
+        -     n_feature_subset = Int(floor(n_features * feature_ratio))
+        -     
+        -     models = Models.NumeraiModel[]
+        -     
+        -     train_func = function(i)
+        -         Random.seed!(i)
+        -         
+        -         sample_indices = randperm(n_samples)[1:n_sample_subset]
+        -         feature_indices = randperm(n_features)[1:n_feature_subset]
+        -         
+        -         X_subset = X_train[sample_indices, feature_indices]
+        -         y_subset = y_train[sample_indices]
+        -         
+        -         model = model_constructor()
+        -         Models.train!(model, X_subset, y_subset, verbose=false)
+        -         
+        -         return model
+        -     end
+        -     
+        -     if parallel && Threads.nthreads() > 1
+        -         models = ThreadsX.map(train_func, 1:n_models)
+        -     else
+        -         models = [train_func(i) for i in 1:n_models]
+        -     end
+        -     
+        -     return ModelEnsemble(models, name="bagging_ensemble")
+        - end
+        - 
+        - function stacking_ensemble(base_models::Vector{<:Models.NumeraiModel}, 
+        -                           meta_model::Models.NumeraiModel,
+        -                           X_train::Matrix{Float64}, y_train::Vector{Float64},
+        -                           X_val::Matrix{Float64}, y_val::Vector{Float64})::Function
+        -     
+        -     n_base = length(base_models)
+        -     meta_features_train = Matrix{Float64}(undef, size(X_train, 1), n_base)
+        -     meta_features_val = Matrix{Float64}(undef, size(X_val, 1), n_base)
+        -     
+        -     for (i, model) in enumerate(base_models)
+        -         Models.train!(model, X_train, y_train, verbose=false)
+        -         meta_features_train[:, i] = Models.predict(model, X_train)
+        -         meta_features_val[:, i] = Models.predict(model, X_val)
+        -     end
+        -     
+        -     Models.train!(meta_model, meta_features_train, y_train, 
+        -                  X_val=meta_features_val, y_val=y_val, verbose=false)
+        -     
+        -     function stacked_predict(X::Matrix{Float64})::Vector{Float64}
+        -         meta_features = Matrix{Float64}(undef, size(X, 1), n_base)
+        -         for (i, model) in enumerate(base_models)
+        -             meta_features[:, i] = Models.predict(model, X)
+        -         end
+        -         return Models.predict(meta_model, meta_features)
+        -     end
+        -     
+        -     return stacked_predict
+        - end
+        - 
+        2 function diversity_score(predictions_matrix::Matrix{Float64})::Float64
+        2     n_models = size(predictions_matrix, 2)
+        -     
+        2     if n_models < 2
+        0         return 0.0
+        -     end
+        -     
+        2     correlations = Float64[]
+        2     for i in 1:n_models
+        8         for j in (i+1):n_models
+      600             push!(correlations, cor(predictions_matrix[:, i], predictions_matrix[:, j]))
+        8         end
+       10     end
+        -     
+        2     avg_correlation = mean(correlations)
+        -     
+        -     # Clamp the result to [0, 1] range
+        -     # avg_correlation ranges from -1 to 1, so (1 - avg_correlation) / 2 maps to [0, 1]
+        2     return (1.0 - avg_correlation) / 2.0
+        - end
+        - 
+        - export ModelEnsemble, train_ensemble!, predict_ensemble, optimize_weights,
+        -        bagging_ensemble, stacking_ensemble, diversity_score
+        - 
+        - end

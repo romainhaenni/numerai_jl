@@ -7,13 +7,113 @@ using ..Pipeline
 using ..Dashboard
 using ..Notifications
 
+# CronExpression parser and matcher
+struct CronExpression
+    minute::Vector{Int}
+    hour::Vector{Int}
+    day::Vector{Int}
+    month::Vector{Int}
+    weekday::Vector{Int}
+    expression::String
+end
+
+function parse_cron_field(field::String, min_val::Int, max_val::Int)
+    if field == "*"
+        return collect(min_val:max_val)
+    elseif occursin("/", field)
+        # Handle step values like */2
+        parts = split(field, "/")
+        if parts[1] == "*"
+            step = parse(Int, parts[2])
+            return collect(min_val:step:max_val)
+        else
+            # Handle range with step like 0-10/2
+            range_parts = split(parts[1], "-")
+            start_val = parse(Int, range_parts[1])
+            end_val = parse(Int, range_parts[2])
+            step = parse(Int, parts[2])
+            return collect(start_val:step:end_val)
+        end
+    elseif occursin("-", field)
+        # Handle ranges like 2-5
+        parts = split(field, "-")
+        return collect(parse(Int, parts[1]):parse(Int, parts[2]))
+    elseif occursin(",", field)
+        # Handle lists like 1,3,5
+        return [parse(Int, x) for x in split(field, ",")]
+    else
+        # Single value
+        return [parse(Int, field)]
+    end
+end
+
+function CronExpression(expr::String)
+    parts = split(expr)
+    if length(parts) != 5
+        error("Invalid cron expression: must have 5 fields (minute hour day month weekday)")
+    end
+    
+    minute = parse_cron_field(parts[1], 0, 59)
+    hour = parse_cron_field(parts[2], 0, 23)
+    day = parse_cron_field(parts[3], 1, 31)
+    month = parse_cron_field(parts[4], 1, 12)
+    weekday = parse_cron_field(parts[5], 0, 6)  # 0=Sunday, 6=Saturday
+    
+    return CronExpression(minute, hour, day, month, weekday, expr)
+end
+
+function matches(cron::CronExpression, dt::DateTime)
+    # Convert Julia's dayofweek (1=Monday, 7=Sunday) to cron format (0=Sunday, 6=Saturday)
+    dow = dayofweek(dt)
+    cron_dow = dow == 7 ? 0 : dow
+    
+    return minute(dt) in cron.minute &&
+           hour(dt) in cron.hour &&
+           day(dt) in cron.day &&
+           month(dt) in cron.month &&
+           cron_dow in cron.weekday
+end
+
+function next_run_time(cron::CronExpression, from::DateTime=now())
+    # Find the next time this cron expression should run
+    current = ceil(from, Minute)  # Round up to next minute
+    
+    # Search for up to 1 year ahead
+    for _ in 1:(365*24*60)
+        if matches(cron, current)
+            return current
+        end
+        current += Minute(1)
+    end
+    
+    return nothing  # No match found in next year
+end
+
+# CronJob structure
+mutable struct CronJob
+    name::String
+    cron_expression::CronExpression
+    task::Function
+    active::Bool
+    last_run::Union{Nothing, DateTime}
+    next_run::Union{Nothing, DateTime}
+end
+
+function CronJob(expr::String, task::Function, name::String="")
+    cron_expr = CronExpression(expr)
+    next_time = next_run_time(cron_expr)
+    return CronJob(name, cron_expr, task, false, nothing, next_time)
+end
+
+# Main scheduler structure
 mutable struct TournamentScheduler
     config::Any
     api_client::API.NumeraiClient
     pipeline::Union{Nothing, Pipeline.MLPipeline}
-    timers::Vector{Timer}
+    cron_jobs::Vector{CronJob}
     running::Bool
     dashboard::Union{Nothing, Dashboard.TournamentDashboard}
+    scheduler_task::Union{Nothing, Task}
 end
 
 function TournamentScheduler(config)
@@ -23,8 +123,9 @@ function TournamentScheduler(config)
         config,
         api_client,
         nothing,
-        Timer[],
+        CronJob[],
         false,
+        nothing,
         nothing
     )
 end
@@ -36,11 +137,24 @@ function start_scheduler(scheduler::TournamentScheduler; with_dashboard::Bool=fa
         scheduler.dashboard = Dashboard.TournamentDashboard(scheduler.config)
     end
     
-    setup_timers!(scheduler)
+    setup_cron_jobs!(scheduler)
     
-    println("🚀 Numerai Tournament Scheduler Started")
+    println("🚀 Numerai Tournament Scheduler Started (Cron-based)")
     println("Configured for $(length(scheduler.config.models)) models")
     println("Auto-submit: $(scheduler.config.auto_submit)")
+    println("Active cron jobs: $(length(scheduler.cron_jobs))")
+    
+    # Display job schedules
+    for job in scheduler.cron_jobs
+        println("  - $(job.name): $(job.cron_expression.expression)")
+        next_time = job.next_run
+        if next_time !== nothing
+            println("    Next run: $(Dates.format(next_time, "yyyy-mm-dd HH:MM:SS"))")
+        end
+    end
+    
+    # Start the scheduler task
+    scheduler.scheduler_task = @async run_scheduler_loop(scheduler)
     
     if with_dashboard
         Dashboard.run_dashboard(scheduler.dashboard)
@@ -51,58 +165,91 @@ function start_scheduler(scheduler::TournamentScheduler; with_dashboard::Bool=fa
     end
 end
 
-function setup_timers!(scheduler::TournamentScheduler)
-    # Weekend round job - every Saturday at 18:00
-    push!(scheduler.timers, Timer(0.0, interval=3600.0) do timer
-        if is_weekend_round_time()
-            weekend_round_job(scheduler)
+function run_scheduler_loop(scheduler::TournamentScheduler)
+    while scheduler.running
+        current_time = now()
+        current_minute = floor(current_time, Minute)
+        
+        for job in scheduler.cron_jobs
+            if !job.active
+                continue
+            end
+            
+            # Check if this job should run at this minute
+            if matches(job.cron_expression, current_minute)
+                # Check if we haven't already run it this minute
+                if job.last_run === nothing || job.last_run < current_minute
+                    # Run the job asynchronously
+                    @async begin
+                        try
+                            log_event(scheduler, :info, "Running cron job: $(job.name)")
+                            job.task()
+                            job.last_run = current_minute
+                            job.next_run = next_run_time(job.cron_expression, current_minute + Minute(1))
+                        catch e
+                            log_event(scheduler, :error, "Cron job $(job.name) failed: $e")
+                        end
+                    end
+                end
+            end
         end
-    end)
+        
+        # Sleep until the next minute
+        next_minute = current_minute + Minute(1)
+        sleep_duration = (next_minute - now()).value / 1000  # Convert to seconds
+        if sleep_duration > 0
+            sleep(sleep_duration)
+        end
+    end
+end
+
+function setup_cron_jobs!(scheduler::TournamentScheduler)
+    # Weekend round job - every Saturday at 18:00
+    push!(scheduler.cron_jobs, CronJob(
+        "0 18 * * 6",  # At 18:00 on Saturday
+        () -> weekend_round_job(scheduler),
+        "Weekend Round Processing"
+    ))
     
     # Check and submit - every 2 hours on weekends
-    push!(scheduler.timers, Timer(0.0, interval=7200.0) do timer
-        if is_weekend()
-            check_and_submit(scheduler)
-        end
-    end)
+    push!(scheduler.cron_jobs, CronJob(
+        "0 */2 * * 0,6",  # Every 2 hours on Saturday and Sunday
+        () -> check_and_submit(scheduler),
+        "Weekend Check and Submit"
+    ))
     
     # Daily round job - weekdays at 18:00
-    push!(scheduler.timers, Timer(0.0, interval=3600.0) do timer
-        if is_daily_round_time()
-            daily_round_job(scheduler)
-        end
-    end)
+    push!(scheduler.cron_jobs, CronJob(
+        "0 18 * * 1-5",  # At 18:00 on Monday through Friday (adjusted for Julia's dayofweek)
+        () -> daily_round_job(scheduler),
+        "Daily Round Processing"
+    ))
     
     # Weekly update - every Monday at 12:00
-    push!(scheduler.timers, Timer(0.0, interval=3600.0) do timer
-        if is_weekly_update_time()
-            weekly_update_job(scheduler)
-        end
-    end)
+    push!(scheduler.cron_jobs, CronJob(
+        "0 12 * * 1",  # At 12:00 on Monday
+        () -> weekly_update_job(scheduler),
+        "Weekly Model Update"
+    ))
     
     # Hourly monitoring
-    push!(scheduler.timers, Timer(0.0, interval=3600.0) do timer
-        hourly_monitoring(scheduler)
-    end)
+    push!(scheduler.cron_jobs, CronJob(
+        "0 * * * *",  # At the start of every hour
+        () -> hourly_monitoring(scheduler),
+        "Hourly Performance Monitoring"
+    ))
+    
+    # Activate all jobs
+    for job in scheduler.cron_jobs
+        job.active = true
+    end
+    
+    log_event(scheduler, :info, "Cron jobs configured: $(length(scheduler.cron_jobs)) jobs active")
 end
 
-function is_weekend_round_time()
-    now_time = now()
-    return dayofweek(now_time) == 6 && hour(now_time) == 18 && minute(now_time) < 5
-end
-
+# Helper function for testing
 function is_weekend()
     return dayofweek(now()) in [6, 7]
-end
-
-function is_daily_round_time()
-    now_time = now()
-    return dayofweek(now_time) in [2, 3, 4, 5] && hour(now_time) == 18 && minute(now_time) < 5
-end
-
-function is_weekly_update_time()
-    now_time = now()
-    return dayofweek(now_time) == 1 && hour(now_time) == 12 && minute(now_time) < 5
 end
 
 function weekend_round_job(scheduler::TournamentScheduler)
@@ -336,13 +483,38 @@ end
 function stop_scheduler(scheduler::TournamentScheduler)
     scheduler.running = false
     
-    for timer in scheduler.timers
-        close(timer)
+    # Deactivate all cron jobs
+    for job in scheduler.cron_jobs
+        job.active = false
     end
     
-    log_event(scheduler, :info, "Scheduler stopped")
+    # Wait for scheduler task to finish
+    if scheduler.scheduler_task !== nothing
+        wait(scheduler.scheduler_task)
+    end
+    
+    log_event(scheduler, :info, "Scheduler stopped - $(length(scheduler.cron_jobs)) cron jobs terminated")
 end
 
-export TournamentScheduler, start_scheduler, stop_scheduler
+function get_scheduler_status(scheduler::TournamentScheduler)
+    status = Dict{String, Any}()
+    status["running"] = scheduler.running
+    status["active_jobs"] = length(scheduler.cron_jobs)
+    status["job_details"] = []
+    
+    for job in scheduler.cron_jobs
+        push!(status["job_details"], Dict(
+            "name" => job.name,
+            "schedule" => job.cron_expression.expression,
+            "active" => job.active,
+            "last_run" => job.last_run,
+            "next_run" => job.next_run
+        ))
+    end
+    
+    return status
+end
+
+export TournamentScheduler, start_scheduler, stop_scheduler, get_scheduler_status
 
 end

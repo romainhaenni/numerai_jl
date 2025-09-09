@@ -1,0 +1,118 @@
+        - module Charts
+        - 
+        - using UnicodePlots
+        - using Statistics
+        - 
+        - function create_sparkline(values::Vector{Float64}; width::Int=40, height::Int=8)::String
+        -     if isempty(values)
+        -         return "No data"
+        -     end
+        -     
+        -     if length(values) == 1
+        -         return "Single value: $(round(values[1], digits=4))"
+        -     end
+        -     
+        -     plt = lineplot(
+        -         1:length(values), values,
+        -         width=width, height=height,
+        -         border=:none,
+        -         labels=false,
+        -         canvas=BrailleCanvas
+        -     )
+        -     
+        -     return string(plt)
+        - end
+        - 
+        - function create_bar_chart(labels::Vector{String}, values::Vector{Float64}; 
+        -                          width::Int=40)::String
+        -     if isempty(labels) || isempty(values)
+        -         return "No data"
+        -     end
+        -     
+        -     plt = barplot(
+        -         labels, values,
+        -         width=width,
+        -         border=:solid
+        -     )
+        -     
+        -     return string(plt)
+        - end
+        - 
+        - function create_histogram(values::Vector{Float64}; bins::Int=20, width::Int=40)::String
+        -     if isempty(values)
+        -         return "No data"
+        -     end
+        -     
+        -     plt = histogram(
+        -         values,
+        -         nbins=bins,
+        -         width=width,
+        -         border=:solid
+        -     )
+        -     
+        -     return string(plt)
+        - end
+        - 
+        - function create_performance_sparklines(performance_history::Dict{String, Vector{Float64}};
+        -                                       width::Int=30, height::Int=4)::Dict{String, String}
+        -     sparklines = Dict{String, String}()
+        -     
+        -     for (metric, values) in performance_history
+        -         if !isempty(values)
+        -             sparklines[metric] = create_sparkline(values, width=width, height=height)
+        -         else
+        -             sparklines[metric] = "No history"
+        -         end
+        -     end
+        -     
+        -     return sparklines
+        - end
+        - 
+        2 function format_correlation_bar(corr::Float64; width::Int=20)::String
+        1     if isnan(corr)
+        0         return "─" ^ width
+        -     end
+        -     
+        1     normalized = (corr + 1.0) / 2.0
+        1     filled = Int(round(normalized * width))
+        -     
+        1     bar = "█" ^ filled * "░" ^ (width - filled)
+        -     
+        1     color = if corr > 0.02
+        1         "\e[32m"
+        0     elseif corr < -0.02
+        0         "\e[31m"
+        -     else
+        1         "\e[33m"
+        -     end
+        -     
+        1     return "$(color)$(bar)\e[0m $(round(corr, digits=4))"
+        - end
+        - 
+        2 function create_mini_chart(values::Vector{Float64}; width::Int=10)::String
+        1     if isempty(values)
+        0         return " " ^ width
+        -     end
+        -     
+        1     min_val, max_val = extrema(values)
+        1     if min_val == max_val
+        0         return "─" ^ width
+        -     end
+        -     
+        8     chars = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█']
+        -     
+        1     result = ""
+        1     for val in values[max(1, end-width+1):end]
+        5         normalized = (val - min_val) / (max_val - min_val)
+        5         idx = Int(ceil(normalized * 8))
+       10         idx = clamp(idx, 1, 8)
+        5         result *= chars[idx]
+        5     end
+        -     
+        1     return result
+        - end
+        - 
+        - export create_sparkline, create_bar_chart, create_histogram,
+        -        create_performance_sparklines, format_correlation_bar, create_mini_chart
+        - 
+        - end

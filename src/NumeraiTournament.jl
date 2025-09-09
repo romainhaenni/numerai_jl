@@ -47,10 +47,12 @@ function load_config(path::String="config.toml")::TournamentConfig
     end
     
     if !isfile(path)
+        @info "No config file found at $path. Using default configuration."
+        @info "Please create a config.toml file or set environment variables for API credentials."
         return TournamentConfig(
             default_public_id,
             default_secret_key,
-            ["default_model"],
+            String[],  # Empty array instead of default_model placeholder
             "data",
             "models",
             true,
@@ -64,7 +66,7 @@ function load_config(path::String="config.toml")::TournamentConfig
     return TournamentConfig(
         get(config, "api_public_key", default_public_id),
         get(config, "api_secret_key", default_secret_key),
-        get(config, "models", ["default_model"]),
+        get(config, "models", String[]),  # Empty array instead of default_model
         get(config, "data_dir", "data"),
         get(config, "model_dir", "models"),
         get(config, "auto_submit", true),

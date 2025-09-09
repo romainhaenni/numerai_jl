@@ -338,18 +338,54 @@ function get_models_for_user(client::NumeraiClient)::Vector{String}
                         push!(model_names, model["name"])
                     end
                 end
-                return isempty(model_names) ? ["default_model"] : model_names
+                if !isempty(model_names)
+                    return model_names
+                else
+                    @warn "No models found for user. Please create a model on numer.ai first."
+                    return String[]
+                end
             end
         end
     catch e
-        @warn "Failed to fetch user models: $e. Using default model."
+        @error "Failed to fetch user models: $e"
+        @warn "Please check your API credentials and internet connection."
     end
     
-    # Fallback to default model if API call fails or returns no models
-    return ["default_model"]
+    # Return empty array if API call fails - user needs to fix credentials
+    return String[]
 end
 
 function get_dataset_info(client::NumeraiClient)::Schemas.DatasetInfo
+    # Query actual dataset information from API
+    query = """
+    query {
+        dataset {
+            version
+            trainDataUrl
+            validationDataUrl
+            liveDataUrl
+            featuresUrl
+        }
+    }
+    """
+    
+    try
+        response = make_request(client, query)
+        if haskey(response, "data") && haskey(response["data"], "dataset")
+            data = response["data"]["dataset"]
+            return Schemas.DatasetInfo(
+                get(data, "version", "v5.0"),
+                get(data, "trainDataUrl", "v5.0/train.parquet"),
+                get(data, "validationDataUrl", "v5.0/validation.parquet"),
+                get(data, "liveDataUrl", "v5.0/live.parquet"),
+                get(data, "featuresUrl", "v5.0/features.json")
+            )
+        end
+    catch e
+        @warn "Failed to fetch dataset info from API: $e. Using default v5.0 dataset."
+    end
+    
+    # Fallback to v5.0 defaults if API call fails
     return Schemas.DatasetInfo(
         "v5.0",
         "v5.0/train.parquet",

@@ -34,7 +34,7 @@ function TournamentDashboard(config)
     system_info = Dict(
         :cpu_usage => 0,
         :memory_used => 0.0,
-        :memory_total => 48.0,
+        :memory_total => round(Sys.total_memory() / (1024^3), digits=1),  # Get actual system memory in GB
         :active_models => 0,
         :total_models => length(config.models),
         :threads => Threads.nthreads(),

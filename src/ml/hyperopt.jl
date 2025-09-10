@@ -9,6 +9,7 @@ using Random
 using Distributed
 using ProgressMeter
 using JSON3
+using Dates: now
 
 export HyperOptConfig, GridSearchOptimizer, RandomSearchOptimizer, BayesianOptimizer,
        optimize_hyperparameters, evaluate_params, get_best_params,
@@ -865,11 +866,26 @@ end
 function load_optimization_results(filepath::String)
     results_dict = JSON3.read(read(filepath, String), Dict{String,Any})
     
+    # Convert string keys back to symbols in history
+    history = Vector{Dict{Symbol,Any}}()
+    for hist_item in results_dict["optimization_history"]
+        hist_dict = Dict{Symbol,Any}()
+        for (k, v) in hist_item
+            if k == "params" && v isa Dict
+                # Convert params dict keys to symbols
+                hist_dict[Symbol(k)] = Dict(Symbol(pk) => pv for (pk, pv) in v)
+            else
+                hist_dict[Symbol(k)] = v
+            end
+        end
+        push!(history, hist_dict)
+    end
+    
     return OptimizationResult(
         Dict(Symbol(k) => v for (k, v) in results_dict["best_params"]),
         results_dict["best_score"],
         DataFrame(),  # All results not saved for space
-        results_dict["optimization_history"],
+        history,
         results_dict["cv_scores"],
         results_dict["training_time"]
     )

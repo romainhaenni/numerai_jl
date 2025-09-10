@@ -28,3 +28,49 @@ notification_enabled = true
 # Feature set configuration
 # Options: "small", "medium", "all"
 feature_set = "medium"
+
+# TUI Dashboard Configuration
+[tui]
+# Refresh and update intervals (in seconds)
+refresh_rate = 1.0
+model_update_interval = 30.0
+network_check_interval = 60.0
+network_timeout = 5
+
+# History and display limits
+[tui.limits]
+performance_history_max = 100
+api_error_history_max = 50
+events_history_max = 100
+max_events_display = 20
+
+# Panel dimensions
+[tui.panels]
+model_panel_width = 60
+staking_panel_width = 40
+predictions_panel_width = 40
+events_panel_width = 60
+events_panel_height = 22
+system_panel_width = 40
+training_panel_width = 40
+help_panel_width = 40
+
+# Chart configuration
+[tui.charts]
+sparkline_width = 40
+sparkline_height = 8
+bar_chart_width = 40
+histogram_bins = 20
+histogram_width = 40
+performance_sparkline_width = 30
+performance_sparkline_height = 4
+correlation_bar_width = 20
+mini_chart_width = 10
+# Correlation thresholds for color coding
+correlation_positive_threshold = 0.02
+correlation_negative_threshold = -0.02
+
+# Training defaults
+[tui.training]
+default_epochs = 100
+progress_bar_width = 20

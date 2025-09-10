@@ -730,7 +730,9 @@ function add_event!(dashboard::TournamentDashboard, type::Symbol, message::Strin
         )
         
         push!(dashboard.last_api_errors, categorized_error)
-        if length(dashboard.last_api_errors) > 50  # Keep last 50 errors
+        # Keep only configured number of errors
+        max_errors = get(dashboard.config.tui_config["limits"], "api_error_history_max", 50)
+        if length(dashboard.last_api_errors) > max_errors
             popfirst!(dashboard.last_api_errors)
         end
         
@@ -754,7 +756,9 @@ function add_event!(dashboard::TournamentDashboard, type::Symbol, message::Strin
     
     push!(dashboard.events, event)
     
-    if length(dashboard.events) > 100
+    # Keep only configured number of events
+    max_events = get(dashboard.config.tui_config["limits"], "events_history_max", 100)
+    if length(dashboard.events) > max_events
         popfirst!(dashboard.events)
     end
     

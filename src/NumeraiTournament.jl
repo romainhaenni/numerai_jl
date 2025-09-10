@@ -63,6 +63,8 @@ mutable struct TournamentConfig
     min_compound_amount::Float64
     compound_percentage::Float64
     max_stake_amount::Float64
+    # TUI configuration
+    tui_config::Dict{String, Any}
 end
 
 function load_config(path::String="config.toml")::TournamentConfig
@@ -74,6 +76,47 @@ function load_config(path::String="config.toml")::TournamentConfig
     if isempty(default_public_id) || isempty(default_secret_key)
         @log_warn "NUMERAI_PUBLIC_ID and/or NUMERAI_SECRET_KEY environment variables not set. API operations will fail without valid credentials."
     end
+    
+    # Default TUI configuration
+    default_tui_config = Dict{String, Any}(
+        "refresh_rate" => 1.0,
+        "model_update_interval" => 30.0,
+        "network_check_interval" => 60.0,
+        "network_timeout" => 5,
+        "limits" => Dict(
+            "performance_history_max" => 100,
+            "api_error_history_max" => 50,
+            "events_history_max" => 100,
+            "max_events_display" => 20
+        ),
+        "panels" => Dict(
+            "model_panel_width" => 60,
+            "staking_panel_width" => 40,
+            "predictions_panel_width" => 40,
+            "events_panel_width" => 60,
+            "events_panel_height" => 22,
+            "system_panel_width" => 40,
+            "training_panel_width" => 40,
+            "help_panel_width" => 40
+        ),
+        "charts" => Dict(
+            "sparkline_width" => 40,
+            "sparkline_height" => 8,
+            "bar_chart_width" => 40,
+            "histogram_bins" => 20,
+            "histogram_width" => 40,
+            "performance_sparkline_width" => 30,
+            "performance_sparkline_height" => 4,
+            "correlation_bar_width" => 20,
+            "mini_chart_width" => 10,
+            "correlation_positive_threshold" => 0.02,
+            "correlation_negative_threshold" => -0.02
+        ),
+        "training" => Dict(
+            "default_epochs" => 100,
+            "progress_bar_width" => 20
+        )
+    )
     
     if !isfile(path)
         @log_info "No config file found at $path. Using default configuration."
@@ -93,11 +136,33 @@ function load_config(path::String="config.toml")::TournamentConfig
             false,  # compounding_enabled
             1.0,    # min_compound_amount
             100.0,  # compound_percentage
-            10000.0 # max_stake_amount
+            10000.0, # max_stake_amount
+            default_tui_config  # tui_config
         )
     end
     
     config = TOML.parsefile(path)
+    
+    # Load TUI configuration or use defaults
+    tui_config = get(config, "tui", default_tui_config)
+    if tui_config isa Dict
+        # Merge with defaults to ensure all keys exist
+        for (key, value) in default_tui_config
+            if !haskey(tui_config, key)
+                tui_config[key] = value
+            elseif value isa Dict && tui_config[key] isa Dict
+                # Merge nested dictionaries
+                for (nested_key, nested_value) in value
+                    if !haskey(tui_config[key], nested_key)
+                        tui_config[key][nested_key] = nested_value
+                    end
+                end
+            end
+        end
+    else
+        tui_config = default_tui_config
+    end
+    
     return TournamentConfig(
         get(config, "api_public_key", default_public_id),
         get(config, "api_secret_key", default_secret_key),
@@ -113,7 +178,8 @@ function load_config(path::String="config.toml")::TournamentConfig
         get(config, "compounding_enabled", false),
         get(config, "min_compound_amount", 1.0),
         get(config, "compound_percentage", 100.0),
-        get(config, "max_stake_amount", 10000.0)
+        get(config, "max_stake_amount", 10000.0),
+        tui_config  # Add TUI configuration
     )
 end
 

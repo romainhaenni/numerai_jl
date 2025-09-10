@@ -518,6 +518,321 @@ function get_model_stakes(client::NumeraiClient, model_name::String)
     end
 end
 
+# Staking Write Operations
+
+function stake_change(client::NumeraiClient, model_name::String, nmr_amount::Float64, action::String)
+    """
+    Change stake for a specific model.
+    
+    Parameters:
+    - client: NumeraiClient instance
+    - model_name: Name of the model to stake on
+    - nmr_amount: Amount of NMR to stake/unstake
+    - action: Either "increase" or "decrease"
+    
+    Returns:
+    - Dict with stake change details or nothing on failure
+    """
+    
+    # Validate action
+    if !(action in ["increase", "decrease"])
+        @error "Invalid action: $action. Must be 'increase' or 'decrease'"
+        return nothing
+    end
+    
+    # Get model ID first
+    model_id = get_model_id(client, model_name)
+    if isnothing(model_id)
+        @error "Could not find model ID for model: $model_name"
+        return nothing
+    end
+    
+    # Get current tournament number
+    tournament_number = get_current_tournament_number(client)
+    if isnothing(tournament_number)
+        @error "Could not determine current tournament number"
+        return nothing
+    end
+    
+    mutation = """
+    mutation(\$value: String!
+             \$type: String!
+             \$tournamentNumber: Int!
+             \$modelId: String) {
+        v2ChangeStake(value: \$value
+                      type: \$type
+                      modelId: \$modelId
+                      tournamentNumber: \$tournamentNumber) {
+            dueDate
+            requestedAmount
+            status
+            type
+        }
+    }
+    """
+    
+    variables = Dict(
+        "value" => string(nmr_amount),
+        "type" => action,
+        "tournamentNumber" => tournament_number,
+        "modelId" => model_id
+    )
+    
+    try
+        result = graphql_query(client, mutation, variables)
+        stake_result = get(result, :v2ChangeStake, nothing)
+        
+        if !isnothing(stake_result)
+            @info "Stake change successful for model $model_name" action=action amount=nmr_amount
+            return Dict(
+                :due_date => get(stake_result, :dueDate, nothing),
+                :requested_amount => get(stake_result, :requestedAmount, 0.0),
+                :status => get(stake_result, :status, "unknown"),
+                :type => get(stake_result, :type, action)
+            )
+        else
+            @error "Stake change failed - no result returned"
+            return nothing
+        end
+    catch e
+        @error "Failed to change stake for model $model_name: $e"
+        return nothing
+    end
+end
+
+function stake_increase(client::NumeraiClient, model_name::String, nmr_amount::Float64)
+    """
+    Increase stake for a specific model.
+    
+    Parameters:
+    - client: NumeraiClient instance
+    - model_name: Name of the model to stake on
+    - nmr_amount: Amount of NMR to add to stake
+    
+    Returns:
+    - Dict with stake change details or nothing on failure
+    """
+    return stake_change(client, model_name, nmr_amount, "increase")
+end
+
+function stake_decrease(client::NumeraiClient, model_name::String, nmr_amount::Float64)
+    """
+    Decrease stake for a specific model.
+    Note: Stake decreases have a ~4 week waiting period before NMR is returned.
+    
+    Parameters:
+    - client: NumeraiClient instance
+    - model_name: Name of the model to unstake from
+    - nmr_amount: Amount of NMR to remove from stake
+    
+    Returns:
+    - Dict with stake change details or nothing on failure
+    """
+    return stake_change(client, model_name, nmr_amount, "decrease")
+end
+
+function stake_drain(client::NumeraiClient, model_name::String)
+    """
+    Remove entire stake from a model.
+    Note: This will remove ALL staked NMR with a ~4 week waiting period.
+    
+    Parameters:
+    - client: NumeraiClient instance
+    - model_name: Name of the model to drain stake from
+    
+    Returns:
+    - Dict with stake change details or nothing on failure
+    """
+    # Get current stake amount
+    stake_info = get_model_stakes(client, model_name)
+    total_stake = get(stake_info, :total_stake, 0.0)
+    
+    if total_stake <= 0
+        @warn "No stake to drain for model $model_name"
+        return nothing
+    end
+    
+    return stake_decrease(client, model_name, total_stake)
+end
+
+function withdraw_nmr(client::NumeraiClient, address::String, amount::Float64)
+    """
+    Withdraw NMR from Numerai wallet to an Ethereum address.
+    Note: Account must be 30+ days old or withdrawing >0.1 NMR.
+    
+    Parameters:
+    - client: NumeraiClient instance
+    - address: Ethereum wallet address for withdrawal
+    - amount: Amount of NMR to withdraw
+    
+    Returns:
+    - Dict with withdrawal details or nothing on failure
+    """
+    mutation = """
+    mutation(\$address: String!
+             \$amount: String!
+             \$currency: String!) {
+        payout(address: \$address
+               amount: \$amount
+               currency: \$currency) {
+            txHash
+            status
+            amount
+        }
+    }
+    """
+    
+    variables = Dict(
+        "address" => address,
+        "amount" => string(amount),
+        "currency" => "NMR"
+    )
+    
+    try
+        result = graphql_query(client, mutation, variables)
+        payout_result = get(result, :payout, nothing)
+        
+        if !isnothing(payout_result)
+            @info "Withdrawal initiated" amount=amount address=address
+            return Dict(
+                :tx_hash => get(payout_result, :txHash, nothing),
+                :status => get(payout_result, :status, "unknown"),
+                :amount => get(payout_result, :amount, 0.0)
+            )
+        else
+            @error "Withdrawal failed - no result returned"
+            return nothing
+        end
+    catch e
+        @error "Failed to withdraw NMR: $e"
+        return nothing
+    end
+end
+
+function set_withdrawal_address(client::NumeraiClient, address::String)
+    """
+    Set the default withdrawal address for the account.
+    
+    Parameters:
+    - client: NumeraiClient instance
+    - address: Ethereum wallet address for withdrawals
+    
+    Returns:
+    - Bool indicating success
+    """
+    mutation = """
+    mutation(\$address: String!) {
+        setWithdrawAddress(address: \$address) {
+            success
+        }
+    }
+    """
+    
+    variables = Dict("address" => address)
+    
+    try
+        result = graphql_query(client, mutation, variables)
+        success_result = get(result, :setWithdrawAddress, Dict())
+        return get(success_result, :success, false)
+    catch e
+        @error "Failed to set withdrawal address: $e"
+        return false
+    end
+end
+
+# Helper function to get model ID
+function get_model_id(client::NumeraiClient, model_name::String)
+    """
+    Get the model ID (UUID) for a given model name.
+    
+    Parameters:
+    - client: NumeraiClient instance
+    - model_name: Name of the model
+    
+    Returns:
+    - Model ID string or nothing if not found
+    """
+    query = """
+    query {
+        v3UserProfile {
+            models {
+                name
+                id
+            }
+        }
+    }
+    """
+    
+    try
+        result = graphql_query(client, query)
+        profile = result.v3UserProfile
+        models = get(profile, :models, [])
+        
+        for model in models
+            if get(model, :name, "") == model_name
+                return get(model, :id, nothing)
+            end
+        end
+        
+        return nothing
+    catch e
+        @error "Failed to get model ID: $e"
+        return nothing
+    end
+end
+
+# Helper function to get current tournament number
+function get_current_tournament_number(client::NumeraiClient)
+    """
+    Get the current tournament round number.
+    
+    Returns:
+    - Tournament number or nothing if not found
+    """
+    query = """
+    query {
+        rounds(tournament: 8) {
+            number
+            openTime
+            closeTime
+        }
+    }
+    """
+    
+    try
+        result = graphql_query(client, query)
+        rounds = get(result, :rounds, [])
+        
+        # Find the current active round
+        current_time = now(UTC)
+        for round in rounds
+            open_time_str = get(round, :openTime, nothing)
+            close_time_str = get(round, :closeTime, nothing)
+            
+            if !isnothing(open_time_str) && !isnothing(close_time_str)
+                open_time = safe_parse_datetime(open_time_str)
+                close_time = safe_parse_datetime(close_time_str)
+                
+                if !isnothing(open_time) && !isnothing(close_time)
+                    if current_time >= open_time && current_time <= close_time
+                        return get(round, :number, nothing)
+                    end
+                end
+            end
+        end
+        
+        # If no active round, get the most recent one
+        if !isempty(rounds)
+            return get(rounds[1], :number, nothing)
+        end
+        
+        return nothing
+    catch e
+        @error "Failed to get tournament number: $e"
+        return nothing
+    end
+end
+
 function get_latest_submission(client::NumeraiClient)
     """
     Get the latest submission across all models for the user.
@@ -604,6 +919,7 @@ end
 export NumeraiClient, get_current_round, get_model_performance, download_dataset,
        submit_predictions, get_models_for_user, get_dataset_info, get_submission_status,
        get_live_dataset_id, upload_predictions_multipart, get_model_stakes, get_latest_submission,
-       validate_submission_window
+       validate_submission_window, stake_change, stake_increase, stake_decrease, stake_drain,
+       withdraw_nmr, set_withdrawal_address, get_model_id, get_current_tournament_number
 
 end

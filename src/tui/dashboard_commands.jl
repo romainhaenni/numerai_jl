@@ -93,19 +93,44 @@ function stake_command(dashboard, amount::Float64)
         try
             add_event!(dashboard, :info, "Setting stake to $(amount) NMR...")
             
-            # For now, just update the display
-            # In a real implementation, you would call:
-            # API.set_stake(dashboard.api_client, model_name, amount)
-            
-            # Update staking info in dashboard
-            for model in dashboard.models
-                if haskey(model, :stake)
-                    model[:stake] = amount
-                end
+            # Get the first model or allow user to specify model
+            if isempty(dashboard.models)
+                add_event!(dashboard, :error, "No models found to stake on")
+                return
             end
             
-            add_event!(dashboard, :success, "Stake updated to $(amount) NMR")
-            add_event!(dashboard, :warning, "Note: Actual staking API not yet implemented")
+            # Use the first model by default (could be enhanced to allow model selection)
+            model_name = dashboard.models[1][:name]
+            
+            # Get current stake to determine if we need to increase or decrease
+            current_stake_info = API.get_model_stakes(dashboard.api_client, model_name)
+            current_stake = get(current_stake_info, :total_stake, 0.0)
+            
+            # Determine if we're increasing or decreasing stake
+            result = if amount > current_stake
+                change_amount = amount - current_stake
+                add_event!(dashboard, :info, "Increasing stake by $(change_amount) NMR...")
+                API.stake_increase(dashboard.api_client, model_name, change_amount)
+            elseif amount < current_stake
+                change_amount = current_stake - amount
+                add_event!(dashboard, :info, "Decreasing stake by $(change_amount) NMR...")
+                API.stake_decrease(dashboard.api_client, model_name, change_amount)
+            else
+                add_event!(dashboard, :info, "Stake already at $(amount) NMR")
+                nothing
+            end
+            
+            if !isnothing(result)
+                # Update staking info in dashboard
+                for model in dashboard.models
+                    if model[:name] == model_name && haskey(model, :stake)
+                        model[:stake] = amount
+                    end
+                end
+                
+                due_date = get(result, :due_date, "unknown")
+                add_event!(dashboard, :success, "Stake change successful! Due date: $due_date")
+            end
         catch e
             add_event!(dashboard, :error, "Staking failed: $e")
         end

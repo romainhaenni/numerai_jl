@@ -9,6 +9,10 @@ using ProgressMeter
 using ..Schemas
 using ..Logger: @log_debug, @log_info, @log_warn, @log_error, log_api_call, log_submission
 
+# Import retry functionality
+include("retry.jl")
+using .Retry: with_retry, with_graphql_retry, with_download_retry, RetryConfig, CircuitBreaker, with_circuit_breaker
+
 # Import UTC utility function
 include("../utils.jl")
 
@@ -31,21 +35,28 @@ function NumeraiClient(public_id::String, secret_key::String)
 end
 
 function graphql_query(client::NumeraiClient, query::String, variables::Dict=Dict())
-    body = JSON3.write(Dict("query" => query, "variables" => variables))
-    
-    response = HTTP.post(
-        GRAPHQL_ENDPOINT,
-        client.headers,
-        body
-    )
-    
-    data = JSON3.read(response.body)
-    
-    if haskey(data, :errors)
-        error("GraphQL Error: $(data.errors)")
+    return with_graphql_retry(context="GraphQL query") do
+        start_time = time()
+        body = JSON3.write(Dict("query" => query, "variables" => variables))
+        
+        response = HTTP.post(
+            GRAPHQL_ENDPOINT,
+            client.headers,
+            body
+        )
+        
+        duration = time() - start_time
+        log_api_call(GRAPHQL_ENDPOINT, "POST", response.status; duration=duration)
+        
+        data = JSON3.read(response.body)
+        
+        if haskey(data, :errors)
+            @log_error "GraphQL Error" errors=data.errors query=first(query, 100)
+            error("GraphQL Error: $(data.errors)")
+        end
+        
+        return data.data
     end
-    
-    return data.data
 end
 
 function parse_datetime_safe(dt_str)
@@ -187,10 +198,12 @@ function download_with_progress(url::String, output_path::String, name::String)
     temp_file = tempname()
     
     try
-        print("  Downloading $name... ")
+        @log_info "Starting download" file=name
         
-        # Download the file
-        Downloads.download(url, temp_file)
+        # Download with retry logic
+        with_download_retry(context="download $name") do
+            Downloads.download(url, temp_file)
+        end
         
         # Get file size after download
         file_size = filesize(temp_file)
@@ -203,6 +216,7 @@ function download_with_progress(url::String, output_path::String, name::String)
     catch e
         # Cleanup on error
         isfile(temp_file) && rm(temp_file)
+        @log_error "Download failed" file=name error=string(e)
         rethrow(e)
     end
 end

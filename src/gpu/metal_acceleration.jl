@@ -109,6 +109,7 @@ function get_gpu_info()::Dict{String, Any}
             "memory_total" => 0,  # Will be updated when memory info is available
             "memory_free" => 0,   # Will be updated when memory info is available
             "memory_used" => 0,   # Will be updated when memory info is available
+            "memory_gb" => 0.0,   # Memory in GB for compatibility with tests
             "compute_units" => device.compute_units,
             "max_threads_per_group" => device.max_threads_per_group,
             "supports_unified_memory" => device.supports_unified_memory

@@ -763,6 +763,9 @@ function predict_neural_network(model::NeuralNetworkModel, X::Matrix{Float64})::
     ŷ = model.model(X_processed')  # Transpose for Flux convention
     predictions = vec(Flux.cpu(ŷ))  # Ensure CPU and vector format
     
+    # Apply sigmoid to normalize predictions to [0,1] range for Numerai
+    predictions = sigmoid.(predictions)
+    
     return Float64.(predictions)
 end
 

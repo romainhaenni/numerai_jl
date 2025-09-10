@@ -801,7 +801,8 @@ function get_models_gpu_status()::Dict{String, Any}
         "gpu_available" => (@isdefined(MetalAcceleration) && isdefined(MetalAcceleration, :has_metal_gpu)) ? MetalAcceleration.has_metal_gpu() : false,
         "gpu_info" => gpu_info,
         "memory_info" => memory_info,
-        "metal_functional" => (@isdefined(MetalAcceleration) && isdefined(MetalAcceleration, :has_metal_gpu)) ? MetalAcceleration.has_metal_gpu() : false
+        "metal_functional" => (@isdefined(MetalAcceleration) && isdefined(MetalAcceleration, :has_metal_gpu)) ? MetalAcceleration.has_metal_gpu() : false,
+        "models_support_gpu" => true  # All our models support GPU acceleration
     )
 end
 

@@ -11,6 +11,13 @@ using SQLite
 
 Random.seed!(123)
 
+# Define cleanup function for tests
+function cleanup()
+    # Cleanup function for integration tests
+    # Currently a no-op but could be extended for resource cleanup
+    nothing
+end
+
 # Mock API client for comprehensive integration testing
 mutable struct IntegrationMockClient
     public_id::String
@@ -404,7 +411,7 @@ end
                 NumeraiTournament.Models.XGBoostModel("xgb_2", max_depth=6, learning_rate=0.05, num_rounds=100),
                 NumeraiTournament.Models.LightGBMModel("lgbm_1", num_leaves=15, learning_rate=0.1, n_estimators=50),
                 NumeraiTournament.Models.LightGBMModel("lgbm_2", num_leaves=31, learning_rate=0.05, n_estimators=100),
-                NumeraiTournament.Models.EvoTreesModel("evotrees_1", max_depth=4, eta=0.1, nrounds=50)
+                NumeraiTournament.Models.EvoTreesModel("evotrees_1", max_depth=4, learning_rate=0.1, nrounds=50)
             ]
             
             # Create ensemble
@@ -853,8 +860,9 @@ end
             @test isa(db_conn, NumeraiTournament.Database.DatabaseConnection)
             
             # Verify tables exist
-            tables = SQLite.execute(db_conn.db, "SELECT name FROM sqlite_master WHERE type='table';") |> SQLite.columntable |> x -> x.name
-            expected_tables = ["model_performance", "submissions", "rounds", "stakes", "training_runs"]
+            result = SQLite.DBInterface.execute(db_conn.db, "SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [row.name for row in result]
+            expected_tables = ["model_performance", "submissions", "rounds", "stake_history", "training_runs"]
             
             for table in expected_tables
                 @test table in tables
@@ -867,26 +875,24 @@ end
             db_conn = NumeraiTournament.Database.init_database(db_path=db_path)
             
             # Save model performance
-            perf_data = NumeraiTournament.Schemas.ModelPerformance(
-                "integration_model",
-                "Integration Test Model",
-                0.025,  # corr
-                0.012,  # mmc
-                0.018,  # tc
-                0.008,  # fnc
-                1.8,    # sharpe
-                125.5   # payout
+            perf_data = Dict(
+                :model_name => "integration_model",
+                :round_number => 580,
+                :correlation => 0.025,
+                :mmc => 0.012,
+                :tc => 0.018,
+                :fnc => 0.008,
+                :sharpe => 1.8,
+                :payout => 125.5
             )
             
-            NumeraiTournament.Database.save_model_performance(
-                db_conn, "integration_model", 580, perf_data
-            )
+            NumeraiTournament.Database.save_model_performance(db_conn, perf_data)
             
             # Retrieve performance data
             retrieved_perf = NumeraiTournament.Database.get_latest_performance(db_conn, "integration_model")
             @test !isempty(retrieved_perf)
-            @test retrieved_perf[1].corr ≈ 0.025
-            @test retrieved_perf[1].mmc ≈ 0.012
+            @test retrieved_perf.correlation ≈ 0.025
+            @test retrieved_perf.mmc ≈ 0.012
             
             NumeraiTournament.Database.close_database(db_conn)
         end
@@ -1133,15 +1139,15 @@ end
             
             # Check most recent events
             recent_events = dashboard.events[(end-3):end]
-            @test recent_events[1][:level] == :info
+            @test recent_events[1][:type] == :info
             @test recent_events[1][:message] == "Test info message"
-            @test recent_events[4][:level] == :success
+            @test recent_events[4][:type] == :success
             @test recent_events[4][:message] == "Test success message"
             
             # Test event timestamps
             for event in recent_events
-                @test haskey(event, :timestamp)
-                @test event[:timestamp] isa DateTime
+                @test haskey(event, :time)
+                @test event[:time] isa DateTime
             end
         end
         

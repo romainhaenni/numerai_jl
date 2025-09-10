@@ -84,8 +84,8 @@ function MLPipeline(;
             Models.XGBoostModel("xgb_shallow", max_depth=4, learning_rate=0.02, colsample_bytree=0.2),
             Models.LightGBMModel("lgbm_small", num_leaves=31, learning_rate=0.01, feature_fraction=0.1),
             Models.LightGBMModel("lgbm_large", num_leaves=63, learning_rate=0.005, feature_fraction=0.15),
-            MLPModel("mlp_default", hidden_layers=[128, 64, 32], epochs=50),
-            ResNetModel("resnet_small", hidden_layers=[128, 128, 64], epochs=75)
+            MLPModel("mlp_default", hidden_layers=[128, 64, 32], epochs=50, gpu_enabled=false),
+            ResNetModel("resnet_small", hidden_layers=[128, 128, 64], epochs=75, gpu_enabled=false)
         ]
         # Create configs from existing models for consistency
         model_configs = [
@@ -93,8 +93,8 @@ function MLPipeline(;
             ModelConfig("xgboost", Dict(:max_depth=>4, :learning_rate=>0.02, :colsample_bytree=>0.2), name="xgb_shallow"),
             ModelConfig("lightgbm", Dict(:num_leaves=>31, :learning_rate=>0.01, :feature_fraction=>0.1), name="lgbm_small"),
             ModelConfig("lightgbm", Dict(:num_leaves=>63, :learning_rate=>0.005, :feature_fraction=>0.15), name="lgbm_large"),
-            ModelConfig("mlp", Dict(:hidden_layers=>[128, 64, 32], :epochs=>50), name="mlp_default"),
-            ModelConfig("resnet", Dict(:hidden_layers=>[128, 128, 64], :epochs=>75), name="resnet_small")
+            ModelConfig("mlp", Dict(:hidden_layers=>[128, 64, 32], :epochs=>50, :gpu_enabled=>false), name="mlp_default"),
+            ModelConfig("resnet", Dict(:hidden_layers=>[128, 128, 64], :epochs=>75, :gpu_enabled=>false), name="resnet_small")
         ]
     end
     

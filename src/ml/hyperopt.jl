@@ -4,7 +4,7 @@ using ..Logger
 using ..Models
 using ..Metrics
 using DataFrames
-using Statistics
+using Statistics: mean, std, cor
 using Random
 using Distributed
 using ProgressMeter
@@ -328,7 +328,7 @@ function evaluate_params(
         return mean(scores), scores
         
     catch e
-        Logger.log_error("Error evaluating parameters: $e")
+        Logger.@log_error "Error evaluating parameters: $e"
         return -Inf, Float64[]  # Return worst possible score on error
     end
 end
@@ -345,7 +345,7 @@ function calculate_objective_score(
         correlations = Float64[]
         for target in targets
             if haskey(val_data, target) && target in names(predictions)
-                corr = Metrics.calculate_correlation(
+                corr = cor(
                     predictions[!, target],
                     val_data[target][!, "target"]
                 )
@@ -359,7 +359,7 @@ function calculate_objective_score(
         returns = Float64[]
         for target in targets
             if haskey(val_data, target) && target in names(predictions)
-                corr = Metrics.calculate_correlation(
+                corr = cor(
                     predictions[!, target],
                     val_data[target][!, "target"]
                 )
@@ -434,7 +434,7 @@ function optimize_hyperparameters(
     param_combinations = vec(collect(Iterators.product(param_values...)))
     
     n_combinations = length(param_combinations)
-    Logger.log_info("Starting Grid Search with $n_combinations parameter combinations")
+    Logger.@log_info("Starting Grid Search with $n_combinations parameter combinations")
     
     # Storage for results
     all_results = DataFrame()
@@ -478,16 +478,16 @@ function optimize_hyperparameters(
             next!(progress)
             
             if optimizer.config.verbose && length(optimization_history) % 10 == 0
-                Logger.log_info("Current best score: $best_score")
+                Logger.@log_info("Current best score: $best_score")
             end
         end
     end
     
     training_time = time() - start_time
     
-    Logger.log_info("Grid Search completed in $(round(training_time, digits=2)) seconds")
-    Logger.log_info("Best score: $best_score")
-    Logger.log_info("Best parameters: $best_params")
+    Logger.@log_info("Grid Search completed in $(round(training_time, digits=2)) seconds")
+    Logger.@log_info("Best score: $best_score")
+    Logger.@log_info("Best parameters: $best_params")
     
     return OptimizationResult(
         best_params,
@@ -508,7 +508,7 @@ function optimize_hyperparameters(
     start_time = time()
     Random.seed!(optimizer.config.seed)
     
-    Logger.log_info("Starting Random Search with $(optimizer.n_iter) iterations")
+    Logger.@log_info("Starting Random Search with $(optimizer.n_iter) iterations")
     
     # Storage for results
     all_results = DataFrame()
@@ -562,16 +562,16 @@ function optimize_hyperparameters(
             next!(progress)
             
             if optimizer.config.verbose && iter % 10 == 0
-                Logger.log_info("Iteration $iter/$optimizer.n_iter - Best score: $best_score")
+                Logger.@log_info("Iteration $iter/$optimizer.n_iter - Best score: $best_score")
             end
         end
     end
     
     training_time = time() - start_time
     
-    Logger.log_info("Random Search completed in $(round(training_time, digits=2)) seconds")
-    Logger.log_info("Best score: $best_score")
-    Logger.log_info("Best parameters: $best_params")
+    Logger.@log_info("Random Search completed in $(round(training_time, digits=2)) seconds")
+    Logger.@log_info("Best score: $best_score")
+    Logger.@log_info("Best parameters: $best_params")
     
     return OptimizationResult(
         best_params,
@@ -592,7 +592,7 @@ function optimize_hyperparameters(
     start_time = time()
     Random.seed!(optimizer.config.seed)
     
-    Logger.log_info("Starting Bayesian Optimization with $(optimizer.n_iter) iterations")
+    Logger.@log_info("Starting Bayesian Optimization with $(optimizer.n_iter) iterations")
     
     # Storage for results
     all_results = DataFrame()
@@ -636,7 +636,7 @@ function optimize_hyperparameters(
         next!(progress)
         
         if optimizer.config.verbose
-            Logger.log_info("Initial sampling $i/$(optimizer.n_initial) - Score: $score")
+            Logger.@log_info("Initial sampling $i/$(optimizer.n_initial) - Score: $score")
         end
     end
     
@@ -665,15 +665,15 @@ function optimize_hyperparameters(
         next!(progress)
         
         if optimizer.config.verbose && iter % 5 == 0
-            Logger.log_info("Iteration $iter/$(optimizer.n_iter) - Best score: $best_score")
+            Logger.@log_info("Iteration $iter/$(optimizer.n_iter) - Best score: $best_score")
         end
     end
     
     training_time = time() - start_time
     
-    Logger.log_info("Bayesian Optimization completed in $(round(training_time, digits=2)) seconds")
-    Logger.log_info("Best score: $best_score")
-    Logger.log_info("Best parameters: $best_params")
+    Logger.@log_info("Bayesian Optimization completed in $(round(training_time, digits=2)) seconds")
+    Logger.@log_info("Best score: $best_score")
+    Logger.@log_info("Best parameters: $best_params")
     
     return OptimizationResult(
         best_params,
@@ -858,7 +858,7 @@ function save_optimization_results(result::OptimizationResult, filepath::String)
         JSON3.write(io, results_dict)
     end
     
-    Logger.log_info("Optimization results saved to $filepath")
+    Logger.@log_info("Optimization results saved to $filepath")
 end
 
 # Load optimization results from file

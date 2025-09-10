@@ -343,7 +343,7 @@ using NumeraiTournament.HyperOpt
         all_results = DataFrame()
         
         # Test updating with better score
-        params1 = Dict(:max_depth => 5, :learning_rate => 0.01)
+        params1 = Dict{Symbol,Any}(:max_depth => 5, :learning_rate => 0.01)
         score1 = 0.7
         cv_scores1 = [0.65, 0.7, 0.75]
         

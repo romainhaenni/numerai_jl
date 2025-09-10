@@ -225,6 +225,9 @@ Random.seed!(123)
     # Include dashboard commands tests
     include("test_dashboard_commands.jl")
     
+    # Include compounding module tests
+    include("test_compounding.jl")
+    
 end
 
 println("\n✅ All tests passed!")

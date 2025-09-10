@@ -578,10 +578,11 @@ end
         @testset "GPU Benchmark Integration" begin
             if NumeraiTournament.has_metal_gpu()
                 try
-                    benchmark_results = NumeraiTournament.run_comprehensive_gpu_benchmark(quick_mode=true)
-                    @test haskey(benchmark_results, "matrix_operations")
-                    @test haskey(benchmark_results, "neural_network")
-                    @test benchmark_results["matrix_operations"]["duration_seconds"] > 0
+                    benchmark_results = NumeraiTournament.GPUBenchmarks.run_comprehensive_gpu_benchmark(
+                        data_sizes=[1000], n_runs=1, save_results=false
+                    )
+                    @test length(benchmark_results) > 0
+                    @test benchmark_results[1] isa NumeraiTournament.GPUBenchmarks.BenchmarkResult
                 catch e
                     @warn "GPU benchmark failed: $e"
                     @test true  # Don't fail for GPU benchmark issues
@@ -608,8 +609,13 @@ end
             50.0,  # stake_amount
             2,     # max_workers
             false, # notifications
-            false, # compounding
-            1.0, 100.0, 1000.0
+            8,     # tournament_id
+            "medium", # feature_set
+            false, # compounding_enabled
+            1.0,   # min_compound_amount
+            100.0, # compound_percentage
+            1000.0, # max_stake_amount
+            Dict{String, Any}("refresh_rate" => 1.0) # tui_config
         )
         
         @testset "Scheduler Setup and Configuration" begin
@@ -901,18 +907,20 @@ end
             db_conn = NumeraiTournament.Database.init_database(db_path=db_path)
             
             # Save submission record
-            NumeraiTournament.Database.save_submission(
-                db_conn,
-                "integration_model",
-                580,
-                "integration_submission.csv",
-                3000,  # row_count
-                Dict("correlation" => 0.023, "mmc" => 0.011)  # metrics
+            submission_data = Dict(
+                :model_name => "integration_model",
+                :round_number => 580,
+                :filename => "integration_submission.csv",
+                :status => "completed",
+                :validation_correlation => 0.023,
+                :validation_sharpe => 0.011
             )
+            
+            NumeraiTournament.Database.save_submission(db_conn, submission_data)
             
             # Retrieve submissions
             submissions = NumeraiTournament.Database.get_submissions(db_conn, "integration_model")
-            @test length(submissions) > 0
+            @test nrow(submissions) > 0
             
             latest = NumeraiTournament.Database.get_latest_submission(db_conn, "integration_model")
             @test !isnothing(latest)
@@ -926,30 +934,25 @@ end
             db_conn = NumeraiTournament.Database.init_database(db_path=db_path)
             
             # Save training run
-            training_config = Dict(
-                "model_type" => "xgboost",
-                "max_depth" => 6,
-                "learning_rate" => 0.01,
-                "num_rounds" => 1000
+            training_data = Dict(
+                :model_name => "integration_model",
+                :model_type => "xgboost",
+                :training_time_seconds => 125.5,
+                :validation_score => 0.032,
+                :test_score => 0.045,
+                :hyperparameters => Dict(
+                    "max_depth" => 6,
+                    "learning_rate" => 0.01,
+                    "num_rounds" => 1000
+                )
             )
             
-            training_metrics = Dict(
-                "train_correlation" => 0.045,
-                "val_correlation" => 0.032,
-                "training_time_seconds" => 125.5
-            )
-            
-            NumeraiTournament.Database.save_training_run(
-                db_conn,
-                "integration_model",
-                training_config,
-                training_metrics
-            )
+            NumeraiTournament.Database.save_training_run(db_conn, training_data)
             
             # Retrieve training runs
             runs = NumeraiTournament.Database.get_training_runs(db_conn, "integration_model")
-            @test length(runs) > 0
-            @test runs[1].model_name == "integration_model"
+            @test nrow(runs) > 0
+            @test runs[1, :model_name] == "integration_model"
             
             NumeraiTournament.Database.close_database(db_conn)
         end
@@ -959,9 +962,15 @@ end
             db_conn1 = NumeraiTournament.Database.init_database(db_path=db_path)
             
             # Save data in first session
-            NumeraiTournament.Database.save_round_data(
-                db_conn1, 580, DateTime(2024, 1, 1), DateTime(2024, 1, 3), DateTime(2024, 1, 24), true
+            round_data = Dict(
+                :round_number => 580,
+                :open_time => DateTime(2024, 1, 1),
+                :close_time => DateTime(2024, 1, 3),
+                :resolve_time => DateTime(2024, 1, 24),
+                :round_type => "active"
             )
+            
+            NumeraiTournament.Database.save_round_data(db_conn1, round_data)
             
             NumeraiTournament.Database.close_database(db_conn1)
             
@@ -1069,8 +1078,13 @@ end
                 -10.0,  # Invalid negative stake
                 0,      # Invalid zero workers
                 true,
-                true,
-                -1.0, 150.0, -100.0  # Invalid compounding values
+                8,      # tournament_id
+                "medium", # feature_set
+                true,   # compounding_enabled
+                -1.0,   # Invalid min_compound_amount
+                150.0,  # compound_percentage
+                -100.0, # Invalid max_stake_amount
+                Dict{String, Any}("refresh_rate" => 1.0) # tui_config
             )
             
             # Config should be created but with potentially invalid values
@@ -1088,8 +1102,13 @@ end
                 50.0,
                 4,
                 true,
-                true,
-                5.0, 80.0, 2000.0
+                8,      # tournament_id
+                "medium", # feature_set
+                true,   # compounding_enabled
+                5.0,    # min_compound_amount
+                80.0,   # compound_percentage
+                2000.0, # max_stake_amount
+                Dict{String, Any}("refresh_rate" => 1.0) # tui_config
             )
             
             @test valid_config.stake_amount == 50.0
@@ -1110,7 +1129,17 @@ end
                 ["dashboard_model_1", "dashboard_model_2"],
                 joinpath(temp_dir, "data"),
                 joinpath(temp_dir, "models"),
-                true, 50.0, 2, true, false, 1.0, 100.0, 1000.0
+                true,   # auto_submit
+                50.0,   # stake_amount
+                2,      # max_workers
+                true,   # notification_enabled
+                8,      # tournament_id
+                "medium", # feature_set
+                false,  # compounding_enabled
+                1.0,    # min_compound_amount
+                100.0,  # compound_percentage
+                1000.0, # max_stake_amount
+                Dict{String, Any}("refresh_rate" => 1.0) # tui_config
             )
             
             dashboard = NumeraiTournament.Dashboard.TournamentDashboard(config)
@@ -1202,7 +1231,8 @@ end
             # Test chart formatting functions
             values = [0.01, 0.02, 0.015, 0.025, 0.02]
             chart = NumeraiTournament.Charts.create_mini_chart(values, width=10)
-            @test length(chart) == 10
+            # The function returns one character per value, up to width characters
+            @test length(chart) == 5  # We have 5 values, so 5 characters
             @test occursin("▁", chart) || occursin("▂", chart) || occursin("▃", chart)
             
             # Test correlation bar formatting

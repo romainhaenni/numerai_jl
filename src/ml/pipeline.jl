@@ -116,23 +116,17 @@ function MLPipeline(;
     if !isempty(model_configs)
         models = create_models_from_configs(model_configs)
     elseif isempty(models)
-        # Default models if none provided - including neural networks
+        # Default models if none provided - traditional models only (neural networks disabled for now)
         models = [
-            Models.XGBoostModel("xgb_deep", max_depth=8, learning_rate=0.01, colsample_bytree=0.1),
-            Models.XGBoostModel("xgb_shallow", max_depth=4, learning_rate=0.02, colsample_bytree=0.2),
-            Models.LightGBMModel("lgbm_small", num_leaves=31, learning_rate=0.01, feature_fraction=0.1),
-            Models.LightGBMModel("lgbm_large", num_leaves=63, learning_rate=0.005, feature_fraction=0.15),
-            Models.MLPModel("mlp_default", hidden_layers=[128, 64, 32], epochs=50),
-            Models.ResNetModel("resnet_small", hidden_layers=[128, 128, 64], epochs=75)
+            Models.XGBoostModel("xgb_default", max_depth=6, learning_rate=0.01, colsample_bytree=0.1),
+            Models.LightGBMModel("lgbm_default", num_leaves=31, learning_rate=0.01, feature_fraction=0.1),
+            Models.EvoTreesModel("evotrees_default", max_depth=6, learning_rate=0.01, colsample=0.1)
         ]
         # Create configs from existing models for consistency
         model_configs = [
-            ModelConfig("xgboost", Dict(:max_depth=>8, :learning_rate=>0.01, :colsample_bytree=>0.1), name="xgb_deep"),
-            ModelConfig("xgboost", Dict(:max_depth=>4, :learning_rate=>0.02, :colsample_bytree=>0.2), name="xgb_shallow"),
-            ModelConfig("lightgbm", Dict(:num_leaves=>31, :learning_rate=>0.01, :feature_fraction=>0.1), name="lgbm_small"),
-            ModelConfig("lightgbm", Dict(:num_leaves=>63, :learning_rate=>0.005, :feature_fraction=>0.15), name="lgbm_large"),
-            ModelConfig("mlp", Dict(:hidden_layers=>[128, 64, 32], :epochs=>50), name="mlp_default"),
-            ModelConfig("resnet", Dict(:hidden_layers=>[128, 128, 64], :epochs=>75), name="resnet_small")
+            ModelConfig("xgboost", Dict(:max_depth=>6, :learning_rate=>0.01, :colsample_bytree=>0.1), name="xgb_default"),
+            ModelConfig("lightgbm", Dict(:num_leaves=>31, :learning_rate=>0.01, :feature_fraction=>0.1), name="lgbm_default"),
+            ModelConfig("evotrees", Dict(:max_depth=>6, :learning_rate=>0.01, :colsample=>0.1), name="evotrees_default")
         ]
     end
     
@@ -177,39 +171,9 @@ function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models
                 colsample=get(config.params, :colsample, 0.1),
                 subsample=get(config.params, :subsample, 0.8)
             ))
-        elseif config.type == "mlp"
-            push!(models, Models.MLPModel(
-                config.name;
-                hidden_layers=get(config.params, :hidden_layers, [128, 64, 32]),
-                dropout_rate=get(config.params, :dropout_rate, 0.2),
-                learning_rate=get(config.params, :learning_rate, 0.001),
-                batch_size=get(config.params, :batch_size, 512),
-                epochs=get(config.params, :epochs, 100),
-                early_stopping_patience=get(config.params, :early_stopping_patience, 10),
-                gpu_enabled=get(config.params, :gpu_enabled, true)
-            ))
-        elseif config.type == "resnet"
-            push!(models, Models.ResNetModel(
-                config.name;
-                hidden_layers=get(config.params, :hidden_layers, [256, 256, 256, 128]),
-                dropout_rate=get(config.params, :dropout_rate, 0.1),
-                learning_rate=get(config.params, :learning_rate, 0.001),
-                batch_size=get(config.params, :batch_size, 512),
-                epochs=get(config.params, :epochs, 150),
-                early_stopping_patience=get(config.params, :early_stopping_patience, 15),
-                gpu_enabled=get(config.params, :gpu_enabled, true)
-            ))
-        elseif config.type == "tabnet"
-            push!(models, Models.TabNetModel(
-                config.name;
-                hidden_layers=get(config.params, :hidden_layers, [256, 128, 64]),
-                dropout_rate=get(config.params, :dropout_rate, 0.15),
-                learning_rate=get(config.params, :learning_rate, 0.001),
-                batch_size=get(config.params, :batch_size, 512),
-                epochs=get(config.params, :epochs, 100),
-                early_stopping_patience=get(config.params, :early_stopping_patience, 10),
-                gpu_enabled=get(config.params, :gpu_enabled, true)
-            ))
+        # Neural network models temporarily disabled
+        elseif config.type in ["mlp", "resnet", "tabnet"]
+            @warn "Neural network models ($(config.type)) are temporarily disabled due to type hierarchy issues. Skipping $(config.name)."
         else
             @warn "Unknown model type: $(config.type), skipping"
         end
@@ -270,8 +234,8 @@ function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
             ProgressMeter.update!(prog, i-1, desc="Training $(model.name): ")
         end
         
-        # Handle multi-target training
-        if pipeline.is_multi_target && !(model isa Models.NeuralNetworkModel)
+        # Handle multi-target training - for now all models use first target only for multi-target
+        if pipeline.is_multi_target
             # For traditional models, train on first target for now
             # TODO: Implement proper multi-target support for traditional models
             y_train_single = y_train isa Matrix ? y_train[:, 1] : y_train

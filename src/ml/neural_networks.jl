@@ -21,6 +21,8 @@ using BSON: @save, @load
 # MetalAcceleration functions will be accessed through Main.NumeraiTournament.MetalAcceleration
 
 # NumeraiModel abstract type will be available from Models module when included
+# For compilation, define it here - it will be unified when included in models.jl
+abstract type NumeraiModel end
 
 # Export neural network models
 export NeuralNetworkModel, MLPModel, ResNetModel, TabNetModel

@@ -1,5 +1,15 @@
 # Numerai Tournament Configuration
 
+# API Credentials (can also be set via environment variables)
+# Set these values or use NUMERAI_PUBLIC_KEY and NUMERAI_SECRET_KEY environment variables
+# api_public_key = "YOUR_PUBLIC_KEY_HERE"
+# api_secret_key = "YOUR_SECRET_KEY_HERE"
+
+# Tournament Configuration
+# 8 = Classic Tournament (default)
+# 11 = Signals Tournament
+tournament_id = 8
+
 # Model names to manage
 models = ["numeraijl"]
 
@@ -14,3 +24,7 @@ stake_amount = 0.1
 # System resources
 max_workers = 8
 notification_enabled = true
+
+# Feature set configuration
+# Options: "small", "medium", "all"
+feature_set = "medium"

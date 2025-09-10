@@ -146,7 +146,7 @@ function MLPModel(name::String="mlp_default";
                  early_stopping_patience::Int=10,
                  gpu_enabled::Bool=true)
     
-    use_gpu = gpu_enabled && has_metal_gpu()
+    use_gpu = gpu_enabled && Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()
     
     params = Dict{String, Any}(
         "hidden_layers" => hidden_layers,
@@ -178,7 +178,7 @@ function ResNetModel(name::String="resnet_default";
                     early_stopping_patience::Int=15,
                     gpu_enabled::Bool=true)
     
-    use_gpu = gpu_enabled && has_metal_gpu()
+    use_gpu = gpu_enabled && Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()
     
     params = Dict{String, Any}(
         "hidden_layers" => hidden_layers,
@@ -211,7 +211,7 @@ function TabNetModel(name::String="tabnet_default";
                     early_stopping_patience::Int=20,
                     gpu_enabled::Bool=true)
     
-    use_gpu = gpu_enabled && has_metal_gpu()
+    use_gpu = gpu_enabled && Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()
     
     params = Dict{String, Any}(
         "n_d" => n_d,  # Dimension of the decision prediction layer
@@ -341,7 +341,7 @@ function preprocess_for_neural_network(X_train::Matrix{Float64}, y_train::Vector
     X_val_f32 = X_val !== nothing ? Float32.(X_val) : nothing
     
     # Move to GPU if available and requested
-    if use_gpu && has_metal_gpu()
+    if use_gpu && Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()
         try
             X_train_gpu = Flux.gpu(X_train_f32)
             y_train_gpu = Flux.gpu(y_train_f32)

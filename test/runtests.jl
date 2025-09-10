@@ -216,6 +216,15 @@ Random.seed!(123)
         end
     end
     
+    # Include MMC metrics tests
+    include("test_metrics.jl")
+    
+    # Include cron scheduler tests
+    include("test_cron_scheduler.jl")
+    
+    # Include dashboard commands tests
+    include("test_dashboard_commands.jl")
+    
 end
 
 println("\n✅ All tests passed!")

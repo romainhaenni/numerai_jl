@@ -10,6 +10,9 @@ Random.seed!(123)
 
 @testset "NumeraiTournament.jl Tests" begin
     
+    # Include HyperOpt tests
+    include("test_hyperopt.jl")
+    
     @testset "Data Preprocessing" begin
         @testset "fillna" begin
             df = DataFrame(a=[1.0, missing, 3.0], b=[missing, 2.0, missing])

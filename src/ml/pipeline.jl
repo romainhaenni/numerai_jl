@@ -11,6 +11,7 @@ using ..NeuralNetworks
 using ..Ensemble
 using ..Neutralization
 using ..Metrics
+using ..HyperOpt
 using Flux: relu  # Import relu activation function from Flux
 
 # Configuration struct for model creation
@@ -711,6 +712,226 @@ function calculate_ensemble_tc(pipeline::MLPipeline, df::DataFrame;
     end
     
     return tc_dict
+end
+
+"""
+    optimize_hyperparameters(pipeline::MLPipeline, train_df::DataFrame;
+                            model_type::Symbol, optimization_method::Symbol=:grid,
+                            objective::Symbol=:correlation, n_splits::Int=3,
+                            n_iter::Int=50, verbose::Bool=true)
+
+Optimize hyperparameters for a specific model type.
+
+# Arguments
+- `pipeline`: ML pipeline
+- `train_df`: Training DataFrame
+- `model_type`: Type of model to optimize (:XGBoost, :LightGBM, :EvoTrees, etc.)
+- `optimization_method`: :grid, :random, or :bayesian
+- `objective`: :correlation, :sharpe, :mmc, :tc, or :multi_objective
+- `n_splits`: Number of cross-validation splits
+- `n_iter`: Number of iterations for random/bayesian search
+- `verbose`: Print progress information
+
+# Returns
+- OptimizationResult with best parameters and scores
+"""
+function optimize_hyperparameters(pipeline::MLPipeline, train_df::DataFrame;
+                                 model_type::Symbol, optimization_method::Symbol=:grid,
+                                 objective::Symbol=:correlation, n_splits::Int=3,
+                                 n_iter::Int=50, verbose::Bool=true)
+    
+    # Prepare data
+    X, y, era_col = prepare_data(pipeline, train_df)
+    
+    # Create data dict for HyperOpt
+    data_dict = Dict{String,DataFrame}()
+    for target in pipeline.target_cols
+        target_df = DataFrame(
+            hcat(X, y),
+            vcat(pipeline.feature_cols, "target")
+        )
+        if era_col !== nothing
+            target_df.era = era_col
+        end
+        data_dict[target] = target_df
+    end
+    
+    # Get validation eras if available
+    validation_eras = era_col !== nothing ? unique(era_col)[end-20:end] : Int[]
+    
+    # Create HyperOpt configuration
+    hyperopt_config = HyperOpt.HyperOptConfig(
+        model_type=model_type,
+        objective=objective,
+        n_splits=n_splits,
+        validation_eras=validation_eras,
+        verbose=verbose
+    )
+    
+    # Create optimizer based on method
+    if optimization_method == :grid
+        param_grid = HyperOpt.create_param_grid(model_type)
+        optimizer = HyperOpt.GridSearchOptimizer(param_grid, hyperopt_config)
+    elseif optimization_method == :random
+        param_distributions = HyperOpt.create_param_distributions(model_type)
+        optimizer = HyperOpt.RandomSearchOptimizer(param_distributions, n_iter, hyperopt_config)
+    elseif optimization_method == :bayesian
+        # Create bounds from distributions
+        param_distributions = HyperOpt.create_param_distributions(model_type)
+        param_bounds = Dict{Symbol,Tuple{Float64,Float64}}()
+        
+        # Simplified bounds extraction for Bayesian optimization
+        if model_type in [:XGBoost, :LightGBM, :EvoTrees, :CatBoost]
+            if model_type == :XGBoost
+                param_bounds = Dict(
+                    :max_depth => (3.0, 15.0),
+                    :learning_rate => (0.0001, 0.1),
+                    :n_estimators => (100.0, 2000.0),
+                    :colsample_bytree => (0.1, 1.0),
+                    :subsample => (0.5, 1.0)
+                )
+            elseif model_type == :LightGBM
+                param_bounds = Dict(
+                    :num_leaves => (10.0, 200.0),
+                    :learning_rate => (0.0001, 0.1),
+                    :n_estimators => (100.0, 2000.0),
+                    :feature_fraction => (0.1, 1.0),
+                    :bagging_fraction => (0.5, 1.0)
+                )
+            elseif model_type == :EvoTrees
+                param_bounds = Dict(
+                    :max_depth => (3.0, 15.0),
+                    :eta => (0.0001, 0.1),
+                    :nrounds => (100.0, 2000.0),
+                    :subsample => (0.5, 1.0),
+                    :colsample => (0.1, 1.0)
+                )
+            elseif model_type == :CatBoost
+                param_bounds = Dict(
+                    :depth => (3.0, 12.0),
+                    :learning_rate => (0.0001, 0.1),
+                    :iterations => (100.0, 2000.0),
+                    :l2_leaf_reg => (1.0, 30.0)
+                )
+            end
+        elseif model_type in [:Ridge, :Lasso]
+            param_bounds = Dict(:alpha => (0.001, 1000.0))
+        elseif model_type == :ElasticNet
+            param_bounds = Dict(
+                :alpha => (0.001, 100.0),
+                :l1_ratio => (0.1, 0.9)
+            )
+        end
+        
+        optimizer = HyperOpt.BayesianOptimizer(
+            param_bounds, 
+            min(10, n_iter ÷ 3),  # n_initial
+            n_iter - min(10, n_iter ÷ 3),  # n_iter for optimization
+            :ei,  # Expected Improvement
+            hyperopt_config
+        )
+    else
+        error("Unknown optimization method: $optimization_method")
+    end
+    
+    # Run optimization
+    result = HyperOpt.optimize_hyperparameters(optimizer, data_dict, pipeline.target_cols)
+    
+    return result
+end
+
+"""
+    create_optimized_model(pipeline::MLPipeline, model_type::Symbol, 
+                          optimization_result::HyperOpt.OptimizationResult;
+                          model_name::String="")
+
+Create a new model with optimized hyperparameters.
+
+# Arguments
+- `pipeline`: ML pipeline
+- `model_type`: Type of model to create
+- `optimization_result`: Result from hyperparameter optimization
+- `model_name`: Optional custom name for the model
+
+# Returns
+- New model instance with optimized parameters
+"""
+function create_optimized_model(pipeline::MLPipeline, model_type::Symbol,
+                               optimization_result::HyperOpt.OptimizationResult;
+                               model_name::String="")
+    
+    best_params = HyperOpt.get_best_params(optimization_result)
+    
+    if model_name == ""
+        model_name = "$(model_type)_optimized_$(rand(1000:9999))"
+    end
+    
+    # Create model with optimized parameters
+    if model_type == :XGBoost
+        return Models.XGBoostModel(model_name; best_params...)
+    elseif model_type == :LightGBM
+        return Models.LightGBMModel(model_name; best_params...)
+    elseif model_type == :EvoTrees
+        return Models.EvoTreesModel(model_name; best_params...)
+    elseif model_type == :CatBoost
+        return Models.CatBoostModel(model_name; best_params...)
+    elseif model_type == :Ridge
+        return LinearModels.RidgeModel(model_name; best_params...)
+    elseif model_type == :Lasso
+        return LinearModels.LassoModel(model_name; best_params...)
+    elseif model_type == :ElasticNet
+        return LinearModels.ElasticNetModel(model_name; best_params...)
+    elseif model_type == :NeuralNetwork
+        # Handle neural network parameters specially
+        hidden_layers = get(best_params, :hidden_layers, [128, 64, 32])
+        epochs = get(best_params, :epochs, 50)
+        learning_rate = get(best_params, :learning_rate, 0.001)
+        batch_size = get(best_params, :batch_size, 512)
+        dropout_rate = get(best_params, :dropout_rate, 0.1)
+        
+        return NeuralNetworks.MLPModel(
+            model_name,
+            hidden_layers=hidden_layers,
+            epochs=epochs,
+            learning_rate=learning_rate,
+            batch_size=batch_size,
+            dropout_rate=dropout_rate
+        )
+    else
+        error("Unknown model type: $model_type")
+    end
+end
+
+"""
+    add_optimized_model!(pipeline::MLPipeline, model::Models.NumeraiModel)
+
+Add an optimized model to the pipeline.
+
+# Arguments
+- `pipeline`: ML pipeline to add model to
+- `model`: Optimized model to add
+"""
+function add_optimized_model!(pipeline::MLPipeline, model::Models.NumeraiModel)
+    push!(pipeline.models, model)
+    
+    # Re-create ensemble if it exists
+    if pipeline.ensemble !== nothing
+        # Preserve existing weights and add new model with equal weight
+        existing_weights = pipeline.ensemble.weights
+        n_models = length(existing_weights)
+        new_weight = 1.0 / (n_models + 1)
+        
+        # Rescale existing weights
+        scaled_weights = existing_weights .* (1.0 - new_weight)
+        push!(scaled_weights, new_weight)
+        
+        # Create new ensemble
+        pipeline.ensemble = Ensemble.ModelEnsemble(
+            pipeline.models,
+            scaled_weights,
+            pipeline.config[:ensemble_type]
+        )
+    end
 end
 
 """

@@ -176,42 +176,42 @@ function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Vector{F
         watchlist = OrderedDict("train" => dtrain, "eval" => dval)
         
         # Train model with validation set
-        params = Dict(
-            "num_round" => model.num_rounds,
-            "max_depth" => model.params["max_depth"],
-            "eta" => model.params["learning_rate"],
-            "colsample_bytree" => model.params["colsample_bytree"],
-            "objective" => model.params["objective"],
-            "eval_metric" => model.params["eval_metric"],
-            "tree_method" => model.params["tree_method"],
-            "device" => model.params["device"],
-            "nthread" => model.params["nthread"],
-            "watchlist" => watchlist
+        params = Dict{Symbol, Any}(
+            :num_round => model.num_rounds,
+            :max_depth => model.params["max_depth"],
+            :eta => model.params["learning_rate"],
+            :colsample_bytree => model.params["colsample_bytree"],
+            :objective => model.params["objective"],
+            :eval_metric => model.params["eval_metric"],
+            :tree_method => model.params["tree_method"],
+            :device => model.params["device"],
+            :nthread => model.params["nthread"],
+            :watchlist => watchlist
         )
         
         # Add interaction constraints if available
         if interaction_constraints !== nothing && !isempty(interaction_constraints)
-            params["interaction_constraints"] = interaction_constraints
+            params[:interaction_constraints] = interaction_constraints
         end
         
         model.model = xgboost(dtrain; params...)
     else
         # Train model without validation set
-        params = Dict(
-            "num_round" => model.num_rounds,
-            "max_depth" => model.params["max_depth"],
-            "eta" => model.params["learning_rate"],
-            "colsample_bytree" => model.params["colsample_bytree"],
-            "objective" => model.params["objective"],
-            "eval_metric" => model.params["eval_metric"],
-            "tree_method" => model.params["tree_method"],
-            "device" => model.params["device"],
-            "nthread" => model.params["nthread"]
+        params = Dict{Symbol, Any}(
+            :num_round => model.num_rounds,
+            :max_depth => model.params["max_depth"],
+            :eta => model.params["learning_rate"],
+            :colsample_bytree => model.params["colsample_bytree"],
+            :objective => model.params["objective"],
+            :eval_metric => model.params["eval_metric"],
+            :tree_method => model.params["tree_method"],
+            :device => model.params["device"],
+            :nthread => model.params["nthread"]
         )
         
         # Add interaction constraints if available
         if interaction_constraints !== nothing && !isempty(interaction_constraints)
-            params["interaction_constraints"] = interaction_constraints
+            params[:interaction_constraints] = interaction_constraints
         end
         
         model.model = xgboost(dtrain; params...)

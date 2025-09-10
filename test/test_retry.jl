@@ -632,8 +632,8 @@ logger = ConsoleLogger(stdout, Logging.Debug)
     @testset "Logging Integration" begin
         @testset "Retry logging messages" begin
             # Capture log messages during retry operations
+            call_count = 0
             with_logger(logger) do
-                call_count = 0
                 config = RetryConfig(max_attempts = 3, initial_delay = 0.01)
                 
                 try

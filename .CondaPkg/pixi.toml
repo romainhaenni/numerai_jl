@@ -1,4 +1,5 @@
 [dependencies]
+openssl = ">=3, <3.6"
 catboost = ">=1.1"
 
     [dependencies.python]

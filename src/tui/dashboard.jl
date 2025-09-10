@@ -374,14 +374,14 @@ function render(dashboard::TournamentDashboard)
             render_model_details_panel(dashboard),
             Panels.create_events_panel(dashboard.events, dashboard.config)
         ]
-        layout = Grid(panels..., layout=(1, 2))
+        layout = Grid(panels...)
     elseif dashboard.wizard_active
         # Show wizard interface
         panels = [
             render_wizard_panel(dashboard),
             Panels.create_events_panel(dashboard.events, dashboard.config)
         ]
-        layout = Grid(panels..., layout=(1, 2))
+        layout = Grid(panels...)
     else
         panels = [
             Panels.create_model_performance_panel(dashboard.models, dashboard.config),
@@ -396,7 +396,7 @@ function render(dashboard::TournamentDashboard)
         
         # Filter out nothing values and create 6-column grid (2 rows, 3 columns)
         valid_panels = filter(!isnothing, panels)
-        layout = Grid(valid_panels..., layout=(2, 3))
+        layout = Grid(valid_panels...)
     end
     
         println(layout)

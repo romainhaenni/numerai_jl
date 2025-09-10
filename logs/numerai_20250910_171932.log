@@ -1,0 +1,52 @@
+[2025-09-10 17:19:32.982] [INFO] Logging initialized | log_file=logs/numerai_20250910_171932.log, console_level=Info, file_level=Debug
+[2025-09-10 17:19:33.127] [INFO] Optimized for M4 Max | threads=16, memory_gb=16.0
+[2025-09-10 17:19:35.704] [DEBUG] Attempting GraphQL query | attempt=1, max_attempts=5
+[2025-09-10 17:19:38.726] [DEBUG] SSL connect: api-tournament.numer.ai:443...
+[2025-09-10 17:19:38.729] [DEBUG] TCP connect: api-tournament.numer.ai:443...
+[2025-09-10 17:19:39.237] [DEBUG] POST / HTTP/1.1
+[2025-09-10 17:19:39.237] [DEBUG] client startwrite
+[2025-09-10 17:19:39.260] [DEBUG] 👁  Start write:⏸    0s api-tournament.numer.ai:443:50797 RawFD(22)
+[2025-09-10 17:19:39.375] [DEBUG] HTTP.Messages.Request:
+"""
+POST / HTTP/1.1
+x-public-id: ZZVVWAFWGJYDERQSS4GASJGGCXPT4L63
+x-secret-key: J373O64I3MLQR4OR5SCMC4H4MHZABCVBNZUVTHGZIHSEGO2XIY5SCAU66JF65TGW
+Content-Type: application/json
+Host: api-tournament.numer.ai
+Accept: */*
+User-Agent: HTTP.jl/1.11.6
+Content-Length: 158
+Accept-Encoding: gzip
+
+{"variables":{},"query":"query {\n    rounds(tournament: 8, take: 5) {\n        number\n        openTime\n        closeTime\n        resolveTime\n    }\n}\n"}"""
+[2025-09-10 17:19:39.750] [DEBUG] client startread
+[2025-09-10 17:19:39.750] [DEBUG] 👁  Start read: ⏸    0s api-tournament.numer.ai:443:50797 RawFD(22)
+[2025-09-10 17:19:39.758] [DEBUG] client closewrite
+[2025-09-10 17:19:39.758] [DEBUG] 🗣  Write done: 🔁    0s api-tournament.numer.ai:443:50797 RawFD(22)
+[2025-09-10 17:19:40.404] [DEBUG] called process() | code=end, input_size=135, output_size=16384, input_delta=135, output_delta=136
+[2025-09-10 17:19:40.414] [DEBUG] client closeread
+[2025-09-10 17:19:40.414] [DEBUG] ✉️  Read done: ⏸    0s api-tournament.numer.ai:443:50797 RawFD(22)
+[2025-09-10 17:19:40.455] [DEBUG] HTTP/1.1 200 OK <= (POST / HTTP/1.1)
+[2025-09-10 17:19:40.491] [DEBUG] HTTP.Messages.Response:
+"""
+HTTP/1.1 200 OK
+Date: Wed, 10 Sep 2025 15:19:40 GMT
+Content-Type: application/json; charset=utf-8
+Content-Length: 135
+Connection: keep-alive
+access-control-allow-credentials: true
+access-control-allow-origin: null
+cache-control: max-age=0, private, must-revalidate
+Content-Encoding: gzip
+Server: cloudflare
+vary: Origin, accept-encoding
+x-request-id: GGP07V06kkAMjvQDDhHn
+Nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+Report-To: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=n10a2C3EQVx3%2FQlFRSssiFe4sbf2TicmTARd02BhcqtCAvvVXnMOcENABZ94vIzlxU6nvQ30CubAL8k3CFUmyNcRUKx%2BjYbB4awtYPACx896YSv2"}]}
+cf-cache-status: DYNAMIC
+Strict-Transport-Security: max-age=31536000; preload
+X-Content-Type-Options: nosniff
+CF-RAY: 97cfe7a698d801f4-ZRH
+
+{"errors":[{"message":"Unknown argument \"take\" on field \"rounds\" of type \"RootQueryType\".","locations":[{"line":2,"column":27}]}]}"""
+[2025-09-10 17:19:40.695] [ERROR] Non-retryable error encountered | context=GraphQL query, error=MethodError(Core.kwcall, ((duration = 4.787057161331177,), NumeraiTournament.Logger.log_api_call, "https://api-tournament.numer.ai", "POST", 200), 0x000000000000697b)

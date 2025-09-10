@@ -6,6 +6,7 @@ using ProgressMeter
 using ..DataLoader
 using ..Preprocessor
 using ..Models
+using ..LinearModels
 using ..NeuralNetworks
 using ..Ensemble
 using ..Neutralization
@@ -181,6 +182,31 @@ function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models
                 epochs=get(config.params, :epochs, 200),
                 early_stopping_patience=get(config.params, :early_stopping_patience, 20),
                 gpu_enabled=get(config.params, :gpu_enabled, true)
+            ))
+        elseif config.type == "ridge"
+            push!(models, LinearModels.RidgeModel(
+                config.name;
+                alpha=get(config.params, :alpha, 1.0),
+                fit_intercept=get(config.params, :fit_intercept, true),
+                max_iter=get(config.params, :max_iter, 1000),
+                tol=get(config.params, :tol, 1e-4)
+            ))
+        elseif config.type == "lasso"
+            push!(models, LinearModels.LassoModel(
+                config.name;
+                alpha=get(config.params, :alpha, 1.0),
+                fit_intercept=get(config.params, :fit_intercept, true),
+                max_iter=get(config.params, :max_iter, 1000),
+                tol=get(config.params, :tol, 1e-4)
+            ))
+        elseif config.type == "elasticnet"
+            push!(models, LinearModels.ElasticNetModel(
+                config.name;
+                alpha=get(config.params, :alpha, 1.0),
+                l1_ratio=get(config.params, :l1_ratio, 0.5),
+                fit_intercept=get(config.params, :fit_intercept, true),
+                max_iter=get(config.params, :max_iter, 1000),
+                tol=get(config.params, :tol, 1e-4)
             ))
         else
             @warn "Unknown model type: $(config.type), skipping"

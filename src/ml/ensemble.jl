@@ -4,6 +4,7 @@ using Statistics
 using Random
 using ThreadsX
 using ..Models
+using ..Preprocessor: check_memory_before_allocation, safe_matrix_allocation
 
 struct ModelEnsemble
     models::Vector{<:Models.NumeraiModel}
@@ -57,10 +58,18 @@ function predict_ensemble(ensemble::ModelEnsemble, X::Matrix{Float64};
                          return_individual::Bool=false)::Union{Vector{Float64}, Tuple{Vector{Float64}, Matrix{Float64}}}
     n_samples = size(X, 1)
     n_models = length(ensemble.models)
-    predictions_matrix = Matrix{Float64}(undef, n_samples, n_models)
+    
+    # Check memory before allocation
+    predictions_matrix = safe_matrix_allocation(n_samples, n_models)
+    
+    # Use locks to prevent race conditions in parallel writes
+    locks = [ReentrantLock() for _ in 1:n_models]
     
     ThreadsX.foreach(enumerate(ensemble.models)) do (i, model)
-        predictions_matrix[:, i] = Models.predict(model, X)
+        preds = Models.predict(model, X)
+        lock(locks[i]) do
+            predictions_matrix[:, i] = preds
+        end
     end
     
     weighted_predictions = predictions_matrix * ensemble.weights
@@ -75,8 +84,11 @@ end
 function optimize_weights(ensemble::ModelEnsemble, X_val::Matrix{Float64}, y_val::Vector{Float64};
                          metric::Function=cor, n_iterations::Int=1000)::Vector{Float64}
     n_models = length(ensemble.models)
+    n_samples = size(X_val, 1)
     
-    predictions_matrix = Matrix{Float64}(undef, size(X_val, 1), n_models)
+    # Check memory before allocation
+    predictions_matrix = safe_matrix_allocation(n_samples, n_models)
+    
     for (i, model) in enumerate(ensemble.models)
         predictions_matrix[:, i] = Models.predict(model, X_val)
     end

@@ -650,8 +650,10 @@ logger = ConsoleLogger(stdout, Logging.Debug)
             end
             
             # Verify that appropriate log messages were generated
-            # Note: Specific log testing might depend on the logging framework used
-            @test true  # Placeholder for log message verification
+            # Since we're testing retry logic, the function should have been called the expected number of times
+            # The actual log verification would require mocking the logger, which is beyond the scope
+            # For now, we verify the retry behavior through the call count
+            @test call_count > 1  # At least one retry occurred
         end
     end
 end

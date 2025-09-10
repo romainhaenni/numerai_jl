@@ -1,7 +1,7 @@
 module Dashboard
 
 using Term
-using Term: Panel, Grid
+using Term: Panel
 using Dates
 using TimeZones
 using ThreadsX
@@ -367,39 +367,39 @@ function render(dashboard::TournamentDashboard)
     print("\033[2J\033[H")
     
     try
-        # Create panels for 6-column grid layout
+        # Create and display panels directly without Grid
         if dashboard.show_model_details
-        # Show model details interface
-        panels = [
-            render_model_details_panel(dashboard),
-            Panels.create_events_panel(dashboard.events, dashboard.config)
-        ]
-        layout = Grid(panels...)
-    elseif dashboard.wizard_active
-        # Show wizard interface
-        panels = [
-            render_wizard_panel(dashboard),
-            Panels.create_events_panel(dashboard.events, dashboard.config)
-        ]
-        layout = Grid(panels...)
-    else
-        panels = [
-            Panels.create_model_performance_panel(dashboard.models, dashboard.config),
-            Panels.create_staking_panel(get_staking_info(dashboard), dashboard.config),
-            Panels.create_predictions_panel(dashboard.predictions_history, dashboard.config),
-            Panels.create_events_panel(dashboard.events, dashboard.config),
-            Panels.create_system_panel(dashboard.system_info, dashboard.network_status, dashboard.config),
-            dashboard.training_info[:is_training] ? 
-                Panels.create_training_panel(dashboard.training_info, dashboard.config) : 
-                (dashboard.show_help ? Panels.create_help_panel(dashboard.config) : nothing)
-        ]
-        
-        # Filter out nothing values and create 6-column grid (2 rows, 3 columns)
-        valid_panels = filter(!isnothing, panels)
-        layout = Grid(valid_panels...)
-    end
-    
-        println(layout)
+            # Show model details interface
+            panel1 = render_model_details_panel(dashboard)
+            panel2 = Panels.create_events_panel(dashboard.events, dashboard.config)
+            println(panel1)
+            println(panel2)
+        elseif dashboard.wizard_active
+            # Show wizard interface
+            panel1 = render_wizard_panel(dashboard)
+            panel2 = Panels.create_events_panel(dashboard.events, dashboard.config)
+            println(panel1)
+            println(panel2)
+        else
+            # Normal dashboard - display panels in sequence
+            panels = [
+                Panels.create_model_performance_panel(dashboard.models, dashboard.config),
+                Panels.create_staking_panel(get_staking_info(dashboard), dashboard.config),
+                Panels.create_predictions_panel(dashboard.predictions_history, dashboard.config),
+                Panels.create_events_panel(dashboard.events, dashboard.config),
+                Panels.create_system_panel(dashboard.system_info, dashboard.network_status, dashboard.config),
+                dashboard.training_info[:is_training] ? 
+                    Panels.create_training_panel(dashboard.training_info, dashboard.config) : 
+                    (dashboard.show_help ? Panels.create_help_panel(dashboard.config) : nothing)
+            ]
+            
+            # Display each panel
+            for panel in panels
+                if !isnothing(panel)
+                    println(panel)
+                end
+            end
+        end
         
         status_line = create_status_line(dashboard)
         println("\n" * status_line)

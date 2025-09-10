@@ -57,7 +57,11 @@ function graphql_query(client::NumeraiClient, query::String, variables::Dict=Dic
         )
         
         duration = time() - start_time
-        log_api_call(GRAPHQL_ENDPOINT, "POST", response.status; duration=duration)
+        try
+            log_api_call(GRAPHQL_ENDPOINT, "POST", response.status, duration)
+        catch e
+            # Silently ignore logging errors - they're non-critical
+        end
         
         data = JSON3.read(response.body)
         
@@ -122,7 +126,7 @@ end
 function get_current_round(client::NumeraiClient)::Schemas.Round
     query = """
     query {
-        rounds(tournament: $(client.tournament_id), take: 5) {
+        rounds(tournament: $(client.tournament_id)) {
             number
             openTime
             closeTime
@@ -186,17 +190,26 @@ function get_model_performance(client::NumeraiClient, model_name::String)::Schem
     """
     
     result = graphql_query(client, query, Dict("modelName" => model_name))
-    profile = result.v3UserProfile
+    profile = get(result, :v3UserProfile, Dict())
+    ranks = get(profile, :latestRanks, Dict())
+    
+    # Handle case where latestRanks might be null
+    corr = isnothing(ranks) ? 0.0 : get(ranks, :corr, 0.0)
+    mmc = isnothing(ranks) ? 0.0 : get(ranks, :mmc, 0.0)
+    fnc = isnothing(ranks) ? 0.0 : get(ranks, :fnc, 0.0)
+    tc = isnothing(ranks) ? 0.0 : get(ranks, :tc, 0.0)
+    nmr_staked = tryparse(Float64, string(get(profile, :nmrStaked, "0")))
+    nmr_staked = isnothing(nmr_staked) ? 0.0 : nmr_staked
     
     return Schemas.ModelPerformance(
         model_name,
         model_name,
-        get(profile.latestRanks, :corr, 0.0),
-        get(profile.latestRanks, :mmc, 0.0),
-        get(profile.latestRanks, :fnc, 0.0),
-        get(profile.latestRanks, :tc, 0.0),
+        corr,
+        mmc,
+        fnc,
+        tc,
         0.0,  # Sharpe not directly available
-        get(profile, :nmrStaked, 0.0)
+        nmr_staked
     )
 end
 
@@ -452,14 +465,19 @@ function upload_predictions_multipart(client::NumeraiClient, model_id::String, p
     return confirm_result.v3SubmitPredictions.id
 end
 
+# Alias for backwards compatibility
+get_models(client::NumeraiClient) = get_models_for_user(client)
+
 function get_models_for_user(client::NumeraiClient)::Vector{String}
+    # Using account query as per Numerai API documentation
     query = """
     query {
-        v3UserProfile {
+        account {
             username
             models {
                 name
                 id
+                tournament
             }
         }
     }
@@ -468,11 +486,11 @@ function get_models_for_user(client::NumeraiClient)::Vector{String}
     try
         response = graphql_query(client, query)
         
-        if haskey(response, "v3UserProfile")
-            user_profile = response["v3UserProfile"]
-            if haskey(user_profile, "models") && !isnothing(user_profile["models"])
+        if haskey(response, "account")
+            account_data = response["account"]
+            if haskey(account_data, "models") && !isnothing(account_data["models"])
                 model_names = String[]
-                for model in user_profile["models"]
+                for model in account_data["models"]
                     if haskey(model, "name") && !isnothing(model["name"])
                         push!(model_names, model["name"])
                     end
@@ -499,7 +517,7 @@ function get_dataset_info(client::NumeraiClient)::Schemas.DatasetInfo
     # Note: The v5 dataset endpoints are standard, not from GraphQL
     query = """
     query {
-        rounds(tournament: $(client.tournament_id), take: 1) {
+        rounds(tournament: $(client.tournament_id)) {
             number
             openTime
             closeTime
@@ -917,6 +935,100 @@ function get_current_tournament_number(client::NumeraiClient)
     end
 end
 
+function get_account(client::NumeraiClient)
+    """
+    Get account information including username, wallet address, and models.
+    
+    Returns:
+    - Account information as a NamedTuple
+    """
+    query = """
+    query {
+        account {
+            username
+            walletAddress
+            availableNmr
+            email
+            id
+            status
+            models {
+                id
+                name
+                tournament
+            }
+        }
+    }
+    """
+    
+    try
+        result = graphql_query(client, query)
+        account = get(result, :account, Dict())
+        
+        return (
+            username = get(account, :username, ""),
+            wallet_address = get(account, :walletAddress, ""),
+            available_nmr = tryparse(Float64, string(get(account, :availableNmr, "0"))) |> x -> isnothing(x) ? 0.0 : x,
+            email = get(account, :email, ""),
+            id = get(account, :id, ""),
+            status = get(account, :status, "unknown"),
+            models = get(account, :models, [])
+        )
+    catch e
+        @error "Failed to get account info: $e"
+        return (
+            username = "",
+            wallet_address = "",
+            available_nmr = 0.0,
+            email = "",
+            id = "",
+            status = "error",
+            models = []
+        )
+    end
+end
+
+function get_stake_info(client::NumeraiClient, model_name::String)
+    """
+    Get staking information for a specific model.
+    
+    Returns:
+    - Stake information as a Dict
+    """
+    query = """
+    query(\$modelName: String!) {
+        v3UserProfile(modelName: \$modelName) {
+            nmrStaked
+            stake {
+                value
+                confidence
+                burnRate
+            }
+        }
+    }
+    """
+    
+    try
+        result = graphql_query(client, query, Dict("modelName" => model_name))
+        profile = get(result, :v3UserProfile, Dict())
+        stake = get(profile, :stake, Dict())
+        
+        return Dict(
+            :nmr_staked => tryparse(Float64, string(get(profile, :nmrStaked, "0"))) |> x -> isnothing(x) ? 0.0 : x,
+            :stake_value => tryparse(Float64, string(get(stake, :value, "0"))) |> x -> isnothing(x) ? 0.0 : x,
+            :confidence => tryparse(Float64, string(get(stake, :confidence, "0"))) |> x -> isnothing(x) ? 0.0 : x,
+            :burn_rate => tryparse(Float64, string(get(stake, :burnRate, "0"))) |> x -> isnothing(x) ? 0.0 : x
+        )
+    catch e
+        @error "Failed to get stake info for $model_name: $e"
+        return Dict(
+            :nmr_staked => 0.0,
+            :stake_value => 0.0,
+            :confidence => 0.0,
+            :burn_rate => 0.0
+        )
+    end
+end
+
 function get_wallet_balance(client::NumeraiClient)
     """
     Get the current wallet balance.
@@ -960,14 +1072,16 @@ function get_latest_submission(client::NumeraiClient)
     """
     query = """
     query {
-        v3UserProfile {
+        account {
             models {
                 name
                 latestSubmission {
                     id
                     filename
-                    roundNumber
-                    selectedStakeValue
+                    round {
+                        number
+                    }
+                    selected
                 }
             }
         }
@@ -976,8 +1090,8 @@ function get_latest_submission(client::NumeraiClient)
     
     try
         result = graphql_query(client, query)
-        profile = result.v3UserProfile
-        models = get(profile, :models, [])
+        account = get(result, :account, Dict())
+        models = get(account, :models, [])
         
         # Find the most recent submission across all models
         latest_round = 0
@@ -986,14 +1100,15 @@ function get_latest_submission(client::NumeraiClient)
         for model in models
             submission = get(model, :latestSubmission, nothing)
             if submission !== nothing
-                round_num = get(submission, :roundNumber, 0)
+                round_data = get(submission, :round, Dict())
+                round_num = get(round_data, :number, 0)
                 if round_num > latest_round
                     latest_round = round_num
                     latest_submission = submission
                     # Add model name to submission info
                     latest_submission = merge(
                         Dict(pairs(submission)),
-                        Dict(:model_name => get(model, :name, "unknown"))
+                        Dict(:model_name => get(model, :name, "unknown"), :round_number => round_num)
                     )
                 end
             end
@@ -1002,7 +1117,7 @@ function get_latest_submission(client::NumeraiClient)
         if latest_submission !== nothing
             # Return a named tuple with round and other info
             return (
-                round = get(latest_submission, :roundNumber, 0),
+                round = get(latest_submission, :round_number, 0),
                 id = get(latest_submission, :id, ""),
                 filename = get(latest_submission, :filename, ""),
                 model_name = get(latest_submission, :model_name, "unknown")
@@ -1329,6 +1444,7 @@ function get_webhook_logs(client::NumeraiClient, webhook_id::String; limit::Int=
 end
 
 export NumeraiClient, get_current_round, get_model_performance, download_dataset,
+       get_models, get_account, get_stake_info,
        submit_predictions, get_models_for_user, get_dataset_info, get_submission_status,
        get_live_dataset_id, upload_predictions_multipart, get_model_stakes, get_latest_submission,
        validate_submission_window, stake_change, stake_increase, stake_decrease, stake_drain,

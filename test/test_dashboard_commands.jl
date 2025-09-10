@@ -16,6 +16,8 @@ function create_mock_dashboard()
         0.0,
         1,
         false,
+        8,      # tournament_id
+        "v4.2", # feature_set
         false,  # compounding_enabled
         1.0,    # min_compound_amount
         100.0,  # compound_percentage

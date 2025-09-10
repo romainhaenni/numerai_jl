@@ -206,42 +206,42 @@ function create_param_distributions(model_type::Symbol)
     if model_type == :XGBoost
         return Dict(
             :max_depth => () -> rand(3:15),
-            :learning_rate => () -> 10^(rand(-4:-1)),
+            :learning_rate => () -> 10.0^(rand(-4:-1)),
             :n_estimators => () -> rand(100:2000),
             :colsample_bytree => () -> rand(0.1:0.1:1.0),
             :subsample => () -> rand(0.5:0.1:1.0),
             :min_child_weight => () -> rand(1:10),
             :gamma => () -> rand(0:0.1:1.0),
-            :reg_alpha => () -> 10^(rand(-4:0)),
-            :reg_lambda => () -> 10^(rand(-4:0))
+            :reg_alpha => () -> 10.0^(rand(-4:0)),
+            :reg_lambda => () -> 10.0^(rand(-4:0))
         )
     elseif model_type == :LightGBM
         return Dict(
             :num_leaves => () -> rand(10:200),
-            :learning_rate => () -> 10^(rand(-4:-1)),
+            :learning_rate => () -> 10.0^(rand(-4:-1)),
             :n_estimators => () -> rand(100:2000),
             :feature_fraction => () -> rand(0.1:0.1:1.0),
             :bagging_fraction => () -> rand(0.5:0.1:1.0),
             :bagging_freq => () -> rand(0:10),
             :min_data_in_leaf => () -> rand(5:200),
-            :lambda_l1 => () -> 10^(rand(-4:0)),
-            :lambda_l2 => () -> 10^(rand(-4:0))
+            :lambda_l1 => () -> 10.0^(rand(-4:0)),
+            :lambda_l2 => () -> 10.0^(rand(-4:0))
         )
     elseif model_type == :EvoTrees
         return Dict(
             :max_depth => () -> rand(3:15),
-            :eta => () -> 10^(rand(-4:-1)),
+            :eta => () -> 10.0^(rand(-4:-1)),
             :nrounds => () -> rand(100:2000),
             :subsample => () -> rand(0.5:0.1:1.0),
             :colsample => () -> rand(0.1:0.1:1.0),
             :gamma => () -> rand(0:0.1:1.0),
-            :lambda => () -> 10^(rand(-4:0)),
-            :alpha => () -> 10^(rand(-4:0))
+            :lambda => () -> 10.0^(rand(-4:0)),
+            :alpha => () -> 10.0^(rand(-4:0))
         )
     elseif model_type == :CatBoost
         return Dict(
             :depth => () -> rand(3:12),
-            :learning_rate => () -> 10^(rand(-4:-1)),
+            :learning_rate => () -> 10.0^(rand(-4:-1)),
             :iterations => () -> rand(100:2000),
             :l2_leaf_reg => () -> rand(1:30),
             :bagging_temperature => () -> rand(0:0.1:2.0),
@@ -250,15 +250,15 @@ function create_param_distributions(model_type::Symbol)
         )
     elseif model_type == :Ridge
         return Dict(
-            :alpha => () -> 10^(rand(-3:3))
+            :alpha => () -> 10.0^(rand(-3:3))
         )
     elseif model_type == :Lasso
         return Dict(
-            :alpha => () -> 10^(rand(-4:2))
+            :alpha => () -> 10.0^(rand(-4:2))
         )
     elseif model_type == :ElasticNet
         return Dict(
-            :alpha => () -> 10^(rand(-3:2)),
+            :alpha => () -> 10.0^(rand(-3:2)),
             :l1_ratio => () -> rand()
         )
     elseif model_type == :NeuralNetwork
@@ -274,7 +274,7 @@ function create_param_distributions(model_type::Symbol)
                 end
                 layers
             end,
-            :learning_rate => () -> 10^(rand(-4:-1)),
+            :learning_rate => () -> 10.0^(rand(-4:-1)),
             :batch_size => () -> 2^rand(8:11),
             :epochs => () -> rand(10:100),
             :dropout_rate => () -> rand(0:0.05:0.5),
@@ -367,6 +367,45 @@ function calculate_objective_score(
             end
         end
         return isempty(returns) ? -Inf : Metrics.calculate_sharpe(returns)
+        
+    elseif objective == :mmc
+        # Calculate Meta Model Contribution
+        mmc_scores = Float64[]
+        for target in targets
+            if haskey(val_data, target) && hascol(predictions, target)
+                # Get era information
+                eras = unique(val_data[target][!, "era"])
+                era_mmc = Float64[]
+                
+                for era in eras
+                    era_mask = val_data[target][!, "era"] .== era
+                    era_preds = predictions[era_mask, target]
+                    era_targets = val_data[target][era_mask, "target"]
+                    
+                    # Calculate MMC (requires meta model predictions)
+                    # For now, use correlation as proxy if meta model not available
+                    mmc = Metrics.calculate_mmc(era_preds, era_targets)
+                    push!(era_mmc, mmc)
+                end
+                
+                push!(mmc_scores, mean(era_mmc))
+            end
+        end
+        return isempty(mmc_scores) ? -Inf : mean(mmc_scores)
+        
+    elseif objective == :tc
+        # Calculate True Contribution
+        tc_scores = Float64[]
+        for target in targets
+            if haskey(val_data, target) && hascol(predictions, target)
+                tc = Metrics.calculate_tc(
+                    predictions[!, target],
+                    val_data[target][!, "target"]
+                )
+                push!(tc_scores, tc)
+            end
+        end
+        return isempty(tc_scores) ? -Inf : mean(tc_scores)
         
     elseif objective == :multi_objective
         # Weighted combination of multiple objectives

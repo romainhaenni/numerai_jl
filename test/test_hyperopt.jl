@@ -2,7 +2,7 @@ using Test
 using DataFrames
 using Random
 using Statistics
-using NumeraiTournament.ML.HyperOpt
+using NumeraiTournament.HyperOpt
 
 @testset "HyperOpt Module Tests" begin
     

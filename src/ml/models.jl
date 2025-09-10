@@ -774,18 +774,63 @@ function get_models_gpu_status()::Dict{String, Any}
     )
 end
 
+# Model creation factory function
+function create_model(model_type::Symbol, params::Dict{Symbol,Any})
+    # Ensure name is provided
+    name = get(params, :name, "model_$(model_type)")
+    
+    # Remove name from params as it's passed separately to constructors
+    model_params = copy(params)
+    delete!(model_params, :name)
+    
+    if model_type == :XGBoost
+        return XGBoostModel(name; model_params...)
+    elseif model_type == :LightGBM
+        return LightGBMModel(name; model_params...)
+    elseif model_type == :EvoTrees
+        return EvoTreesModel(name; model_params...)
+    elseif model_type == :CatBoost
+        return CatBoostModel(name; model_params...)
+    elseif model_type == :Ridge
+        include("linear_models.jl")
+        return LinearModels.RidgeModel(name; model_params...)
+    elseif model_type == :Lasso
+        include("linear_models.jl")
+        return LinearModels.LassoModel(name; model_params...)
+    elseif model_type == :ElasticNet
+        include("linear_models.jl")
+        return LinearModels.ElasticNetModel(name; model_params...)
+    elseif model_type == :NeuralNetwork || model_type == :MLP
+        include("neural_networks.jl")
+        return NeuralNetworks.MLPModel(name; model_params...)
+    elseif model_type == :ResNet
+        include("neural_networks.jl")
+        return NeuralNetworks.ResNetModel(name; model_params...)
+    elseif model_type == :TabNet
+        include("neural_networks.jl")
+        return NeuralNetworks.TabNetModel(name; model_params...)
+    else
+        error("Unknown model type: $model_type")
+    end
+end
+
 export NumeraiModel, XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel, train!, predict, 
        cross_validate, feature_importance, save_model, load_model!,
        ensemble_predict, gpu_feature_selection_for_models, benchmark_model_performance,
-       get_models_gpu_status
+       get_models_gpu_status, create_model
 
-# Neural networks temporarily disabled for testing
-# include("neural_networks.jl")
-# using .NeuralNetworks: MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel, 
-#                        train_neural_network!, predict_neural_network,
-#                        correlation_loss, mse_correlation_loss
-# export MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel,
-#        train_neural_network!, predict_neural_network,
-#        correlation_loss, mse_correlation_loss
+# Include linear models
+include("linear_models.jl")
+using .LinearModels: RidgeModel, LassoModel, ElasticNetModel
+export RidgeModel, LassoModel, ElasticNetModel
+
+# Include neural networks
+include("neural_networks.jl")
+using .NeuralNetworks: MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel, 
+                       train_neural_network!, predict_neural_network,
+                       correlation_loss, mse_correlation_loss
+export MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel,
+       train_neural_network!, predict_neural_network,
+       correlation_loss, mse_correlation_loss
 
 end

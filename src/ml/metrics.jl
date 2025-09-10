@@ -575,10 +575,43 @@ function calculate_feature_neutralized_tc(predictions::AbstractVector{T},
     return calculate_tc(neutralized_preds, meta_model, returns)
 end
 
+"""
+    calculate_sharpe(returns::AbstractVector{T}) where T
+
+Calculate the Sharpe ratio of a vector of returns.
+
+The Sharpe ratio measures the excess return per unit of deviation in an investment asset.
+A higher Sharpe ratio indicates better risk-adjusted performance.
+
+# Arguments
+- `returns`: Vector of returns
+
+# Returns
+- Sharpe ratio (Float64): ratio of mean return to standard deviation of returns
+"""
+function calculate_sharpe(returns::AbstractVector{T}) where T
+    if length(returns) <= 1
+        return 0.0
+    end
+    
+    mean_return = mean(returns)
+    std_return = std(returns)
+    
+    # Handle zero standard deviation
+    if std_return == 0.0
+        return mean_return > 0.0 ? Inf : (mean_return < 0.0 ? -Inf : 0.0)
+    end
+    
+    # Calculate Sharpe ratio (assuming risk-free rate is 0)
+    sharpe_ratio = mean_return / std_return
+    
+    return isnan(sharpe_ratio) ? 0.0 : sharpe_ratio
+end
+
 # Export all public functions
 export tie_kept_rank, gaussianize, orthogonalize, create_stake_weighted_ensemble,
        calculate_mmc, calculate_mmc_batch, calculate_contribution_score,
        calculate_feature_neutralized_mmc, calculate_tc, calculate_tc_batch,
-       calculate_feature_neutralized_tc
+       calculate_feature_neutralized_tc, calculate_sharpe
 
 end

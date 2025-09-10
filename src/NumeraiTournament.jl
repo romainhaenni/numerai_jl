@@ -17,8 +17,7 @@ include("ml/neutralization.jl")
 include("gpu/metal_acceleration.jl")
 include("gpu/benchmarks.jl")
 include("ml/models.jl")
-# Temporarily comment out neural networks to test the rest of the system
-# include("ml/neural_networks.jl")
+include("ml/neural_networks.jl")
 include("ml/ensemble.jl")
 include("ml/metrics.jl")
 include("ml/pipeline.jl")
@@ -33,13 +32,11 @@ include("scheduler/cron.jl")
 
 export run_tournament, TournamentConfig, TournamentDashboard,
        XGBoostModel, LightGBMModel, EvoTreesModel, get_models_gpu_status,
-       # Temporarily commented out for testing
-       # MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel,
+       MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel,
        has_metal_gpu, get_gpu_info, gpu_standardize!, run_comprehensive_gpu_benchmark
 using .Logger: init_logger, @log_info, @log_warn, @log_error
 using .Models: XGBoostModel, LightGBMModel, EvoTreesModel, get_models_gpu_status
-# Temporarily commented out for testing
-# using .NeuralNetworks: MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel
+using .NeuralNetworks: MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel
 using .MetalAcceleration: has_metal_gpu, get_gpu_info, gpu_standardize!
 using .GPUBenchmarks: run_comprehensive_gpu_benchmark
 

@@ -76,15 +76,18 @@ mutable struct MLPipeline
     model_configs::Vector{ModelConfig}  # Store configurations
     ensemble::Union{Nothing, Ensemble.ModelEnsemble}
     feature_cols::Vector{String}
-    target_col::String
+    target_col::Union{String, Vector{String}}  # Support both single and multi-target
     # Feature groups support
     feature_groups::Union{Nothing, Dict{String, Vector{String}}}
     features_metadata::Union{Nothing, Dict{String, Any}}
+    # Multi-target support
+    is_multi_target::Bool
+    n_targets::Int
 end
 
 function MLPipeline(;
     feature_cols::Union{Vector{String}, Nothing}=nothing,
-    target_col::String="target_cyrus_v4_20",
+    target_col::Union{String, Vector{String}}="target_cyrus_v4_20",  # Support multi-target
     neutralize::Bool=true,
     neutralize_proportion::Float64=0.5,
     ensemble_type::Symbol=:weighted,
@@ -95,12 +98,18 @@ function MLPipeline(;
     features_metadata::Union{Dict{String, Any}, Nothing}=nothing,
     group_names::Union{Vector{String}, Nothing}=nothing)
     
+    # Determine if this is multi-target
+    is_multi_target = target_col isa Vector{String}
+    n_targets = is_multi_target ? length(target_col) : 1
+    
     config = Dict(
         :neutralize => neutralize,
         :neutralize_proportion => neutralize_proportion,
         :ensemble_type => ensemble_type,
         :clip_predictions => true,
-        :normalize_predictions => true
+        :normalize_predictions => true,
+        :is_multi_target => is_multi_target,
+        :n_targets => n_targets
     )
     
     # If model_configs provided, create models from them
@@ -133,7 +142,7 @@ function MLPipeline(;
     )
     
     return MLPipeline(config, models, model_configs, nothing, resolved_features, target_col, 
-                     feature_groups, features_metadata)
+                     feature_groups, features_metadata, is_multi_target, n_targets)
 end
 
 # Helper function to create models from configs
@@ -209,14 +218,25 @@ function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models
     return models
 end
 
-function prepare_data(pipeline::MLPipeline, df::DataFrame)::Tuple{Matrix{Float64}, Vector{Float64}, Vector{Int}}
+function prepare_data(pipeline::MLPipeline, df::DataFrame)::Tuple{Matrix{Float64}, Union{Vector{Float64}, Matrix{Float64}}, Vector{Int}}
     feature_data = DataLoader.get_feature_columns(df, pipeline.feature_cols)
     
     feature_data = Preprocessor.fillna(feature_data, 0.5)
     
     X = Matrix{Float64}(feature_data)
     
-    y = DataLoader.get_target_column(df, pipeline.target_col)
+    # Handle both single and multi-target cases
+    if pipeline.is_multi_target
+        # Multi-target: get all target columns and return as matrix
+        y_data = Matrix{Float64}(undef, nrow(df), pipeline.n_targets)
+        for (i, target_name) in enumerate(pipeline.target_col)
+            y_data[:, i] = DataLoader.get_target_column(df, target_name)
+        end
+        y = y_data
+    else
+        # Single target: return as vector (backward compatibility)
+        y = DataLoader.get_target_column(df, pipeline.target_col)
+    end
     
     eras = Int.(df.era)
     
@@ -249,7 +269,20 @@ function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
         if verbose
             ProgressMeter.update!(prog, i-1, desc="Training $(model.name): ")
         end
-        Models.train!(model, X_train, y_train, X_val=X_val, y_val=y_val, verbose=false)
+        
+        # Handle multi-target training
+        if pipeline.is_multi_target && !(model isa NeuralNetworks.NeuralNetworkModel)
+            # For traditional models, train on first target for now
+            # TODO: Implement proper multi-target support for traditional models
+            y_train_single = y_train isa Matrix ? y_train[:, 1] : y_train
+            y_val_single = y_val isa Matrix ? y_val[:, 1] : y_val
+            Models.train!(model, X_train, y_train_single, X_val=X_val, y_val=y_val_single, verbose=false)
+            @warn "Multi-target support for $(typeof(model)) is limited. Using first target only." model_name=model.name
+        else
+            # Single target or neural network (which supports multi-target)
+            Models.train!(model, X_train, y_train, X_val=X_val, y_val=y_val, verbose=false)
+        end
+        
         if verbose
             ProgressMeter.update!(prog, i)
         end
@@ -274,15 +307,29 @@ function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
     
     if verbose
         val_predictions = predict(pipeline, val_df)
-        val_score = cor(val_predictions, y_val)
-        println("\nValidation correlation: $(round(val_score, digits=4))")
+        if pipeline.is_multi_target
+            # For multi-target, calculate average correlation across targets
+            if val_predictions isa Matrix && y_val isa Matrix
+                val_scores = [cor(val_predictions[:, i], y_val[:, i]) for i in 1:size(y_val, 2)]
+                val_score = mean(val_scores)
+                println("\nValidation correlations: $(round.(val_scores, digits=4))")
+                println("Average correlation: $(round(val_score, digits=4))")
+            else
+                val_score = 0.0
+                println("\nWarning: Could not calculate multi-target validation score")
+            end
+        else
+            # Single target
+            val_score = cor(val_predictions, y_val)
+            println("\nValidation correlation: $(round(val_score, digits=4))")
+        end
     end
     
     return pipeline
 end
 
 function predict(pipeline::MLPipeline, df::DataFrame; 
-                return_raw::Bool=false, verbose::Bool=false)::Vector{Float64}
+                return_raw::Bool=false, verbose::Bool=false)::Union{Vector{Float64}, Matrix{Float64}}
     
     if pipeline.ensemble === nothing
         error("Pipeline not trained yet. Call train! first.")

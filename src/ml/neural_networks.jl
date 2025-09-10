@@ -5,7 +5,9 @@ using Flux: Chain, Dense, Dropout, BatchNorm, sigmoid, relu, leakyrelu, tanh
 using Optimisers
 using Zygote
 using Statistics
+using Statistics: mean, cor
 using Random
+using Random: shuffle
 using LinearAlgebra
 using Logging
 using DataFrames
@@ -788,25 +790,69 @@ function predict(model::NeuralNetworkModel, X::Matrix{Float64})::Vector{Float64}
 end
 
 """
-Feature importance for neural network models (simplified implementation)
+Feature importance for neural network models using permutation importance
+
+This implementation uses permutation importance which measures the decrease in model
+performance when a single feature is randomly shuffled. This is a model-agnostic
+approach that works well for neural networks.
 """
-function feature_importance(model::NeuralNetworkModel)::Dict{String, Float64}
+function feature_importance(model::NeuralNetworkModel; 
+                          validation_data::Union{Nothing, Tuple{Matrix{Float32}, Vector{Float32}}} = nothing,
+                          n_permutations::Int = 5,
+                          metric::Function = (y_true, y_pred) -> cor(y_true, y_pred))::Dict{String, Float64}
     if model.model === nothing
         error("Model not trained yet")
     end
     
-    # For neural networks, feature importance is not as straightforward
-    # This is a placeholder implementation
-    n_features = length(model.feature_means)
-    importance_dict = Dict{String, Float64}()
-    
-    # Generate random importance values (in a real implementation, you might use
-    # gradient-based importance, permutation importance, or integrated gradients)
-    for i in 1:n_features
-        importance_dict["feature_$(i)"] = rand()
+    # Use stored validation data if not provided
+    if validation_data === nothing
+        if model.X_val !== nothing && model.y_val !== nothing
+            validation_data = (model.X_val, model.y_val)
+        else
+            error("No validation data available for feature importance calculation")
+        end
     end
     
-    @warn "Neural network feature importance is a simplified implementation"
+    X_val, y_val = validation_data
+    n_features = size(X_val, 2)
+    
+    # Calculate baseline performance
+    y_pred_baseline = predict(model, X_val)
+    baseline_score = metric(y_val, y_pred_baseline)
+    
+    importance_dict = Dict{String, Float64}()
+    
+    # Calculate importance for each feature
+    for feature_idx in 1:n_features
+        importance_scores = Float64[]
+        
+        # Perform multiple permutations for stability
+        for _ in 1:n_permutations
+            # Create a copy of validation data
+            X_permuted = copy(X_val)
+            
+            # Randomly shuffle the feature column
+            X_permuted[:, feature_idx] = X_permuted[shuffle(1:size(X_permuted, 1)), feature_idx]
+            
+            # Predict with permuted feature
+            y_pred_permuted = predict(model, X_permuted)
+            permuted_score = metric(y_val, y_pred_permuted)
+            
+            # Calculate importance as the decrease in performance
+            push!(importance_scores, baseline_score - permuted_score)
+        end
+        
+        # Average importance across permutations
+        importance_dict["feature_$(feature_idx)"] = mean(importance_scores)
+    end
+    
+    # Normalize importances to sum to 1 (keeping sign for negative importances)
+    total_abs_importance = sum(abs.(values(importance_dict)))
+    if total_abs_importance > 0
+        for key in keys(importance_dict)
+            importance_dict[key] /= total_abs_importance
+        end
+    end
     
     return importance_dict
 end

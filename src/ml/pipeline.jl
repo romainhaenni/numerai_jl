@@ -32,17 +32,37 @@ mutable struct MLPipeline
     model_configs::Vector{ModelConfig}  # Store configurations
     ensemble::Union{Nothing, Ensemble.ModelEnsemble}
     feature_cols::Vector{String}
-    target_col::String
+    target_cols::Vector{String}  # Support multiple targets
+    target_mode::Symbol  # :single or :multi
+    multi_target_models::Union{Nothing, Dict{String, Vector{Models.NumeraiModel}}}  # Models per target for multi-target mode
 end
 
 function MLPipeline(;
     feature_cols::Vector{String},
-    target_col::String="target_cyrus_v4_20",
+    target_col::Union{String, Nothing}=nothing,
+    target_cols::Union{Vector{String}, Nothing}=nothing,
     neutralize::Bool=true,
     neutralize_proportion::Float64=0.5,
     ensemble_type::Symbol=:weighted,
     models::Vector{Models.NumeraiModel}=Models.NumeraiModel[],
     model_configs::Vector{ModelConfig}=ModelConfig[])
+    
+    # Handle target specification - backward compatible
+    if target_col !== nothing && target_cols !== nothing
+        error("Specify either target_col or target_cols, not both")
+    elseif target_col !== nothing
+        # Single target mode (backward compatible)
+        target_cols_vec = [target_col]
+        target_mode = :single
+    elseif target_cols !== nothing
+        # Multi-target mode
+        target_cols_vec = target_cols
+        target_mode = length(target_cols) == 1 ? :single : :multi
+    else
+        # Default single target
+        target_cols_vec = ["target_cyrus_v4_20"]
+        target_mode = :single
+    end
     
     config = Dict(
         :neutralize => neutralize,
@@ -76,7 +96,10 @@ function MLPipeline(;
         ]
     end
     
-    return MLPipeline(config, models, model_configs, nothing, feature_cols, target_col)
+    # Initialize multi_target_models based on mode
+    multi_target_models = target_mode == :multi ? Dict{String, Vector{Models.NumeraiModel}}() : nothing
+    
+    return MLPipeline(config, models, model_configs, nothing, feature_cols, target_cols_vec, target_mode, multi_target_models)
 end
 
 # Helper function to create models from configs
@@ -154,18 +177,31 @@ function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models
     return models
 end
 
-function prepare_data(pipeline::MLPipeline, df::DataFrame)::Tuple{Matrix{Float64}, Vector{Float64}, Vector{Int}}
+function prepare_data(pipeline::MLPipeline, df::DataFrame)
     feature_data = DataLoader.get_feature_columns(df, pipeline.feature_cols)
     
     feature_data = Preprocessor.fillna(feature_data, 0.5)
     
     X = Matrix{Float64}(feature_data)
     
-    y = DataLoader.get_target_column(df, pipeline.target_col)
-    
-    eras = Int.(df.era)
-    
-    return X, y, eras
+    # Handle single vs multi-target
+    if pipeline.target_mode == :single
+        y = DataLoader.get_target_column(df, pipeline.target_cols[1])
+        eras = Int.(df.era)
+        return X, y, eras
+    else
+        # Multi-target mode: return dict of targets
+        y_dict = Dict{String, Vector{Float64}}()
+        for target_col in pipeline.target_cols
+            if target_col in names(df)
+                y_dict[target_col] = Vector{Float64}(df[!, target_col])
+            else
+                @warn "Target column $target_col not found in dataframe"
+            end
+        end
+        eras = Int.(df.era)
+        return X, y_dict, eras
+    end
 end
 
 function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
@@ -199,26 +235,75 @@ function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
         end
     end
     
-    ensemble = Ensemble.ModelEnsemble(pipeline.models)
-    
-    if verbose
-        println("\n🤖 Training $(length(pipeline.models)) models...")
-        prog = ProgressMeter.Progress(length(pipeline.models), desc="Training models: ", showspeed=false)
-    end
-    
-    # Train models with progress tracking
-    for (i, model) in enumerate(ensemble.models)
+    # Handle training based on target mode
+    if pipeline.target_mode == :single
+        # Single target mode - existing behavior
+        ensemble = Ensemble.ModelEnsemble(pipeline.models)
+        
         if verbose
-            ProgressMeter.update!(prog, i-1, desc="Training $(model.name): ")
+            println("\n🤖 Training $(length(pipeline.models)) models for target: $(pipeline.target_cols[1])")
+            prog = ProgressMeter.Progress(length(pipeline.models), desc="Training models: ", showspeed=false)
         end
-        Models.train!(model, X_train, y_train, 
-                     X_val=X_val, y_val=y_val, 
-                     feature_names=pipeline.feature_cols,
-                     feature_groups=feature_groups,
-                     verbose=false)
+        
+        # Train models with progress tracking
+        for (i, model) in enumerate(ensemble.models)
+            if verbose
+                ProgressMeter.update!(prog, i-1, desc="Training $(model.name): ")
+            end
+            Models.train!(model, X_train, y_train, 
+                         X_val=X_val, y_val=y_val, 
+                         feature_names=pipeline.feature_cols,
+                         feature_groups=feature_groups,
+                         verbose=false)
+            if verbose
+                ProgressMeter.update!(prog, i)
+            end
+        end
+    else
+        # Multi-target mode - train separate models per target
         if verbose
-            ProgressMeter.update!(prog, i)
+            println("\n🎯 Training models for $(length(pipeline.target_cols)) targets...")
         end
+        
+        total_models = length(pipeline.models) * length(pipeline.target_cols)
+        if verbose
+            prog = ProgressMeter.Progress(total_models, desc="Training multi-target models: ", showspeed=false)
+        end
+        
+        model_idx = 0
+        for target_col in pipeline.target_cols
+            # Clone models for this target using model configs
+            target_models = create_models_from_configs(pipeline.model_configs)
+            
+            # Update model names to include target
+            for model in target_models
+                model.name = "$(model.name)_$(target_col)"
+            end
+            
+            # Train models for this target
+            for model in target_models
+                model_idx += 1
+                if verbose
+                    ProgressMeter.update!(prog, model_idx-1, desc="Training $(model.name): ")
+                end
+                
+                Models.train!(model, X_train, y_train[target_col], 
+                             X_val=X_val, y_val=y_val[target_col], 
+                             feature_names=pipeline.feature_cols,
+                             feature_groups=feature_groups,
+                             verbose=false)
+                
+                if verbose
+                    ProgressMeter.update!(prog, model_idx)
+                end
+            end
+            
+            # Store models for this target
+            pipeline.multi_target_models[target_col] = target_models
+        end
+        
+        # For compatibility, set the first target's models as the main ensemble
+        ensemble = Ensemble.ModelEnsemble(pipeline.multi_target_models[pipeline.target_cols[1]])
     end
     
     if verbose
@@ -248,25 +333,90 @@ function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
 end
 
 function predict(pipeline::MLPipeline, df::DataFrame; 
-                return_raw::Bool=false, verbose::Bool=false)::Vector{Float64}
+                return_raw::Bool=false, verbose::Bool=false, target::Union{String, Nothing}=nothing)
     
-    if pipeline.ensemble === nothing
-        error("Pipeline not trained yet. Call train! first.")
+    if pipeline.target_mode == :single
+        # Single target mode - existing behavior
+        if pipeline.ensemble === nothing
+            error("Pipeline not trained yet. Call train! first.")
+        end
+        
+        if verbose
+            println("Preparing prediction data...")
+        end
+        
+        feature_data = DataLoader.get_feature_columns(df, pipeline.feature_cols)
+        feature_data = Preprocessor.fillna(feature_data, 0.5)
+        X = Matrix{Float64}(feature_data)
+        
+        if verbose
+            println("Generating predictions for $(size(X, 1)) samples...")
+        end
+        
+        predictions = Ensemble.predict_ensemble(pipeline.ensemble, X)
+    else
+        # Multi-target mode
+        if pipeline.multi_target_models === nothing || isempty(pipeline.multi_target_models)
+            error("Pipeline not trained yet. Call train! first.")
+        end
+        
+        if verbose
+            println("Preparing prediction data...")
+        end
+        
+        feature_data = DataLoader.get_feature_columns(df, pipeline.feature_cols)
+        feature_data = Preprocessor.fillna(feature_data, 0.5)
+        X = Matrix{Float64}(feature_data)
+        
+        # If specific target requested, predict only for that target
+        if target !== nothing
+            if !(target in pipeline.target_cols)
+                error("Target $target not found in pipeline targets: $(pipeline.target_cols)")
+            end
+            
+            if verbose
+                println("Generating predictions for target: $target")
+            end
+            
+            target_ensemble = Ensemble.ModelEnsemble(pipeline.multi_target_models[target])
+            predictions = Ensemble.predict_ensemble(target_ensemble, X)
+        else
+            # Return predictions for all targets as a Dict
+            if verbose
+                println("Generating predictions for $(length(pipeline.target_cols)) targets...")
+            end
+            
+            predictions_dict = Dict{String, Vector{Float64}}()
+            for target_col in pipeline.target_cols
+                target_ensemble = Ensemble.ModelEnsemble(pipeline.multi_target_models[target_col])
+                predictions_dict[target_col] = Ensemble.predict_ensemble(target_ensemble, X)
+            end
+            
+            # For this multi-target all predictions case, return the dict directly
+            if !return_raw
+                # Apply post-processing to each target's predictions
+                eras = "era" in names(df) ? Int.(df.era) : ones(Int, size(X, 1))
+                for (target_col, preds) in predictions_dict
+                    if pipeline.config[:neutralize]
+                        predictions_dict[target_col] = Neutralization.smart_neutralize(
+                            preds, X, eras,
+                            proportion=pipeline.config[:neutralize_proportion]
+                        )
+                    end
+                    
+                    if pipeline.config[:clip_predictions]
+                        predictions_dict[target_col] = clamp.(predictions_dict[target_col], 0.0, 1.0)
+                    end
+                    
+                    if pipeline.config[:normalize_predictions]
+                        predictions_dict[target_col] = Preprocessor.rank_normalize(predictions_dict[target_col])
+                    end
+                end
+            end
+            
+            return predictions_dict
+        end
     end
-    
-    if verbose
-        println("Preparing prediction data...")
-    end
-    
-    feature_data = DataLoader.get_feature_columns(df, pipeline.feature_cols)
-    feature_data = Preprocessor.fillna(feature_data, 0.5)
-    X = Matrix{Float64}(feature_data)
-    
-    if verbose
-        println("Generating predictions for $(size(X, 1)) samples...")
-    end
-    
-    predictions = Ensemble.predict_ensemble(pipeline.ensemble, X)
     
     if pipeline.config[:neutralize] && !return_raw
         if verbose
@@ -292,10 +442,71 @@ function predict(pipeline::MLPipeline, df::DataFrame;
 end
 
 function evaluate(pipeline::MLPipeline, df::DataFrame; 
-                 metrics::Vector{Symbol}=[:corr, :sharpe, :max_drawdown])::Dict{Symbol, Float64}
+                 metrics::Vector{Symbol}=[:corr, :sharpe, :max_drawdown], target::Union{String, Nothing}=nothing)
     
-    X, y, eras = prepare_data(pipeline, df)
-    predictions = predict(pipeline, df)
+    X, y_data, eras = prepare_data(pipeline, df)
+    
+    if pipeline.target_mode == :single
+        predictions = predict(pipeline, df)
+        y = y_data
+    else
+        # Multi-target mode
+        if target !== nothing
+            # Evaluate specific target
+            predictions = predict(pipeline, df, target=target)
+            y = y_data[target]
+        else
+            # Evaluate all targets and return aggregated results
+            all_results = Dict{String, Dict{Symbol, Float64}}()
+            
+            for target_col in pipeline.target_cols
+                target_predictions = predict(pipeline, df, target=target_col)
+                target_y = y_data[target_col]
+                
+                target_results = Dict{Symbol, Float64}()
+                
+                if :corr in metrics
+                    target_results[:corr] = cor(target_predictions, target_y)
+                end
+                
+                if :sharpe in metrics
+                    returns = diff(target_predictions)
+                    target_results[:sharpe] = mean(returns) / std(returns) * sqrt(252)
+                end
+                
+                if :max_drawdown in metrics
+                    cumulative = cumsum(target_predictions .- mean(target_predictions))
+                    running_max = accumulate(max, cumulative)
+                    drawdown = running_max .- cumulative
+                    target_results[:max_drawdown] = maximum(drawdown)
+                end
+                
+                if :rmse in metrics
+                    target_results[:rmse] = sqrt(mean((target_predictions .- target_y).^2))
+                end
+                
+                if :mae in metrics
+                    target_results[:mae] = mean(abs.(target_predictions .- target_y))
+                end
+                
+                all_results[target_col] = target_results
+            end
+            
+            # Return aggregate statistics across all targets
+            aggregate_results = Dict{Symbol, Float64}()
+            for metric in metrics
+                values = [res[metric] for res in values(all_results) if haskey(res, metric)]
+                if !isempty(values)
+                    aggregate_results[Symbol("mean_$metric")] = mean(values)
+                    aggregate_results[Symbol("std_$metric")] = std(values)
+                    aggregate_results[Symbol("min_$metric")] = minimum(values)
+                    aggregate_results[Symbol("max_$metric")] = maximum(values)
+                end
+            end
+            
+            return aggregate_results
+        end
+    end
     
     results = Dict{Symbol, Float64}()
     

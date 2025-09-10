@@ -13,6 +13,12 @@
    - ✅ Tournament configuration properly setup
    - ✅ Development/testing environment configuration working
 
+### 3. **Feature Groups Integration** ✅
+   - ✅ Created interaction constraints and group-based column sampling functions
+   - ✅ Updated XGBoost, LightGBM, and EvoTrees to support feature groups
+   - ✅ Integrated feature groups into MLPipeline.train!
+   - ✅ XGBoost now enforces feature interaction constraints based on groups
+
 
 ## 🔄 HIGH PRIORITY REMAINING TASKS:
 
@@ -22,12 +28,7 @@
    - Expected: train!(model::NeuralNetwork, data::Dict)
    - Blocking neural network training functionality
 
-### 2. **Feature Groups Integration**
-   - Parsing functionality complete in dataloader.jl:152-164
-   - Integration needed in pipeline.jl and models.jl
-   - Will improve model performance with proper feature grouping
-
-### 3. **Multi-Target Training Support**
+### 2. **Multi-Target Training Support**
    - V5 dataset has multiple targets, currently only using primary
    - Requires neural network architecture changes
    - Will unlock more sophisticated modeling capabilities

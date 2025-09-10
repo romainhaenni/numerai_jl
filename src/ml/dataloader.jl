@@ -240,28 +240,42 @@ struct TournamentData
 end
 
 # Load features.json file to get feature and target names
-function load_features_json(filepath::String)
+function load_features_json(filepath::String; feature_set::String="medium")
     if !isfile(filepath)
         error("Features file not found: $filepath")
     end
     
     features_data = JSON3.read(read(filepath, String))
     
-    feature_names = features_data.feature_sets.medium
+    # Validate feature_set parameter
+    valid_feature_sets = ["small", "medium", "large"]
+    if !(feature_set in valid_feature_sets)
+        error("Invalid feature_set '$feature_set'. Must be one of: $(join(valid_feature_sets, ", "))")
+    end
+    
+    # Get features based on the specified feature set
+    if feature_set == "small"
+        feature_names = features_data.feature_sets.small
+    elseif feature_set == "medium"
+        feature_names = features_data.feature_sets.medium
+    elseif feature_set == "large"
+        feature_names = features_data.feature_sets.large
+    end
+    
     target_names = collect(keys(features_data.targets))
     
     return feature_names, String.(target_names)
 end
 
 # Load all tournament data files at once
-function load_tournament_data(data_dir::String; show_progress::Bool=true)::TournamentData
+function load_tournament_data(data_dir::String; show_progress::Bool=true, feature_set::String="medium")::TournamentData
     train_path = joinpath(data_dir, "train.parquet")
     val_path = joinpath(data_dir, "validation.parquet")
     live_path = joinpath(data_dir, "live.parquet")
     features_path = joinpath(data_dir, "features.json")
     
     if show_progress
-        println("Loading tournament data from $data_dir")
+        println("Loading tournament data from $data_dir with feature set: $feature_set")
     end
     
     # Use existing load functions
@@ -269,7 +283,7 @@ function load_tournament_data(data_dir::String; show_progress::Bool=true)::Tourn
     val_df = load_training_data(val_path, sample_pct=1.0)  # validation uses same format as training
     live_df = load_live_data(live_path)
     
-    features, targets = load_features_json(features_path)
+    features, targets = load_features_json(features_path; feature_set=feature_set)
     
     return TournamentData(train_df, val_df, live_df, features, targets)
 end

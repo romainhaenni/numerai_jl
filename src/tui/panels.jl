@@ -89,44 +89,120 @@ function create_events_panel(events::Vector{Dict{Symbol, Any}}; max_events::Int=
         for event in events[max(1, end-max_events+1):end]
             timestamp = Dates.format(event[:time], "HH:MM:SS")
             
-            color = if event[:type] == :error
-                "red"
-            elseif event[:type] == :warning
-                "yellow"
-            elseif event[:type] == :success
-                "green"
+            # Enhanced color coding based on severity (if available) or type
+            color = if haskey(event, :severity)
+                # Use severity-based colors for enhanced error events
+                severity = event[:severity]
+                if severity == :CRITICAL
+                    "bold red"
+                elseif severity == :HIGH
+                    "red"
+                elseif severity == :MEDIUM
+                    "yellow"
+                elseif severity == :LOW
+                    "cyan"
+                else
+                    "white"
+                end
             else
-                "white"
+                # Fallback to type-based colors for standard events
+                if event[:type] == :error
+                    "red"
+                elseif event[:type] == :warning
+                    "yellow"
+                elseif event[:type] == :success
+                    "green"
+                else
+                    "white"
+                end
             end
             
-            icon = if event[:type] == :error
-                "❌"
-            elseif event[:type] == :warning
-                "⚠️"
-            elseif event[:type] == :success
-                "✅"
+            # Enhanced icon logic - if event has severity info, it already includes severity icon
+            icon = if haskey(event, :severity)
+                ""  # Severity icon already included in message
             else
-                "ℹ️"
+                # Standard icons for non-categorized events
+                if event[:type] == :error
+                    "❌"
+                elseif event[:type] == :warning
+                    "⚠️"
+                elseif event[:type] == :success
+                    "✅"
+                else
+                    "ℹ️"
+                end
             end
             
-            push!(lines, "[$timestamp] $icon $(event[:message])")
+            # Add category info for enhanced errors
+            category_info = if haskey(event, :category)
+                category_name = string(event[:category])
+                category_display = replace(category_name, "_" => " ")
+                " [$(category_display)]"
+            else
+                ""
+            end
+            
+            # Format line with Term styling
+            line = if haskey(event, :severity)
+                "[$timestamp]$category_info $(event[:message])"
+            else
+                "[$timestamp] $icon $(event[:message])"
+            end
+            
+            # Apply color styling using Term
+            styled_line = Term.highlight(line, color)
+            push!(lines, styled_line)
         end
         
         content = join(reverse(lines), "\n")
     end
     
+    # Dynamic panel title based on recent error types
+    error_count = count(e -> e[:type] == :error, events)
+    warning_count = count(e -> e[:type] == :warning, events)
+    
+    title_suffix = if error_count > 0
+        " ($(error_count) errors)"
+    elseif warning_count > 0
+        " ($(warning_count) warnings)"
+    else
+        ""
+    end
+    
     return Panel(
         content,
-        title="🔔 Recent Events",
+        title="🔔 Recent Events$title_suffix",
         style="cyan",
         width=60,
         height=22
     )
 end
 
-function create_system_panel(system_info::Dict{Symbol, Any})::Panel
+function create_system_panel(system_info::Dict{Symbol, Any}, network_status::Union{Nothing, Dict{Symbol, Any}}=nothing)::Panel
     cpu_bar = create_progress_bar(system_info[:cpu_usage], 100)
     mem_bar = create_progress_bar(system_info[:memory_used], system_info[:memory_total])
+    
+    # Network status display
+    network_info = if network_status !== nothing
+        connection_icon = network_status[:is_connected] ? "🟢" : "🔴"
+        connection_status = network_status[:is_connected] ? "Connected" : "Disconnected"
+        
+        latency_display = if network_status[:is_connected] && network_status[:api_latency] > 0
+            " ($(round(network_status[:api_latency], digits=0))ms)"
+        else
+            ""
+        end
+        
+        failure_info = if network_status[:consecutive_failures] > 0
+            " - $(network_status[:consecutive_failures]) failures"
+        else
+            ""
+        end
+        
+        "Network: $connection_icon $connection_status$latency_display$failure_info"
+    else
+        "Network: ❓ Unknown"
+    end
     
     content = """
     CPU Usage: $cpu_bar $(system_info[:cpu_usage])%
@@ -135,6 +211,8 @@ function create_system_panel(system_info::Dict{Symbol, Any})::Panel
     Active Models: $(system_info[:active_models])/$(system_info[:total_models])
     Threads: $(system_info[:threads])
     Uptime: $(format_uptime(system_info[:uptime]))
+    
+    $network_info
     """
     
     return Panel(

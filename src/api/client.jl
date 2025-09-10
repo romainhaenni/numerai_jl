@@ -19,6 +19,10 @@ include("../utils.jl")
 const GRAPHQL_ENDPOINT = "https://api-tournament.numer.ai"
 const DATA_BASE_URL = "https://numerai-public-datasets.s3-us-west-2.amazonaws.com"
 
+# Tournament ID constants
+const TOURNAMENT_CLASSIC = 8
+const TOURNAMENT_SIGNALS = 11
+
 # File size validation constants
 const DEFAULT_MAX_UPLOAD_SIZE_MB = 100.0
 const MAX_UPLOAD_SIZE_BYTES = Int64(DEFAULT_MAX_UPLOAD_SIZE_MB * 1024 * 1024)
@@ -27,15 +31,16 @@ mutable struct NumeraiClient
     public_id::String
     secret_key::String
     headers::Dict{String,String}
+    tournament_id::Int
 end
 
-function NumeraiClient(public_id::String, secret_key::String)
+function NumeraiClient(public_id::String, secret_key::String, tournament_id::Int=TOURNAMENT_CLASSIC)
     headers = Dict(
         "Content-Type" => "application/json",
         "x-public-id" => public_id,
         "x-secret-key" => secret_key
     )
-    NumeraiClient(public_id, secret_key, headers)
+    NumeraiClient(public_id, secret_key, headers, tournament_id)
 end
 
 function graphql_query(client::NumeraiClient, query::String, variables::Dict=Dict())
@@ -117,7 +122,7 @@ end
 function get_current_round(client::NumeraiClient)::Schemas.Round
     query = """
     query {
-        rounds(tournament: 8, take: 5) {
+        rounds(tournament: $(client.tournament_id), take: 5) {
             number
             openTime
             closeTime
@@ -494,7 +499,7 @@ function get_dataset_info(client::NumeraiClient)::Schemas.DatasetInfo
     # Note: The v5 dataset endpoints are standard, not from GraphQL
     query = """
     query {
-        rounds(tournament: 8, take: 1) {
+        rounds(tournament: $(client.tournament_id), take: 1) {
             number
             openTime
             closeTime
@@ -867,7 +872,7 @@ function get_current_tournament_number(client::NumeraiClient)
     """
     query = """
     query {
-        rounds(tournament: 8) {
+        rounds(tournament: $(client.tournament_id)) {
             number
             openTime
             closeTime
@@ -1036,6 +1041,7 @@ export NumeraiClient, get_current_round, get_model_performance, download_dataset
        get_live_dataset_id, upload_predictions_multipart, get_model_stakes, get_latest_submission,
        validate_submission_window, stake_change, stake_increase, stake_decrease, stake_drain,
        withdraw_nmr, set_withdrawal_address, get_model_id, get_current_tournament_number,
-       get_wallet_balance, validate_file_size, DEFAULT_MAX_UPLOAD_SIZE_MB
+       get_wallet_balance, validate_file_size, DEFAULT_MAX_UPLOAD_SIZE_MB,
+       TOURNAMENT_CLASSIC, TOURNAMENT_SIGNALS
 
 end

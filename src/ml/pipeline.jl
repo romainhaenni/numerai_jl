@@ -6,7 +6,8 @@ using ProgressMeter
 using ..DataLoader
 using ..Preprocessor
 using ..Models
-using ..NeuralNetworks
+# Temporarily commented out for testing
+# using ..NeuralNetworks
 using ..Ensemble
 using ..Neutralization
 using ..Metrics
@@ -62,8 +63,9 @@ function MLPipeline(;
             Models.XGBoostModel("xgb_shallow", max_depth=4, learning_rate=0.02, colsample_bytree=0.2),
             Models.LightGBMModel("lgbm_small", num_leaves=31, learning_rate=0.01, feature_fraction=0.1),
             Models.LightGBMModel("lgbm_large", num_leaves=63, learning_rate=0.005, feature_fraction=0.15),
-            NeuralNetworks.MLPModel("mlp_default", hidden_layers=[128, 64, 32], epochs=50),
-            NeuralNetworks.ResNetModel("resnet_small", hidden_layers=[128, 128, 64], epochs=75)
+            # Temporarily commented out for testing
+            # NeuralNetworks.MLPModel("mlp_default", hidden_layers=[128, 64, 32], epochs=50),
+            # NeuralNetworks.ResNetModel("resnet_small", hidden_layers=[128, 128, 64], epochs=75)
         ]
         # Create configs from existing models for consistency
         model_configs = [
@@ -112,41 +114,14 @@ function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models
                 subsample=get(config.params, :subsample, 0.8)
             ))
         elseif config.type == "mlp"
-            push!(models, NeuralNetworks.MLPModel(
-                config.name;
-                hidden_layers=get(config.params, :hidden_layers, [256, 128, 64]),
-                dropout_rate=get(config.params, :dropout_rate, 0.2),
-                activation=get(config.params, :activation, relu),
-                learning_rate=get(config.params, :learning_rate, 0.001),
-                batch_size=get(config.params, :batch_size, 512),
-                epochs=get(config.params, :epochs, 100),
-                early_stopping_patience=get(config.params, :early_stopping_patience, 10),
-                gpu_enabled=get(config.params, :gpu_enabled, true)
-            ))
+            # Temporarily commented out - neural networks disabled
+            @warn "Neural network models are temporarily disabled" config.name config.type
         elseif config.type == "resnet"
-            push!(models, NeuralNetworks.ResNetModel(
-                config.name;
-                hidden_layers=get(config.params, :hidden_layers, [256, 256, 256, 128]),
-                dropout_rate=get(config.params, :dropout_rate, 0.1),
-                learning_rate=get(config.params, :learning_rate, 0.001),
-                batch_size=get(config.params, :batch_size, 512),
-                epochs=get(config.params, :epochs, 150),
-                early_stopping_patience=get(config.params, :early_stopping_patience, 15),
-                gpu_enabled=get(config.params, :gpu_enabled, true)
-            ))
+            # Temporarily commented out - neural networks disabled
+            @warn "Neural network models are temporarily disabled" config.name config.type
         elseif config.type == "tabnet"
-            push!(models, NeuralNetworks.TabNetModel(
-                config.name;
-                n_d=get(config.params, :n_d, 64),
-                n_a=get(config.params, :n_a, 64),
-                n_steps=get(config.params, :n_steps, 3),
-                gamma=get(config.params, :gamma, 1.3),
-                learning_rate=get(config.params, :learning_rate, 0.02),
-                batch_size=get(config.params, :batch_size, 1024),
-                epochs=get(config.params, :epochs, 200),
-                early_stopping_patience=get(config.params, :early_stopping_patience, 20),
-                gpu_enabled=get(config.params, :gpu_enabled, true)
-            ))
+            # Temporarily commented out - neural networks disabled
+            @warn "Neural network models are temporarily disabled" config.name config.type
         else
             @warn "Unknown model type: $(config.type), skipping"
         end

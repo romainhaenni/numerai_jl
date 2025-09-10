@@ -125,7 +125,7 @@ mutable struct TournamentScheduler
 end
 
 function TournamentScheduler(config)
-    api_client = API.NumeraiClient(config.api_public_key, config.api_secret_key)
+    api_client = API.NumeraiClient(config.api_public_key, config.api_secret_key, config.tournament_id)
     
     # Create compounding manager if enabled
     compounding_manager = if config.compounding_enabled

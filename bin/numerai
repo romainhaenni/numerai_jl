@@ -69,8 +69,8 @@ function main()
         NumeraiTournament.API.download_dataset(api_client, "validation", joinpath(config.data_dir, "validation.parquet"))
         NumeraiTournament.API.download_dataset(api_client, "features", joinpath(config.data_dir, "features.json"))
         
-        data = NumeraiTournament.DataLoader.load_tournament_data(config.data_dir)
-        features, _ = NumeraiTournament.DataLoader.load_features_json(joinpath(config.data_dir, "features.json"))
+        data = NumeraiTournament.DataLoader.load_tournament_data(config.data_dir; feature_set=config.feature_set)
+        features, _ = NumeraiTournament.DataLoader.load_features_json(joinpath(config.data_dir, "features.json"); feature_set=config.feature_set)
         
         pipeline = NumeraiTournament.Pipeline.MLPipeline(
             feature_cols=features,

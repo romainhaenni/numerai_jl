@@ -7,6 +7,7 @@ using TimeZones
 using ThreadsX
 using Statistics
 using JSON3
+using HTTP
 using ..API
 using ..Pipeline
 using ..DataLoader
@@ -17,6 +18,33 @@ using ..Notifications
 include("../utils.jl")
 
 include("dashboard_commands.jl")
+
+# Error categorization types
+@enum ErrorCategory begin
+    API_ERROR
+    NETWORK_ERROR
+    AUTH_ERROR
+    DATA_ERROR
+    SYSTEM_ERROR
+    TIMEOUT_ERROR
+    VALIDATION_ERROR
+end
+
+@enum ErrorSeverity begin
+    LOW
+    MEDIUM
+    HIGH
+    CRITICAL
+end
+
+struct CategorizedError
+    category::ErrorCategory
+    severity::ErrorSeverity
+    message::String
+    technical_details::String
+    timestamp::DateTime
+    retry_count::Int
+end
 
 mutable struct ModelWizardState
     step::Int
@@ -51,10 +79,14 @@ mutable struct TournamentDashboard
     show_model_details::Bool  # Track if model details panel should be shown
     selected_model_details::Union{Nothing, Dict{Symbol, Any}}  # Selected model for details view
     selected_model_stats::Union{Nothing, Dict{Symbol, Any}}  # Statistics for selected model
+    # Error tracking and network status
+    error_counts::Dict{ErrorCategory, Int}  # Track error counts by category
+    network_status::Dict{Symbol, Any}  # Network connectivity status
+    last_api_errors::Vector{CategorizedError}  # Recent API errors for debugging
 end
 
 function TournamentDashboard(config)
-    api_client = API.NumeraiClient(config.api_public_key, config.api_secret_key)
+    api_client = API.NumeraiClient(config.api_public_key, config.api_secret_key, config.tournament_id)
     
     models = [Dict(:name => model, :is_active => false, :corr => 0.0, 
                   :mmc => 0.0, :fnc => 0.0, :sharpe => 0.0) 
@@ -87,13 +119,33 @@ function TournamentDashboard(config)
         performance_history[model] = Vector{Dict{Symbol, Any}}()
     end
     
+    # Initialize error tracking
+    error_counts = Dict{ErrorCategory, Int}(
+        API_ERROR => 0,
+        NETWORK_ERROR => 0,
+        AUTH_ERROR => 0,
+        DATA_ERROR => 0,
+        SYSTEM_ERROR => 0,
+        TIMEOUT_ERROR => 0,
+        VALIDATION_ERROR => 0
+    )
+    
+    # Initialize network status
+    network_status = Dict{Symbol, Any}(
+        :is_connected => true,
+        :last_check => utc_now_datetime(),
+        :api_latency => 0.0,
+        :consecutive_failures => 0
+    )
+    
     return TournamentDashboard(
         config, api_client, models, Vector{Dict{Symbol, Any}}(),
         system_info, training_info, Float64[], performance_history,
         false, false, false, 1, 1.0,  # Set refresh rate to 1 second for smoother updates
         false, nothing,  # wizard_active and wizard_state
         "", false,  # command_buffer and command_mode
-        false, nothing, nothing  # show_model_details, selected_model_details, selected_model_stats
+        false, nothing, nothing,  # show_model_details, selected_model_details, selected_model_stats
+        error_counts, network_status, Vector{CategorizedError}()  # error tracking fields
     )
 end
 
@@ -125,7 +177,9 @@ end
 function update_loop(dashboard::TournamentDashboard, start_time::Float64)
     last_model_update = time()
     last_render = time()
+    last_network_check = time()
     model_update_interval = 30.0  # Update model data every 30 seconds
+    network_check_interval = 60.0  # Check network every minute
     render_interval = dashboard.refresh_rate  # Render at user-specified rate
     
     while dashboard.running
@@ -137,9 +191,30 @@ function update_loop(dashboard::TournamentDashboard, start_time::Float64)
             # Always update system info (lightweight)
             update_system_info!(dashboard)
             
+            # Periodic network connectivity check
+            if current_time - last_network_check >= network_check_interval
+                was_connected = dashboard.network_status[:is_connected]
+                is_connected = check_network_connectivity(dashboard)
+                
+                # Log connectivity state changes
+                if was_connected && !is_connected
+                    add_event!(dashboard, :error, "Network connection lost", 
+                              Base.IOError("Network connectivity check failed"))
+                elseif !was_connected && is_connected
+                    add_event!(dashboard, :success, "Network connection restored")
+                end
+                
+                last_network_check = current_time
+            end
+            
             # Update model performances less frequently to avoid API rate limits
+            # Only attempt if network is connected
             if current_time - last_model_update >= model_update_interval
-                update_model_performances!(dashboard)
+                if dashboard.network_status[:is_connected]
+                    update_model_performances!(dashboard)
+                else
+                    add_event!(dashboard, :warning, "Skipping model update - no network connection")
+                end
                 last_model_update = current_time
             end
             
@@ -287,7 +362,7 @@ function render(dashboard::TournamentDashboard)
             Panels.create_staking_panel(get_staking_info(dashboard)),
             Panels.create_predictions_panel(dashboard.predictions_history),
             Panels.create_events_panel(dashboard.events),
-            Panels.create_system_panel(dashboard.system_info),
+            Panels.create_system_panel(dashboard.system_info, dashboard.network_status),
             dashboard.training_info[:is_training] ? 
                 Panels.create_training_panel(dashboard.training_info) : 
                 (dashboard.show_help ? Panels.create_help_panel() : nothing)
@@ -331,17 +406,33 @@ function update_system_info!(dashboard::TournamentDashboard)
 end
 
 function update_model_performances!(dashboard::TournamentDashboard)
+    # Check network connectivity first
+    if !check_network_connectivity(dashboard)
+        add_event!(dashboard, :error, "Network connectivity check failed - unable to update model performances", 
+                  Base.IOError("Network unreachable"))
+        return
+    end
+    
+    successful_updates = 0
+    total_models = length(dashboard.models)
+    
     for model in dashboard.models
+        model_name = model[:name]
         try
-            perf = API.get_model_performance(dashboard.api_client, model[:name])
+            start_time = time()
+            perf = API.get_model_performance(dashboard.api_client, model_name)
+            api_duration = time() - start_time
+            
             model[:corr] = perf.corr
             model[:mmc] = perf.mmc
             model[:fnc] = perf.fnc
             model[:sharpe] = perf.sharpe
             model[:is_active] = true
             
+            # Update API latency tracking
+            dashboard.network_status[:api_latency] = api_duration * 1000  # Convert to ms
+            
             # Track historical performance
-            model_name = model[:name]
             if !haskey(dashboard.performance_history, model_name)
                 dashboard.performance_history[model_name] = Vector{Dict{Symbol, Any}}()
             end
@@ -360,9 +451,28 @@ function update_model_performances!(dashboard::TournamentDashboard)
             if length(dashboard.performance_history[model_name]) > 100
                 popfirst!(dashboard.performance_history[model_name])
             end
+            
+            successful_updates += 1
+            
         catch e
             model[:is_active] = false
+            
+            # Categorize and log the specific error for this model
+            add_event!(dashboard, :error, "Failed to update performance for model '$model_name'", e)
+            
+            # Log additional context for debugging
+            @error "Model performance update failed" model=model_name exception=e
         end
+    end
+    
+    # Summary event about the update operation
+    if successful_updates == total_models
+        add_event!(dashboard, :success, "Updated performance for all $total_models models")
+    elseif successful_updates > 0
+        failed_count = total_models - successful_updates
+        add_event!(dashboard, :warning, "Updated $successful_updates/$total_models models ($failed_count failed)")
+    else
+        add_event!(dashboard, :error, "Failed to update any model performances - check network and API credentials")
     end
 end
 
@@ -382,82 +492,99 @@ function update_model_performance!(dashboard::TournamentDashboard, model_name::S
 end
 
 function get_staking_info(dashboard::TournamentDashboard)::Dict{Symbol, Any}
+    # Get round information with proper error handling
+    round_info = nothing
     try
         round_info = API.get_current_round(dashboard.api_client)
-        time_remaining = round_info.close_time - utc_now_datetime()
-        
-        # Get actual staking data from API for each model
-        total_stake = 0.0
-        total_at_risk = 0.0
-        total_expected_payout = 0.0
-        
-        for model in dashboard.models
-            if model[:is_active]
-                try
-                    # Get actual staking information from API
-                    stake_info = API.get_model_stakes(dashboard.api_client, model[:name])
-                    model_stake = stake_info.total_stake
-                    
-                    total_stake += model_stake
-                    
-                    # Calculate at-risk amount based on actual burn rate from API
-                    burn_rate = get(stake_info, :burn_rate, 0.25)  # Default to 25% if not available
-                    total_at_risk += model_stake * burn_rate
-                    
-                    # Calculate expected payout using real performance metrics
-                    corr_multiplier = get(stake_info, :corr_multiplier, 0.5)
-                    mmc_multiplier = get(stake_info, :mmc_multiplier, 2.0)
-                    expected_payout = model_stake * (
-                        corr_multiplier * model[:corr] + 
-                        mmc_multiplier * model[:mmc]
-                    )
-                    total_expected_payout += expected_payout
-                    
-                    # Update model with actual stake
-                    model[:stake] = model_stake
-                catch e
-                    # Fallback to model's stored stake if API call fails
-                    model_stake = get(model, :stake, 0.0)
-                    total_stake += model_stake
-                    total_at_risk += model_stake * 0.25
-                    total_expected_payout += model_stake * model[:corr] * 0.5
-                end
-            end
-        end
-        
-        # Determine submission status by checking latest submissions
-        submission_status = try
-            latest_submission = API.get_latest_submission(dashboard.api_client)
-            if latest_submission.round == round_info.number
-                "Submitted"
-            else
-                "Pending"
-            end
-        catch
-            "Unknown"
-        end
-        
-        return Dict(
-            :total_stake => round(total_stake, digits=2),
-            :at_risk => round(total_at_risk, digits=2),
-            :expected_payout => round(total_expected_payout, digits=2),
-            :current_round => round_info.number,
-            :submission_status => submission_status,
-            :time_remaining => format_time_remaining(time_remaining)
-        )
     catch e
-        @warn "Failed to get staking info from API" exception=e
-        # Fallback to model-based calculations
+        add_event!(dashboard, :error, "Failed to fetch current round information", e)
+        # Return fallback data
         total_stake = sum(m -> get(m, :stake, 0.0), dashboard.models)
         return Dict(
             :total_stake => round(total_stake, digits=2),
             :at_risk => round(total_stake * 0.25, digits=2),
             :expected_payout => round(sum(m -> get(m, :stake, 0.0) * m[:corr] * 0.5, dashboard.models), digits=2),
             :current_round => 0,
-            :submission_status => "Unknown",
+            :submission_status => "Error - Check API connection",
             :time_remaining => "N/A"
         )
     end
+    
+    time_remaining = round_info.close_time - utc_now_datetime()
+    
+    # Get actual staking data from API for each model
+    total_stake = 0.0
+    total_at_risk = 0.0
+    total_expected_payout = 0.0
+    failed_stake_fetches = 0
+    
+    for model in dashboard.models
+        if model[:is_active]
+            model_name = model[:name]
+            try
+                # Get actual staking information from API
+                stake_info = API.get_model_stakes(dashboard.api_client, model_name)
+                model_stake = stake_info.total_stake
+                
+                total_stake += model_stake
+                
+                # Calculate at-risk amount based on actual burn rate from API
+                burn_rate = get(stake_info, :burn_rate, 0.25)  # Default to 25% if not available
+                total_at_risk += model_stake * burn_rate
+                
+                # Calculate expected payout using real performance metrics
+                corr_multiplier = get(stake_info, :corr_multiplier, 0.5)
+                mmc_multiplier = get(stake_info, :mmc_multiplier, 2.0)
+                expected_payout = model_stake * (
+                    corr_multiplier * model[:corr] + 
+                    mmc_multiplier * model[:mmc]
+                )
+                total_expected_payout += expected_payout
+                
+                # Update model with actual stake
+                model[:stake] = model_stake
+                
+            catch e
+                failed_stake_fetches += 1
+                # Log specific error for this model
+                add_event!(dashboard, :error, "Failed to fetch stake info for model '$model_name'", e)
+                
+                # Fallback to model's stored stake if API call fails
+                model_stake = get(model, :stake, 0.0)
+                total_stake += model_stake
+                total_at_risk += model_stake * 0.25
+                total_expected_payout += model_stake * model[:corr] * 0.5
+            end
+        end
+    end
+    
+    # Warn if some stake fetches failed
+    if failed_stake_fetches > 0
+        active_models = count(m -> m[:is_active], dashboard.models)
+        add_event!(dashboard, :warning, "Could not fetch stake info for $failed_stake_fetches/$active_models active models")
+    end
+    
+    # Determine submission status by checking latest submissions
+    submission_status = try
+        latest_submission = API.get_latest_submission(dashboard.api_client)
+        if latest_submission.round == round_info.number
+            "Submitted"
+        else
+            "Pending"
+        end
+    catch e
+        add_event!(dashboard, :error, "Failed to check submission status", e)
+        "Error - Check API connection"
+    end
+    
+    return Dict(
+        :total_stake => round(total_stake, digits=2),
+        :at_risk => round(total_at_risk, digits=2),
+        :expected_payout => round(total_expected_payout, digits=2),
+        :current_round => round_info.number,
+        :submission_status => submission_status,
+        :time_remaining => format_time_remaining(time_remaining)
+    )
 end
 
 function format_time_remaining(time_remaining::Dates.Period)::String
@@ -475,12 +602,155 @@ function format_time_remaining(time_remaining::Dates.Period)::String
     end
 end
 
-function add_event!(dashboard::TournamentDashboard, type::Symbol, message::String)
-    event = Dict(
-        :type => type,
-        :message => message,
-        :time => utc_now_datetime()
-    )
+# Error categorization helper functions
+function categorize_error(exception::Exception)::Tuple{ErrorCategory, ErrorSeverity}
+    error_msg = string(exception)
+    
+    # Network-related errors
+    if isa(exception, HTTP.ConnectError) || isa(exception, HTTP.TimeoutError)
+        return (NETWORK_ERROR, HIGH)
+    elseif isa(exception, Base.IOError) && occursin("network", lowercase(error_msg))
+        return (NETWORK_ERROR, HIGH)
+    
+    # Authentication errors
+    elseif occursin("unauthorized", lowercase(error_msg)) || 
+           occursin("forbidden", lowercase(error_msg)) ||
+           occursin("authentication", lowercase(error_msg))
+        return (AUTH_ERROR, CRITICAL)
+    
+    # API-specific errors
+    elseif occursin("graphql", lowercase(error_msg)) ||
+           occursin("api", lowercase(error_msg))
+        return (API_ERROR, MEDIUM)
+    
+    # Timeout errors
+    elseif isa(exception, TaskFailedException) || 
+           occursin("timeout", lowercase(error_msg))
+        return (TIMEOUT_ERROR, MEDIUM)
+    
+    # Data validation errors
+    elseif isa(exception, ArgumentError) || 
+           occursin("validation", lowercase(error_msg))
+        return (VALIDATION_ERROR, LOW)
+    
+    # System errors
+    else
+        return (SYSTEM_ERROR, MEDIUM)
+    end
+end
+
+function get_user_friendly_message(category::ErrorCategory, technical_msg::String)::String
+    base_msg = if category == API_ERROR
+        "API communication issue"
+    elseif category == NETWORK_ERROR
+        "Network connectivity problem"
+    elseif category == AUTH_ERROR
+        "Authentication failed - check API credentials"
+    elseif category == DATA_ERROR
+        "Data processing error"
+    elseif category == SYSTEM_ERROR
+        "System error occurred"
+    elseif category == TIMEOUT_ERROR
+        "Request timed out - server may be busy"
+    elseif category == VALIDATION_ERROR
+        "Input validation failed"
+    else
+        "Unknown error"
+    end
+    
+    # Add specific context if available
+    if occursin("model not found", lowercase(technical_msg))
+        return "$base_msg: Model not found in your account"
+    elseif occursin("rate limit", lowercase(technical_msg))
+        return "$base_msg: Rate limit exceeded, will retry shortly"
+    elseif occursin("invalid credentials", lowercase(technical_msg))
+        return "$base_msg: Please verify your API keys in configuration"
+    else
+        return base_msg
+    end
+end
+
+function get_severity_icon(severity::ErrorSeverity)::String
+    if severity == LOW
+        "ℹ️"
+    elseif severity == MEDIUM
+        "⚠️"
+    elseif severity == HIGH
+        "❌"
+    elseif severity == CRITICAL
+        "🚨"
+    else
+        "❓"
+    end
+end
+
+function check_network_connectivity(dashboard::TournamentDashboard)::Bool
+    try
+        start_time = time()
+        # Simple HTTP check to Google DNS
+        response = HTTP.get("https://8.8.8.8", timeout=5)
+        latency = time() - start_time
+        
+        dashboard.network_status[:is_connected] = true
+        dashboard.network_status[:last_check] = utc_now_datetime()
+        dashboard.network_status[:api_latency] = latency * 1000  # Convert to ms
+        dashboard.network_status[:consecutive_failures] = 0
+        
+        return true
+    catch e
+        dashboard.network_status[:is_connected] = false
+        dashboard.network_status[:last_check] = utc_now_datetime()
+        dashboard.network_status[:consecutive_failures] += 1
+        
+        return false
+    end
+end
+
+# Enhanced add_event! function with error categorization
+function add_event!(dashboard::TournamentDashboard, type::Symbol, message::String, 
+                   exception::Union{Nothing, Exception}=nothing)
+    # If there's an exception, categorize it and create enhanced error info
+    if exception !== nothing && type == :error
+        category, severity = categorize_error(exception)
+        user_message = get_user_friendly_message(category, string(exception))
+        severity_icon = get_severity_icon(severity)
+        
+        # Update error counts
+        dashboard.error_counts[category] += 1
+        
+        # Store detailed error for debugging
+        categorized_error = CategorizedError(
+            category,
+            severity,
+            user_message,
+            string(exception),
+            utc_now_datetime(),
+            get(dashboard.error_counts, category, 0)
+        )
+        
+        push!(dashboard.last_api_errors, categorized_error)
+        if length(dashboard.last_api_errors) > 50  # Keep last 50 errors
+            popfirst!(dashboard.last_api_errors)
+        end
+        
+        # Create enhanced event with categorization
+        event = Dict(
+            :type => type,
+            :message => "$severity_icon $user_message",
+            :time => utc_now_datetime(),
+            :category => category,
+            :severity => severity,
+            :technical_details => string(exception)
+        )
+    else
+        # Standard event without error categorization
+        event = Dict(
+            :type => type,
+            :message => message,
+            :time => utc_now_datetime()
+        )
+    end
+    
     push!(dashboard.events, event)
     
     if length(dashboard.events) > 100
@@ -490,6 +760,11 @@ function add_event!(dashboard::TournamentDashboard, type::Symbol, message::Strin
     if dashboard.config.notification_enabled && type in [:error, :success]
         Notifications.send_notification("Numerai Tournament", message, type)
     end
+end
+
+# Backward compatibility - keep original function signature
+function add_event!(dashboard::TournamentDashboard, type::Symbol, message::String)
+    add_event!(dashboard, type, message, nothing)
 end
 
 function start_training(dashboard::TournamentDashboard)
@@ -535,8 +810,9 @@ function run_real_training(dashboard::TournamentDashboard)
         
         # Get feature columns
         features_path = joinpath(data_dir, "features.json")
+        feature_set = hasfield(typeof(config), :feature_set) ? config.feature_set : get(config, "feature_set", "medium")
         feature_cols = if isfile(features_path)
-            features, _ = DataLoader.load_features_json(features_path)
+            features, _ = DataLoader.load_features_json(features_path; feature_set=feature_set)
             features
         else
             DataLoader.get_feature_columns(train_data)
@@ -1070,6 +1346,54 @@ function get_performance_summary(dashboard::TournamentDashboard, model_name::Str
     )
 end
 
-export TournamentDashboard, run_dashboard, add_event!, start_training, save_performance_history, load_performance_history!, get_performance_summary
+# Error statistics and debugging functions
+function get_error_summary(dashboard::TournamentDashboard)::Dict{Symbol, Any}
+    """
+    Get a comprehensive summary of errors and their categories for debugging.
+    """
+    total_errors = sum(values(dashboard.error_counts))
+    recent_errors = count(e -> e[:type] == :error, dashboard.events)
+    
+    return Dict(
+        :total_errors => total_errors,
+        :recent_errors => recent_errors,
+        :error_counts_by_category => copy(dashboard.error_counts),
+        :network_status => copy(dashboard.network_status),
+        :last_api_errors => length(dashboard.last_api_errors) > 5 ? 
+            dashboard.last_api_errors[end-4:end] : dashboard.last_api_errors
+    )
+end
+
+function reset_error_tracking!(dashboard::TournamentDashboard)
+    """
+    Reset error tracking counters (useful for testing or after resolving issues).
+    """
+    for category in keys(dashboard.error_counts)
+        dashboard.error_counts[category] = 0
+    end
+    empty!(dashboard.last_api_errors)
+    dashboard.network_status[:consecutive_failures] = 0
+    add_event!(dashboard, :info, "Error tracking counters reset")
+end
+
+function get_error_trends(dashboard::TournamentDashboard, minutes_back::Int=60)::Dict{Symbol, Int}
+    """
+    Analyze error trends over the specified time period.
+    """
+    cutoff_time = utc_now_datetime() - Dates.Minute(minutes_back)
+    recent_events = filter(e -> e[:time] > cutoff_time && e[:type] == :error, dashboard.events)
+    
+    trends = Dict{Symbol, Int}()
+    for event in recent_events
+        category = get(event, :category, :UNKNOWN)
+        trends[category] = get(trends, category, 0) + 1
+    end
+    
+    return trends
+end
+
+export TournamentDashboard, run_dashboard, add_event!, start_training, save_performance_history, load_performance_history!, get_performance_summary,
+       get_error_summary, reset_error_tracking!, get_error_trends, check_network_connectivity,
+       categorize_error, get_user_friendly_message, get_severity_icon
 
 end

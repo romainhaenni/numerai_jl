@@ -17,7 +17,8 @@ include("ml/neutralization.jl")
 include("gpu/metal_acceleration.jl")
 include("gpu/benchmarks.jl")
 include("ml/models.jl")
-include("ml/neural_networks.jl")
+# Temporarily comment out neural networks to test the rest of the system
+# include("ml/neural_networks.jl")
 include("ml/ensemble.jl")
 include("ml/metrics.jl")
 include("ml/pipeline.jl")
@@ -32,11 +33,13 @@ include("scheduler/cron.jl")
 
 export run_tournament, TournamentConfig, TournamentDashboard,
        XGBoostModel, LightGBMModel, EvoTreesModel, get_models_gpu_status,
-       MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel,
+       # Temporarily commented out for testing
+       # MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel,
        has_metal_gpu, get_gpu_info, gpu_standardize!, run_comprehensive_gpu_benchmark
 using .Logger: init_logger, @log_info, @log_warn, @log_error
 using .Models: XGBoostModel, LightGBMModel, EvoTreesModel, get_models_gpu_status
-using .NeuralNetworks: MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel
+# Temporarily commented out for testing
+# using .NeuralNetworks: MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel
 using .MetalAcceleration: has_metal_gpu, get_gpu_info, gpu_standardize!
 using .GPUBenchmarks: run_comprehensive_gpu_benchmark
 
@@ -50,6 +53,10 @@ mutable struct TournamentConfig
     stake_amount::Float64
     max_workers::Int
     notification_enabled::Bool
+    # Tournament configuration
+    tournament_id::Int  # 8 for Classic, 11 for Signals
+    # Feature set configuration
+    feature_set::String
     # Compounding configuration
     compounding_enabled::Bool
     min_compound_amount::Float64
@@ -80,6 +87,8 @@ function load_config(path::String="config.toml")::TournamentConfig
             0.0,
             Sys.CPU_THREADS,
             true,
+            8,       # tournament_id default (Classic)
+            "medium",  # feature_set default
             false,  # compounding_enabled
             1.0,    # min_compound_amount
             100.0,  # compound_percentage
@@ -98,6 +107,8 @@ function load_config(path::String="config.toml")::TournamentConfig
         get(config, "stake_amount", 0.0),
         get(config, "max_workers", Sys.CPU_THREADS),
         get(config, "notification_enabled", true),
+        get(config, "tournament_id", 8),  # Classic by default
+        get(config, "feature_set", "medium"),
         get(config, "compounding_enabled", false),
         get(config, "min_compound_amount", 1.0),
         get(config, "compound_percentage", 100.0),

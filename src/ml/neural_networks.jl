@@ -1,7 +1,7 @@
 module NeuralNetworks
 
 using Flux
-using Flux: Chain, Dense, Dropout, BatchNorm, sigmoid, relu, leakyrelu, tanh, cpu, gpu
+using Flux: Chain, Dense, Dropout, BatchNorm, sigmoid, relu, leakyrelu, tanh
 using Optimisers
 using Zygote
 using Statistics
@@ -16,14 +16,11 @@ using ProgressMeter
 using BSON
 using BSON: @save, @load
 
-# Include GPU acceleration module
-include("../gpu/metal_acceleration.jl")
-using .MetalAcceleration
-
 # Import the base model interface
 include("models.jl")
 using .Models: NumeraiModel
 import .Models: train!, predict, feature_importance, save_model, load_model!
+# MetalAcceleration functions will be accessed through Main.NumeraiTournament.MetalAcceleration
 
 # Export neural network models
 export NeuralNetworkModel, MLPModel, ResNetModel, TabNetModel
@@ -633,7 +630,7 @@ function train_neural_network!(model::NeuralNetworkModel,
     end
     
     # Move model to GPU if available
-    if model.gpu_enabled && has_metal_gpu()
+    if model.gpu_enabled && Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()
         try
             model.model = Flux.gpu(model.model)
             @info "Model moved to GPU successfully"
@@ -725,7 +722,7 @@ function train_neural_network!(model::NeuralNetworkModel,
     # Use best model if available
     if model.best_model !== nothing
         model.model = model.best_model
-        if model.gpu_enabled && has_metal_gpu()
+        if model.gpu_enabled && Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()
             model.model = Flux.gpu(model.model)
         end
     end
@@ -754,7 +751,7 @@ function predict_neural_network(model::NeuralNetworkModel, X::Matrix{Float64})::
     end
     
     # Move to GPU if model is on GPU
-    if model.gpu_enabled && has_metal_gpu()
+    if model.gpu_enabled && Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()
         try
             X_processed = Flux.gpu(X_processed)
         catch e
@@ -886,7 +883,7 @@ function save_model(model::NeuralNetworkModel, filepath::String)
     
     try
         # Move model to CPU for saving (if on GPU)
-        cpu_model = cpu(model.model)
+        cpu_model = Flux.cpu(model.model)
         
         # Prepare model state for saving
         model_state = Dict(
@@ -942,8 +939,8 @@ function load_model!(model::NeuralNetworkModel, filepath::String)
         model.patience_counter = model_state[:patience_counter]
         
         # Move model to GPU if available
-        if MetalAcceleration.has_metal()
-            model.model = gpu(model.model)
+        if Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()
+            model.model = Flux.gpu(model.model)
             @info "Model moved to Metal GPU"
         end
         

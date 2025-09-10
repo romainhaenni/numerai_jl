@@ -11,7 +11,7 @@ using BSON
 # Import the abstract type from Models module
 using ..Models: NumeraiModel
 
-export RidgeModel, LassoModel, ElasticNetModel, train!, predict, save_model, load_model!
+export RidgeModel, LassoModel, ElasticNetModel, train!, predict, save_model, load_model!, feature_importance
 
 mutable struct RidgeModel <: NumeraiModel
     model::Any  # GLM model
@@ -354,6 +354,33 @@ function load_model!(model::Union{RidgeModel, LassoModel, ElasticNetModel}, file
     model.params = loaded[:model].params
     
     return model
+end
+
+# Feature importance for linear models based on coefficient magnitudes
+function feature_importance(model::Union{RidgeModel, LassoModel, ElasticNetModel})::Dict{String, Float64}
+    if model.model === nothing
+        error("Model not trained yet")
+    end
+    
+    # Get coefficients
+    coef = model.model["coef"]
+    
+    # Use absolute values of coefficients as importance scores
+    abs_coef = abs.(coef)
+    
+    # Normalize to sum to 1 (if there are any non-zero coefficients)
+    total = sum(abs_coef)
+    if total > 0
+        abs_coef = abs_coef ./ total
+    end
+    
+    # Create dictionary with feature names
+    feature_dict = Dict{String, Float64}()
+    for i in 1:length(abs_coef)
+        feature_dict["feature_$(i)"] = abs_coef[i]
+    end
+    
+    return feature_dict
 end
 
 end  # module LinearModels

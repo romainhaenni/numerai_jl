@@ -613,6 +613,38 @@ function feature_importance(model::EvoTreesModel)::Dict{String, Float64}
     return feature_dict
 end
 
+function feature_importance(model::CatBoostModel)::Dict{String, Float64}
+    if model.model === nothing
+        error("Model not trained yet")
+    end
+    
+    try
+        # CatBoost.jl wraps Python's CatBoost, so we need to use Python methods
+        # Get feature importance using the Python method
+        py_importance = model.model.get_feature_importance()
+        
+        # Convert to Julia array if needed
+        importance_array = convert(Vector{Float64}, py_importance)
+        
+        # Create dictionary with feature names
+        feature_dict = Dict{String, Float64}()
+        for i in 1:length(importance_array)
+            feature_dict["feature_$(i)"] = importance_array[i]
+        end
+        
+        return feature_dict
+    catch e
+        @warn "Failed to get CatBoost feature importance, using uniform importance" error=e
+        # Fallback: return uniform importance if the method is not available
+        n_features = length(model.params["colsample_bylevel"] == 1.0 ? 100 : 100)  # Default assumption
+        feature_dict = Dict{String, Float64}()
+        for i in 1:n_features
+            feature_dict["feature_$(i)"] = 1.0 / n_features
+        end
+        return feature_dict
+    end
+end
+
 function save_model(model::NumeraiModel, filepath::String)
     if model.model === nothing
         error("Model not trained yet")

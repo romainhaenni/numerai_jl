@@ -631,10 +631,10 @@ end
             # Test cron expression parsing
             cron_expr = NumeraiTournament.Scheduler.CronExpression("0 14 * * 3")  # Wed 2pm
             current_time = DateTime(2024, 1, 3, 14, 0, 0)  # Wednesday 2pm
-            @test NumeraiTournament.Scheduler.matches_cron(cron_expr, current_time)
+            @test NumeraiTournament.Scheduler.matches(cron_expr, current_time)
             
             non_match_time = DateTime(2024, 1, 3, 13, 0, 0)  # Wednesday 1pm
-            @test !NumeraiTournament.Scheduler.matches_cron(cron_expr, non_match_time)
+            @test !NumeraiTournament.Scheduler.matches(cron_expr, non_match_time)
         end
         
         @testset "Automated Workflow Execution" begin

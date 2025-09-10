@@ -11,9 +11,6 @@ using BSON
 # Import the abstract type from Models module
 using ..Models: NumeraiModel
 
-# Import DataLoader for feature groups support
-using ..DataLoader
-
 export RidgeModel, LassoModel, ElasticNetModel, train!, predict, save_model, load_model!
 
 mutable struct RidgeModel <: NumeraiModel

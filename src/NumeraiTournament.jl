@@ -6,6 +6,7 @@ using Distributed
 using ThreadsX
 using TimeZones
 
+include("logger.jl")
 include("utils.jl")
 include("api/schemas.jl")
 include("api/client.jl")
@@ -26,6 +27,7 @@ include("tui/dashboard.jl")
 include("scheduler/cron.jl")
 
 export run_tournament, TournamentConfig, TournamentDashboard
+using .Logger: init_logger, @log_info, @log_warn, @log_error
 
 mutable struct TournamentConfig
     api_public_key::String
@@ -51,12 +53,12 @@ function load_config(path::String="config.toml")::TournamentConfig
     
     # Warn if API credentials are not set
     if isempty(default_public_id) || isempty(default_secret_key)
-        @warn "NUMERAI_PUBLIC_ID and/or NUMERAI_SECRET_KEY environment variables not set. API operations will fail without valid credentials."
+        @log_warn "NUMERAI_PUBLIC_ID and/or NUMERAI_SECRET_KEY environment variables not set. API operations will fail without valid credentials."
     end
     
     if !isfile(path)
-        @info "No config file found at $path. Using default configuration."
-        @info "Please create a config.toml file or set environment variables for API credentials."
+        @log_info "No config file found at $path. Using default configuration."
+        @log_info "Please create a config.toml file or set environment variables for API credentials."
         return TournamentConfig(
             default_public_id,
             default_secret_key,
@@ -93,11 +95,14 @@ function load_config(path::String="config.toml")::TournamentConfig
 end
 
 function run_tournament(; config_path::String="config.toml", headless::Bool=false)
+    # Initialize logging first
+    init_logger()
+    
     config = load_config(config_path)
     
     # Optimize for M4 Max performance
     perf_info = Performance.optimize_for_m4_max()
-    println("🚀 Optimized for M4 Max: $(perf_info[:threads]) threads, $(perf_info[:memory_gb])GB RAM")
+    @log_info "Optimized for M4 Max" threads=perf_info[:threads] memory_gb=perf_info[:memory_gb]
     
     mkpath(config.data_dir)
     mkpath(config.model_dir)

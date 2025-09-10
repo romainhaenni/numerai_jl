@@ -7,6 +7,7 @@ using TimeZones
 using Downloads
 using ProgressMeter
 using ..Schemas
+using ..Logger: @log_debug, @log_info, @log_warn, @log_error, log_api_call, log_submission
 
 # Import UTC utility function
 include("../utils.jl")
@@ -168,12 +169,12 @@ function download_dataset(client::NumeraiClient, dataset_type::String, output_pa
     mkpath(dirname(output_path))
     
     if show_progress
-        println("📥 Downloading $dataset_type dataset...")
+        @log_info "Downloading dataset" type=dataset_type
         
         # Download with progress callback
         download_with_progress(url, output_path, dataset_type)
         
-        println("✅ Downloaded $dataset_type dataset")
+        @log_info "Downloaded dataset" type=dataset_type
     else
         Downloads.download(url, output_path)
     end
@@ -198,7 +199,7 @@ function download_with_progress(url::String, output_path::String, name::String)
         # Move to final location
         mv(temp_file, output_path, force=true)
         
-        println("✓ ($(size_mb) MB)")
+        @log_debug "Download complete" size_mb=size_mb
     catch e
         # Cleanup on error
         isfile(temp_file) && rm(temp_file)
@@ -242,9 +243,9 @@ function submit_predictions(client::NumeraiClient, model_name::String, predictio
             error("Submission window is closed for round $(current_round.number). Window closed $(round(time_closed, digits=1)) hours ago (at $(window_info.window_end) UTC)")
         end
         
-        println("✅ Submission window is open for $(window_info.round_type) round $(current_round.number)")
+        @log_info "Submission window is open" round_type=window_info.round_type round=current_round.number
         if window_info.time_remaining > 0
-            println("   Time remaining: $(round(window_info.time_remaining, digits=1)) hours (closes at $(window_info.window_end) UTC)")
+            @log_info "Time remaining for submission" hours_remaining=round(window_info.time_remaining, digits=1) closes_at=window_info.window_end
         end
     end
     
@@ -282,7 +283,7 @@ function submit_predictions(client::NumeraiClient, model_name::String, predictio
         error("Failed to upload predictions: $(upload_response.status)")
     end
     
-    println("Successfully uploaded predictions for model: $model_name")
+    @log_info "Successfully uploaded predictions" model=model_name
     return submission_id
 end
 
@@ -314,9 +315,9 @@ function upload_predictions_multipart(client::NumeraiClient, model_id::String, p
             error("Submission window is closed for round $(current_round.number). Window closed $(round(time_closed, digits=1)) hours ago (at $(window_info.window_end) UTC)")
         end
         
-        println("✅ Submission window is open for $(window_info.round_type) round $(current_round.number)")
+        @log_info "Submission window is open" round_type=window_info.round_type round=current_round.number
         if window_info.time_remaining > 0
-            println("   Time remaining: $(round(window_info.time_remaining, digits=1)) hours (closes at $(window_info.window_end) UTC)")
+            @log_info "Time remaining for submission" hours_remaining=round(window_info.time_remaining, digits=1) closes_at=window_info.window_end
         end
     end
     

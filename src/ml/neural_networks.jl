@@ -1,7 +1,7 @@
 module NeuralNetworks
 
 using Flux
-using Flux: Chain, Dense, Dropout, BatchNorm, sigmoid, relu, leakyrelu, tanh
+using Flux: Chain, Dense, Dropout, BatchNorm, sigmoid, relu, leakyrelu, tanh, cpu, gpu
 using Optimisers
 using Zygote
 using Statistics
@@ -13,6 +13,8 @@ using Logging
 using DataFrames
 using Metal
 using ProgressMeter
+using BSON
+using BSON: @save, @load
 
 # Include GPU acceleration module
 include("../gpu/metal_acceleration.jl")
@@ -858,7 +860,13 @@ function feature_importance(model::NeuralNetworkModel;
 end
 
 """
-Save neural network model
+Save neural network model to disk using BSON format
+
+Saves the complete model state including:
+- Trained neural network weights and architecture
+- Normalization parameters (means and stds)
+- Model configuration and hyperparameters
+- Training history and performance metrics
 """
 function save_model(model::NeuralNetworkModel, filepath::String)
     if model.model === nothing
@@ -871,9 +879,32 @@ function save_model(model::NeuralNetworkModel, filepath::String)
         mkpath(model_dir)
     end
     
+    # Ensure .bson extension
+    if !endswith(filepath, ".bson")
+        filepath = filepath * ".bson"
+    end
+    
     try
-        # In a real implementation, you'd use BSON.jl or similar for saving
-        @info "Neural network model saved" filepath=filepath model_type=typeof(model)
+        # Move model to CPU for saving (if on GPU)
+        cpu_model = cpu(model.model)
+        
+        # Prepare model state for saving
+        model_state = Dict(
+            :model => cpu_model,
+            :config => model.config,
+            :feature_means => model.feature_means,
+            :feature_stds => model.feature_stds,
+            :training_history => model.training_history,
+            :best_val_loss => model.best_val_loss,
+            :patience_counter => model.patience_counter,
+            :is_trained => model.model !== nothing,
+            :model_type => string(typeof(model))
+        )
+        
+        # Save using BSON
+        @save filepath model_state
+        
+        @info "Neural network model saved successfully" filepath=filepath model_type=typeof(model)
         println("Neural network model saved to $filepath")
     catch e
         @error "Failed to save neural network model" exception=e filepath=filepath
@@ -882,12 +913,41 @@ function save_model(model::NeuralNetworkModel, filepath::String)
 end
 
 """
-Load neural network model
+Load neural network model from disk
+
+Restores the complete model state including weights, normalization parameters,
+and training history. The model is automatically moved to GPU if available.
 """
 function load_model!(model::NeuralNetworkModel, filepath::String)
+    # Ensure .bson extension
+    if !endswith(filepath, ".bson")
+        filepath = filepath * ".bson"
+    end
+    
+    if !isfile(filepath)
+        error("Model file not found: $filepath")
+    end
+    
     try
-        # In a real implementation, you'd load using BSON.jl or similar
-        @info "Neural network model loaded" filepath=filepath model_type=typeof(model)
+        # Load model state from BSON
+        @load filepath model_state
+        
+        # Restore model components
+        model.model = model_state[:model]
+        model.config = model_state[:config]
+        model.feature_means = model_state[:feature_means]
+        model.feature_stds = model_state[:feature_stds]
+        model.training_history = model_state[:training_history]
+        model.best_val_loss = model_state[:best_val_loss]
+        model.patience_counter = model_state[:patience_counter]
+        
+        # Move model to GPU if available
+        if MetalAcceleration.has_metal()
+            model.model = gpu(model.model)
+            @info "Model moved to Metal GPU"
+        end
+        
+        @info "Neural network model loaded successfully" filepath=filepath model_type=model_state[:model_type]
         return model
     catch e
         @error "Failed to load neural network model" exception=e filepath=filepath

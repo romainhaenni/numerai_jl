@@ -48,6 +48,9 @@ mutable struct TournamentDashboard
     wizard_state::Union{Nothing, ModelWizardState}
     command_buffer::String  # For slash commands
     command_mode::Bool  # Track if we're in command mode
+    show_model_details::Bool  # Track if model details panel should be shown
+    selected_model_details::Union{Nothing, Dict{Symbol, Any}}  # Selected model for details view
+    selected_model_stats::Union{Nothing, Dict{Symbol, Any}}  # Statistics for selected model
 end
 
 function TournamentDashboard(config)
@@ -89,7 +92,8 @@ function TournamentDashboard(config)
         system_info, training_info, Float64[], performance_history,
         false, false, false, 1, 1.0,  # Set refresh rate to 1 second for smoother updates
         false, nothing,  # wizard_active and wizard_state
-        "", false  # command_buffer and command_mode
+        "", false,  # command_buffer and command_mode
+        false, nothing, nothing  # show_model_details, selected_model_details, selected_model_stats
     )
 end
 
@@ -194,10 +198,21 @@ function input_loop(dashboard::TournamentDashboard)
     while dashboard.running
         key = read_key()
         
-        if dashboard.wizard_active
+        if dashboard.show_model_details
+            # Handle model details panel input
+            if key == "\e" || key == "q"  # ESC or q to close
+                dashboard.show_model_details = false
+                dashboard.selected_model_details = nothing
+                dashboard.selected_model_stats = nothing
+                add_event!(dashboard, :info, "Model details closed")
+            end
+        elseif dashboard.wizard_active
             # Handle wizard-specific input
             if length(key) == 1
                 handle_wizard_input(dashboard, key[1])
+            elseif startswith(key, "\e[")
+                # Pass arrow key sequences to wizard
+                handle_wizard_input(dashboard, key)
             end
         elseif dashboard.command_mode
             # Handle command mode input
@@ -252,7 +267,14 @@ function render(dashboard::TournamentDashboard)
     print("\033[2J\033[H")
     
     # Create panels for 6-column grid layout
-    if dashboard.wizard_active
+    if dashboard.show_model_details
+        # Show model details interface
+        panels = [
+            render_model_details_panel(dashboard),
+            Panels.create_events_panel(dashboard.events)
+        ]
+        layout = Grid(panels..., layout=(1, 2))
+    elseif dashboard.wizard_active
         # Show wizard interface
         panels = [
             render_wizard_panel(dashboard),
@@ -643,6 +665,55 @@ function create_new_model_wizard(dashboard::TournamentDashboard)
     dashboard.show_help = false
 end
 
+function render_model_details_panel(dashboard::TournamentDashboard)
+    if isnothing(dashboard.selected_model_details)
+        return nothing
+    end
+    
+    model = dashboard.selected_model_details
+    stats = dashboard.selected_model_stats
+    
+    content = """
+    $(Term.highlight("📊 Model Details"))
+    
+    $(Term.bold("Basic Information"))
+    • Name: $(model[:name])
+    • Type: $(get(model, :type, "Unknown"))
+    • Status: $(model[:is_active] ? "🟢 Active" : "🔴 Inactive")
+    • Current Stake: $(get(model, :stake, 0.0)) NMR
+    
+    $(Term.bold("Current Performance"))
+    • Correlation: $(round(model[:corr], digits=4))
+    • MMC: $(round(model[:mmc], digits=4))
+    • FNC: $(round(model[:fnc], digits=4))
+    • Sharpe: $(round(model[:sharpe], digits=3))
+    """
+    
+    if !isnothing(stats)
+        content *= """
+        
+        $(Term.bold("Historical Statistics"))
+        • CORR: μ=$(stats[:corr_mean]), σ=$(stats[:corr_std])
+        • MMC:  μ=$(stats[:mmc_mean]), σ=$(stats[:mmc_std])
+        • Sharpe: $(stats[:sharpe])
+        • Samples: $(stats[:samples])
+        """
+    end
+    
+    content *= """
+    
+    $(Term.dim("Press ESC to close"))
+    """
+    
+    return Panel(
+        content,
+        title="📊 Model Details - $(model[:name])",
+        title_style="bold cyan",
+        width=60,
+        height=25
+    )
+end
+
 function render_wizard_panel(dashboard::TournamentDashboard)
     if isnothing(dashboard.wizard_state)
         return Panel("Error: Wizard state not initialized", title="Error")
@@ -725,13 +796,42 @@ function render_wizard_panel(dashboard::TournamentDashboard)
     )
 end
 
-function handle_wizard_input(dashboard::TournamentDashboard, key::Char)
+function handle_wizard_input(dashboard::TournamentDashboard, key::Union{Char, String})
     if isnothing(dashboard.wizard_state)
         return
     end
     
     ws = dashboard.wizard_state
     
+    # Handle escape sequences for arrow keys
+    if isa(key, String)
+        if key == "\e[A"  # Up arrow
+            handle_wizard_arrow_key(ws, :up)
+            return
+        elseif key == "\e[B"  # Down arrow
+            handle_wizard_arrow_key(ws, :down)
+            return
+        elseif key == "\e[C"  # Right arrow
+            handle_wizard_arrow_key(ws, :right)
+            return
+        elseif key == "\e[D"  # Left arrow
+            handle_wizard_arrow_key(ws, :left)
+            return
+        elseif key == "\e"  # Just ESC key
+            dashboard.wizard_active = false
+            dashboard.wizard_state = nothing
+            add_event!(dashboard, :info, "Model creation cancelled")
+            return
+        end
+        # If it's a string but not a recognized escape sequence, treat first char
+        if length(key) > 0
+            key = key[1]
+        else
+            return
+        end
+    end
+    
+    # Single character handling
     if key == '\e'  # Escape
         dashboard.wizard_active = false
         dashboard.wizard_state = nothing
@@ -776,6 +876,33 @@ function handle_wizard_input(dashboard::TournamentDashboard, key::Char)
         if key == '\r'
             finalize_model_creation(dashboard)
         end
+    end
+end
+
+function handle_wizard_arrow_key(ws::ModelWizardState, direction::Symbol)
+    """
+    Handle arrow key input for parameter adjustment in the wizard.
+    """
+    # Only handle arrow keys in step 3 (parameters)
+    if ws.step != 3
+        return
+    end
+    
+    # Define parameter adjustment increments
+    if direction == :up || direction == :right
+        # Increase parameters
+        ws.learning_rate = min(1.0, ws.learning_rate + 0.01)
+        ws.max_depth = min(20, ws.max_depth + 1)
+        ws.feature_fraction = min(1.0, ws.feature_fraction + 0.05)
+        ws.num_rounds = min(2000, ws.num_rounds + 50)
+        ws.neutralize_proportion = min(1.0, ws.neutralize_proportion + 0.05)
+    elseif direction == :down || direction == :left
+        # Decrease parameters
+        ws.learning_rate = max(0.01, ws.learning_rate - 0.01)
+        ws.max_depth = max(1, ws.max_depth - 1)
+        ws.feature_fraction = max(0.1, ws.feature_fraction - 0.05)
+        ws.num_rounds = max(50, ws.num_rounds - 50)
+        ws.neutralize_proportion = max(0.0, ws.neutralize_proportion - 0.05)
     end
 end
 
@@ -837,6 +964,10 @@ function show_model_details(dashboard::TournamentDashboard, model_idx::Int)
     model = dashboard.models[model_idx]
     model_name = model[:name]
     
+    # Set the model details to be shown
+    dashboard.show_model_details = true
+    dashboard.selected_model_details = model
+    
     # Display historical performance if available
     if haskey(dashboard.performance_history, model_name) && !isempty(dashboard.performance_history[model_name])
         history = dashboard.performance_history[model_name]
@@ -847,58 +978,21 @@ function show_model_details(dashboard::TournamentDashboard, model_idx::Int)
         fnc_values = [h[:fnc] for h in history]
         sharpe_values = [h[:sharpe] for h in history]
         
-        # Create detailed analytics message
-        analytics_msg = """
-        📊 Historical Performance for $(model_name):
-        • CORR: μ=$(round(mean(corr_values), digits=4)), σ=$(round(std(corr_values), digits=4))
-        • MMC:  μ=$(round(mean(mmc_values), digits=4)), σ=$(round(std(mmc_values), digits=4))
-        • Sharpe: $(round(mean(sharpe_values), digits=3))
-        • Samples: $(length(history))
-        """
+        # Store stats in dashboard for display
+        dashboard.selected_model_stats = Dict(
+            :corr_mean => round(mean(corr_values), digits=4),
+            :corr_std => round(std(corr_values), digits=4),
+            :mmc_mean => round(mean(mmc_values), digits=4),
+            :mmc_std => round(std(mmc_values), digits=4),
+            :sharpe => round(mean(sharpe_values), digits=3),
+            :samples => length(history)
+        )
         
-        add_event!(dashboard, :info, analytics_msg)
+        add_event!(dashboard, :info, "Showing details for $(model_name)")
     else
+        dashboard.selected_model_stats = nothing
         add_event!(dashboard, :warning, "No historical data for $(model_name)")
     end
-    
-    # Create detailed model information panel
-    details_text = """
-    $(Term.highlight("Model Information"))
-    
-    Name: $(model[:name])
-    Type: $(get(model, :type, "Unknown"))
-    Status: $(model[:is_active] ? "🟢 Active" : "🔴 Inactive")
-    
-    $(Term.highlight("Performance Metrics"))
-    • Correlation: $(round(model[:corr], digits=4))
-    • MMC: $(round(model[:mmc], digits=4))
-    • FNC: $(round(model[:fnc], digits=4))
-    • Sharpe Ratio: $(round(model[:sharpe], digits=3))
-    
-    $(Term.highlight("Staking Information"))
-    • Current Stake: $(model[:stake]) NMR
-    • At Risk: $(round(model[:stake] * 0.25, digits=2)) NMR
-    • Expected Payout: $(round(model[:stake] * (0.5 * model[:corr] + 2 * model[:mmc]), digits=2)) NMR
-    
-    $(Term.highlight("Recent Rounds"))
-    Round 500: CORR=0.02, MMC=0.01
-    Round 499: CORR=0.03, MMC=0.02
-    Round 498: CORR=0.01, MMC=0.00
-    
-    Press Esc to return to dashboard
-    """
-    
-    details_panel = Panel(
-        details_text,
-        title="📊 Model Details: $(model[:name])",
-        title_style="bold yellow",
-        width=70,
-        height=25
-    )
-    
-    # In a real implementation, this would show a separate view
-    # For now, we just log the event
-    dashboard.show_help = false  # Could show details instead of help
 end
 
 function save_performance_history(dashboard::TournamentDashboard, filepath::String="performance_history.json")

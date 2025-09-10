@@ -803,13 +803,9 @@ function feature_importance(model::NeuralNetworkModel;
         error("Model not trained yet")
     end
     
-    # Use stored validation data if not provided
+    # Validation data must be provided
     if validation_data === nothing
-        if model.X_val !== nothing && model.y_val !== nothing
-            validation_data = (model.X_val, model.y_val)
-        else
-            error("No validation data available for feature importance calculation")
-        end
+        error("Validation data must be provided for feature importance calculation")
     end
     
     X_val, y_val = validation_data
@@ -888,14 +884,14 @@ function save_model(model::NeuralNetworkModel, filepath::String)
         # Prepare model state for saving
         model_state = Dict(
             :model => cpu_model,
-            :config => model.config,
+            :params => model.params,  # Use params instead of config
             :feature_means => model.feature_means,
             :feature_stds => model.feature_stds,
             :training_history => model.training_history,
-            :best_val_loss => model.best_val_loss,
-            :patience_counter => model.patience_counter,
             :is_trained => model.model !== nothing,
-            :model_type => string(typeof(model))
+            :model_type => string(typeof(model)),
+            :name => model.name,
+            :gpu_enabled => model.gpu_enabled
         )
         
         # Save using BSON
@@ -931,12 +927,17 @@ function load_model!(model::NeuralNetworkModel, filepath::String)
         
         # Restore model components
         model.model = model_state[:model]
-        model.config = model_state[:config]
+        model.params = get(model_state, :params, model_state[:config])  # Support old :config key
         model.feature_means = model_state[:feature_means]
         model.feature_stds = model_state[:feature_stds]
         model.training_history = model_state[:training_history]
-        model.best_val_loss = model_state[:best_val_loss]
-        model.patience_counter = model_state[:patience_counter]
+        # Restore optional fields if they exist
+        if haskey(model_state, :name)
+            model.name = model_state[:name]
+        end
+        if haskey(model_state, :gpu_enabled)
+            model.gpu_enabled = model_state[:gpu_enabled]
+        end
         
         # Move model to GPU if available
         if Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()

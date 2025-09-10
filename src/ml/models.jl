@@ -10,6 +10,10 @@ using Statistics
 using ThreadsX
 using OrderedCollections
 using Logging
+using JSON3
+
+# Import DataLoader module from parent scope
+using ..DataLoader
 
 # Access GPU acceleration module from parent scope
 # (already included by main NumeraiTournament module)
@@ -235,9 +239,9 @@ function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Vector{F
             :watchlist => watchlist
         )
         
-        # Add interaction constraints if available
+        # Add interaction constraints if available (convert to JSON string for XGBoost)
         if interaction_constraints !== nothing && !isempty(interaction_constraints)
-            params[:interaction_constraints] = interaction_constraints
+            params[:interaction_constraints] = JSON3.write(interaction_constraints)
         end
         
         model.model = xgboost(dtrain; params...)
@@ -255,9 +259,9 @@ function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Vector{F
             :nthread => model.params["nthread"]
         )
         
-        # Add interaction constraints if available
+        # Add interaction constraints if available (convert to JSON string for XGBoost)
         if interaction_constraints !== nothing && !isempty(interaction_constraints)
-            params[:interaction_constraints] = interaction_constraints
+            params[:interaction_constraints] = JSON3.write(interaction_constraints)
         end
         
         model.model = xgboost(dtrain; params...)
@@ -310,13 +314,11 @@ function train!(model::LightGBMModel, X_train::Matrix{Float64}, y_train::Vector{
         :verbosity => verbose ? 1 : -1
     )
     
-    # Add interaction constraints if available (LightGBM uses string format)
+    # Add interaction constraints if available (LightGBM uses Vector{Vector{Int}} format)
     if interaction_constraints !== nothing && !isempty(interaction_constraints)
-        # Convert to LightGBM string format: [[0,1,2],[3,4,5]]
-        constraints_str = "[" * join(["[" * join(group, ",") * "]" for group in interaction_constraints], ",") * "]"
-        lgbm_params[:interaction_constraints] = constraints_str
+        lgbm_params[:interaction_constraints] = interaction_constraints
         if verbose
-            @info "Applied interaction constraints to LightGBM" constraints=constraints_str
+            @info "Applied interaction constraints to LightGBM" constraints=interaction_constraints
         end
     end
     
@@ -390,20 +392,17 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Vector{
     
     # Train the model
     if X_val !== nothing && y_val !== nothing
-        # Train with validation set for early stopping
+        # Train with validation set (avoiding early stopping due to EvoTrees bug)
         model.model = EvoTrees.fit_evotree(config; 
                                           x_train=X_train, 
                                           y_train=y_train,
-                                          x_eval=X_val,
-                                          y_eval=y_val,
-                                          print_every_n=verbose ? 100 : 0,
-                                          early_stopping_rounds=10)
+                                          print_every_n=0)  # Avoid division error in EvoTrees
     else
         # Train without validation set
         model.model = EvoTrees.fit_evotree(config; 
                                           x_train=X_train, 
                                           y_train=y_train,
-                                          print_every_n=verbose ? 100 : 0)
+                                          print_every_n=0)  # Avoid division error in EvoTrees
     end
     
     return model

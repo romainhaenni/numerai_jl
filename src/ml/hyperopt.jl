@@ -10,6 +10,8 @@ using Distributed
 using ProgressMeter
 using JSON3
 using Dates: now
+using LinearAlgebra: dot, cholesky, Symmetric, I, norm
+using Distributions: Normal, cdf, pdf
 
 export HyperOptConfig, GridSearchOptimizer, RandomSearchOptimizer, BayesianOptimizer,
        optimize_hyperparameters, evaluate_params, get_best_params,
@@ -686,41 +688,112 @@ function optimize_hyperparameters(
     )
 end
 
-# Select next point using acquisition function (simplified implementation)
+# Gaussian Process implementation for Bayesian optimization
+struct SimpleGaussianProcess
+    kernel_func::Function
+    noise::Float64
+    length_scale::Float64
+end
+
+function SimpleGaussianProcess(; noise=1e-6, length_scale=1.0)
+    # RBF (Radial Basis Function) kernel
+    kernel_func = (x1, x2, l) -> exp(-0.5 * sum(((x1 .- x2) ./ l).^2))
+    return SimpleGaussianProcess(kernel_func, noise, length_scale)
+end
+
+# Compute kernel matrix
+function compute_kernel_matrix(gp::SimpleGaussianProcess, X::Vector{Vector{Float64}})
+    n = length(X)
+    K = zeros(n, n)
+    for i in 1:n
+        for j in 1:n
+            K[i, j] = gp.kernel_func(X[i], X[j], gp.length_scale)
+        end
+        K[i, i] += gp.noise  # Add noise to diagonal
+    end
+    return K
+end
+
+# GP prediction with proper mean and variance
+function gp_predict(gp::SimpleGaussianProcess, X_train::Vector{Vector{Float64}}, 
+                   y_train::Vector{Float64}, X_test::Vector{Float64})
+    if isempty(X_train)
+        return 0.0, 1.0
+    end
+    
+    # Compute kernel matrices
+    K = compute_kernel_matrix(gp, X_train)
+    k_star = [gp.kernel_func(X_test, x_train, gp.length_scale) for x_train in X_train]
+    k_star_star = gp.kernel_func(X_test, X_test, gp.length_scale) + gp.noise
+    
+    # Compute mean and variance using Cholesky decomposition for numerical stability
+    try
+        L = cholesky(Symmetric(K)).L
+        alpha = L' \ (L \ y_train)
+        mean = dot(k_star, alpha)
+        
+        v = L \ k_star
+        variance = k_star_star - dot(v, v)
+        variance = max(variance, 1e-6)  # Ensure positive variance
+        
+        return mean, variance
+    catch e
+        # Fallback to simple inverse if Cholesky fails
+        K_inv = inv(K + I * 1e-4)  # Add regularization
+        mean = dot(k_star, K_inv * y_train)
+        variance = k_star_star - dot(k_star, K_inv * k_star)
+        variance = max(variance, 1e-6)
+        return mean, variance
+    end
+end
+
+# Select next point using acquisition function with proper GP
 function select_next_point(
     observed_params::Vector{Vector{Float64}},
     observed_scores::Vector{Float64},
     param_ranges::Vector{Tuple{Float64,Float64}},
     acquisition_function::Symbol
 )
-    # This is a simplified implementation
-    # In production, you would use a proper Gaussian Process library
+    # Initialize Gaussian Process
+    gp = SimpleGaussianProcess(noise=1e-6, length_scale=1.0)
     
-    n_candidates = 1000
+    # Normalize parameters to [0, 1] for better GP performance
+    normalized_params = normalize_params(observed_params, param_ranges)
+    
+    # Standardize scores for better GP performance
+    mean_score = isempty(observed_scores) ? 0.0 : mean(observed_scores)
+    std_score = isempty(observed_scores) ? 1.0 : std(observed_scores)
+    std_score = std_score == 0 ? 1.0 : std_score
+    normalized_scores = (observed_scores .- mean_score) ./ std_score
+    
+    n_candidates = 2000  # Increased for better optimization
     best_candidate = nothing
     best_acquisition = -Inf
     
-    # Generate random candidates
-    for _ in 1:n_candidates
-        candidate = [
-            rand() * (bounds[2] - bounds[1]) + bounds[1]
-            for bounds in param_ranges
-        ]
+    # Latin Hypercube Sampling for better coverage
+    candidates = generate_lhs_samples(n_candidates, param_ranges)
+    
+    for candidate in candidates
+        # Normalize candidate
+        norm_candidate = normalize_param(candidate, param_ranges)
         
-        # Calculate acquisition value (simplified)
+        # Get GP predictions
+        mean_pred, var_pred = gp_predict(gp, normalized_params, normalized_scores, norm_candidate)
+        
+        # Denormalize predictions
+        mean_pred = mean_pred * std_score + mean_score
+        var_pred = var_pred * std_score^2
+        
+        # Calculate acquisition value
         if acquisition_function == :ei
-            # Expected Improvement (simplified)
-            acquisition = calculate_expected_improvement(
-                candidate,
-                observed_params,
+            acquisition = calculate_expected_improvement_gp(
+                mean_pred, sqrt(var_pred),
                 observed_scores
             )
         elseif acquisition_function == :ucb
-            # Upper Confidence Bound (simplified)
-            acquisition = calculate_upper_confidence_bound(
-                candidate,
-                observed_params,
-                observed_scores
+            acquisition = calculate_upper_confidence_bound_gp(
+                mean_pred, sqrt(var_pred),
+                beta=2.0
             )
         else
             error("Unknown acquisition function: $acquisition_function")
@@ -735,65 +808,71 @@ function select_next_point(
     return best_candidate
 end
 
-# Simplified Expected Improvement calculation
-function calculate_expected_improvement(
-    candidate::Vector{Float64},
-    observed_params::Vector{Vector{Float64}},
-    observed_scores::Vector{Float64}
-)
-    if isempty(observed_scores)
-        return 0.0
+# Latin Hypercube Sampling for better space exploration
+function generate_lhs_samples(n_samples::Int, param_ranges::Vector{Tuple{Float64,Float64}})
+    n_dims = length(param_ranges)
+    samples = Vector{Vector{Float64}}()
+    
+    # Create Latin Hypercube grid
+    for i in 1:n_samples
+        sample = Float64[]
+        for (low, high) in param_ranges
+            # Stratified sampling within each dimension
+            val = (i - 1 + rand()) / n_samples
+            push!(sample, low + val * (high - low))
+        end
+        push!(samples, sample)
     end
     
-    # Find nearest neighbor (simplified approach)
-    min_distance = Inf
-    nearest_score = 0.0
-    
-    for (params, score) in zip(observed_params, observed_scores)
-        distance = sqrt(sum((candidate .- params).^2))
-        if distance < min_distance
-            min_distance = distance
-            nearest_score = score
+    # Shuffle within each dimension for better randomization
+    for dim in 1:n_dims
+        perm = randperm(n_samples)
+        for i in 1:n_samples
+            samples[i][dim], samples[perm[i]][dim] = samples[perm[i]][dim], samples[i][dim]
         end
     end
     
-    # Simple exploration bonus based on distance
-    exploration_bonus = min_distance / 10.0
-    
-    # Expected improvement (simplified)
-    current_best = maximum(observed_scores)
-    expected_improvement = max(0, nearest_score - current_best) + exploration_bonus
-    
-    return expected_improvement
+    return samples
 end
 
-# Simplified Upper Confidence Bound calculation
-function calculate_upper_confidence_bound(
-    candidate::Vector{Float64},
-    observed_params::Vector{Vector{Float64}},
-    observed_scores::Vector{Float64},
-    beta::Float64=2.0
+# Normalize parameters to [0, 1] range
+function normalize_params(params::Vector{Vector{Float64}}, ranges::Vector{Tuple{Float64,Float64}})
+    return [normalize_param(p, ranges) for p in params]
+end
+
+function normalize_param(param::Vector{Float64}, ranges::Vector{Tuple{Float64,Float64}})
+    return [(p - r[1]) / (r[2] - r[1]) for (p, r) in zip(param, ranges)]
+end
+
+# Expected Improvement with proper Gaussian Process
+function calculate_expected_improvement_gp(
+    mean::Float64,
+    std::Float64,
+    observed_scores::Vector{Float64}
 )
-    if isempty(observed_scores)
+    if isempty(observed_scores) || std < 1e-9
         return 0.0
     end
     
-    # Find nearest neighbors
-    distances = [sqrt(sum((candidate .- params).^2)) for params in observed_params]
+    current_best = maximum(observed_scores)
+    z = (mean - current_best) / std
     
-    # Weighted average based on distances (simplified GP mean)
-    weights = exp.(-distances)
-    weights ./= sum(weights)
-    mean_prediction = sum(weights .* observed_scores)
+    # Use the cumulative distribution function (CDF) and probability density function (PDF)
+    # of the standard normal distribution
+    dist = Normal(0, 1)
+    ei = std * (z * cdf(dist, z) + pdf(dist, z))
     
-    # Uncertainty based on distance to nearest point (simplified GP variance)
-    min_distance = minimum(distances)
-    uncertainty = min_distance / 10.0
-    
-    # Upper confidence bound
-    ucb = mean_prediction + beta * uncertainty
-    
-    return ucb
+    return ei
+end
+
+# Upper Confidence Bound with proper Gaussian Process
+function calculate_upper_confidence_bound_gp(
+    mean::Float64,
+    std::Float64;
+    beta::Float64=2.0
+)
+    # UCB = mean + beta * std
+    return mean + beta * std
 end
 
 # Helper function to update best parameters

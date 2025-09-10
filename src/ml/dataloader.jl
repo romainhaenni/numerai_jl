@@ -153,11 +153,17 @@ function get_feature_groups(metadata::Dict{String, Any})::Dict{String, Vector{St
     groups = Dict{String, Vector{String}}()
     
     for (feature, info) in metadata["feature_stats"]
-        group = get(info, "group", "default")
+        # Convert feature to String if it's a Symbol (JSON3 may parse keys as Symbols)
+        feature_str = string(feature)
+        
+        # Get group, converting to string if necessary
+        group_raw = get(info, "group", "default")
+        group = string(group_raw)
+        
         if !haskey(groups, group)
             groups[group] = String[]
         end
-        push!(groups[group], feature)
+        push!(groups[group], feature_str)
     end
     
     return groups

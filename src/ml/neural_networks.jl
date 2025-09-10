@@ -239,30 +239,61 @@ end
 
 """
 Correlation-based loss function (negative correlation to minimize)
+Supports both single and multi-target regression
 """
 function correlation_loss(ŷ, y)
-    # Ensure vectors are properly shaped
-    pred_vec = vec(ŷ)
-    true_vec = vec(y)
-    
-    # Handle edge cases
-    if length(pred_vec) != length(true_vec)
-        return 1.0f0  # Maximum loss
+    # Handle multi-target case
+    if size(ŷ, 1) > 1 && size(y, 1) > 1  # Multi-output case
+        # Calculate correlation loss for each output
+        total_loss = 0.0f0
+        n_outputs = size(ŷ, 1)
+        
+        for i in 1:n_outputs
+            pred_vec = vec(ŷ[i, :])
+            true_vec = vec(y[i, :])
+            
+            # Handle edge cases
+            if length(pred_vec) != length(true_vec)
+                total_loss += 1.0f0
+                continue
+            end
+            
+            if std(pred_vec) < 1e-8 || std(true_vec) < 1e-8
+                total_loss += 1.0f0
+                continue
+            end
+            
+            # Compute Pearson correlation
+            corr = cor(pred_vec, true_vec)
+            total_loss += -corr  # Negative correlation
+        end
+        
+        return total_loss / n_outputs  # Average loss across targets
+    else
+        # Single target case
+        pred_vec = vec(ŷ)
+        true_vec = vec(y)
+        
+        # Handle edge cases
+        if length(pred_vec) != length(true_vec)
+            return 1.0f0  # Maximum loss
+        end
+        
+        if std(pred_vec) < 1e-8 || std(true_vec) < 1e-8
+            return 1.0f0  # No variation in predictions
+        end
+        
+        # Compute Pearson correlation
+        corr = cor(pred_vec, true_vec)
+        
+        # Return negative correlation (we want to minimize loss, maximize correlation)
+        return -corr
     end
-    
-    if std(pred_vec) < 1e-8 || std(true_vec) < 1e-8
-        return 1.0f0  # No variation in predictions
-    end
-    
-    # Compute Pearson correlation
-    corr = cor(pred_vec, true_vec)
-    
-    # Return negative correlation (we want to minimize loss, maximize correlation)
-    return -corr
 end
 
 """
 MSE loss with correlation regularization
+Supports both single and multi-target regression
 """
 function mse_correlation_loss(ŷ, y; α::Float64=0.7)
     mse = Flux.mse(ŷ, y)
@@ -360,12 +391,13 @@ end
 # Model architecture builders
 
 """
-Build MLP architecture
+Build MLP architecture with support for multi-output
 """
 function build_mlp_model(input_dim::Int, hidden_layers::Vector{Int}; 
                          dropout_rate::Float64=0.2, 
                          activation::Function=relu,
-                         use_batch_norm::Bool=true)
+                         use_batch_norm::Bool=true,
+                         output_dim::Int=1)  # Added output dimension parameter
     
     layers = []
     
@@ -389,8 +421,8 @@ function build_mlp_model(input_dim::Int, hidden_layers::Vector{Int};
         current_dim = hidden_dim
     end
     
-    # Output layer (single value for regression)
-    push!(layers, Dense(current_dim => 1))
+    # Output layer (supports multi-output)
+    push!(layers, Dense(current_dim => output_dim))
     
     return Chain(layers...)
 end
@@ -425,11 +457,12 @@ end
 Flux.@layer ResidualBlock
 
 """
-Build ResNet model with skip connections
+Build ResNet model with skip connections and support for multi-output
 """
 function build_resnet_model(input_dim::Int, hidden_layers::Vector{Int}; 
                            dropout_rate::Float64=0.1,
-                           residual_blocks::Int=2)
+                           residual_blocks::Int=2,
+                           output_dim::Int=1)  # Added output dimension parameter
     
     layers = []
     
@@ -463,16 +496,16 @@ function build_resnet_model(input_dim::Int, hidden_layers::Vector{Int};
     if dropout_rate > 0
         push!(layers, Dropout(dropout_rate))
     end
-    push!(layers, Dense(final_dim => 1))
+    push!(layers, Dense(final_dim => output_dim))  # Support multi-output
     
     return Chain(layers...)
 end
 
 """
-Build simplified TabNet-inspired model
+Build simplified TabNet-inspired model with support for multi-output
 Note: This is a simplified version - full TabNet is more complex
 """
-function build_tabnet_model(input_dim::Int; n_d::Int=64, n_a::Int=64, n_steps::Int=3)
+function build_tabnet_model(input_dim::Int; n_d::Int=64, n_a::Int=64, n_steps::Int=3, output_dim::Int=1)
     
     # Feature transformer
     feature_transformer = Chain(
@@ -494,7 +527,7 @@ function build_tabnet_model(input_dim::Int; n_d::Int=64, n_a::Int=64, n_steps::I
     decision_layers = [Chain(
         Dense(n_d => n_d ÷ 2),
         relu,
-        Dense(n_d ÷ 2 => 1)
+        Dense(n_d ÷ 2 => output_dim)  # Support multi-output
     ) for _ in 1:n_steps]
     
     # This is a simplified implementation
@@ -505,7 +538,7 @@ function build_tabnet_model(input_dim::Int; n_d::Int=64, n_a::Int=64, n_steps::I
         relu,
         Dense(n_d => n_d),
         relu,
-        Dense(n_d => 1)
+        Dense(n_d => output_dim)  # Support multi-output
     )
 end
 
@@ -593,9 +626,9 @@ Training function for neural network models
 """
 function train_neural_network!(model::NeuralNetworkModel, 
                               X_train::Matrix{Float64}, 
-                              y_train::Vector{Float64};
+                              y_train::Union{Vector{Float64}, Matrix{Float64}};
                               X_val::Union{Nothing, Matrix{Float64}}=nothing,
-                              y_val::Union{Nothing, Vector{Float64}}=nothing,
+                              y_val::Union{Nothing, Vector{Float64}, Matrix{Float64}}=nothing,
                               verbose::Bool=false,
                               loss_function::Function=mse_correlation_loss)
     
@@ -612,21 +645,27 @@ function train_neural_network!(model::NeuralNetworkModel,
     
     input_dim = size(X_train_proc, 2)
     
+    # Determine output dimension based on target shape
+    output_dim = y_train isa Matrix ? size(y_train, 2) : 1
+    
     # Build model architecture
     if model isa MLPModel
         model.model = build_mlp_model(input_dim, model.params["hidden_layers"],
                                     dropout_rate=model.params["dropout_rate"],
                                     activation=model.params["activation"],
-                                    use_batch_norm=model.params["use_batch_norm"])
+                                    use_batch_norm=model.params["use_batch_norm"],
+                                    output_dim=output_dim)
     elseif model isa ResNetModel
         model.model = build_resnet_model(input_dim, model.params["hidden_layers"],
                                        dropout_rate=model.params["dropout_rate"],
-                                       residual_blocks=model.params["residual_blocks"])
+                                       residual_blocks=model.params["residual_blocks"],
+                                       output_dim=output_dim)
     elseif model isa TabNetModel
         model.model = build_tabnet_model(input_dim,
                                        n_d=model.params["n_d"],
                                        n_a=model.params["n_a"],
-                                       n_steps=model.params["n_steps"])
+                                       n_steps=model.params["n_steps"],
+                                       output_dim=output_dim)
     end
     
     # Move model to GPU if available

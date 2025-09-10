@@ -25,7 +25,7 @@ function split_time_series_data(
     val_data = Dict{String,DataFrame}()
     
     for (target, df) in data
-        if hascol(df, :era)
+        if "era" in names(df)
             # Time series split based on eras
             unique_eras = sort(unique(df.era))
             n_eras = length(unique_eras)
@@ -344,7 +344,7 @@ function calculate_objective_score(
         # Average correlation across all targets
         correlations = Float64[]
         for target in targets
-            if haskey(val_data, target) && hascol(predictions, target)
+            if haskey(val_data, target) && target in names(predictions)
                 corr = Metrics.calculate_correlation(
                     predictions[!, target],
                     val_data[target][!, "target"]
@@ -358,7 +358,7 @@ function calculate_objective_score(
         # Calculate Sharpe ratio
         returns = Float64[]
         for target in targets
-            if haskey(val_data, target) && hascol(predictions, target)
+            if haskey(val_data, target) && target in names(predictions)
                 corr = Metrics.calculate_correlation(
                     predictions[!, target],
                     val_data[target][!, "target"]
@@ -372,7 +372,7 @@ function calculate_objective_score(
         # Calculate Meta Model Contribution
         mmc_scores = Float64[]
         for target in targets
-            if haskey(val_data, target) && hascol(predictions, target)
+            if haskey(val_data, target) && target in names(predictions)
                 # Get era information
                 eras = unique(val_data[target][!, "era"])
                 era_mmc = Float64[]
@@ -397,7 +397,7 @@ function calculate_objective_score(
         # Calculate True Contribution
         tc_scores = Float64[]
         for target in targets
-            if haskey(val_data, target) && hascol(predictions, target)
+            if haskey(val_data, target) && target in names(predictions)
                 tc = Metrics.calculate_tc(
                     predictions[!, target],
                     val_data[target][!, "target"]

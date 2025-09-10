@@ -276,7 +276,10 @@ using NumeraiTournament.MetalAcceleration
             
             for (n_samples, n_features) in test_cases
                 # Create test data with different scales
-                X_original = randn(Float64, n_samples, n_features) .* [1.0, 10.0, 100.0, 0.1, 0.01][1:min(5, n_features)]'
+                # Create scaling factors that match the number of features
+                base_scales = [1.0, 10.0, 100.0, 0.1, 0.01]
+                scales = [base_scales[mod1(i, 5)] for i in 1:n_features]
+                X_original = randn(Float64, n_samples, n_features) .* scales'
                 X_gpu = copy(X_original)
                 X_cpu = copy(X_original)
                 

@@ -1,98 +1,55 @@
-# Numerai Tournament System - Bug Fixes and Missing Implementations
+# Numerai Tournament System - Development Tracker
 
-## ✅ COMPLETED IN v0.3.2:
+## ✅ RECENTLY COMPLETED (v0.3.3):
 
-### 1. **BSON Dependency** ✅
-   - ✅ Added BSON = "fbb218c0-5317-5bc6-957e-2ee96dd4b1f0" to Project.toml
-   - ✅ Fixed compilation and test failures
-   - ✅ Neural network persistence now working
+### 1. **Critical Neural Network Fixes** ✅
+   - ✅ Fixed method overwriting error in dashboard.jl (duplicate add_event! functions)
+   - ✅ Resolved neural network module function call inconsistencies
+   - ✅ Fixed model struct field references for save/load operations
+   - ✅ Package compilation and testing now working properly
 
-### 2. **V5 Dataset Feature Set Limitation** ✅
-   - ✅ Added configurable feature set selection (small/medium/large)
-   - ✅ Removed hardcoded 'medium' limitation in src/ml/dataloader.jl
-   - ✅ Environment variable NUMERAI_FEATURE_SET support
-
-### 3. **API Tournament ID Hardcoding** ✅
-   - ✅ Added multi-tournament support for Classic (8) and Signals (11)
-   - ✅ Removed hardcoded tournament references
-   - ✅ Added tournament-specific API abstractions
-
-### 4. **TUI Error Handling** ✅
-   - ✅ Implemented comprehensive error categorization
-   - ✅ Added user-friendly error messages and feedback
-   - ✅ Silent API failures now properly reported
-
-### 5. **Test Coverage Gaps** ✅
-   - ✅ Complete test suite for Logger module
-   - ✅ Complete test suite for Utils module  
-   - ✅ Complete test suite for GPU Metal module
-   - ✅ All modules now have proper test coverage
-
-### 6. **Circular Import Issues** ✅
-   - ✅ Resolved MetalAcceleration dependency conflicts
-   - ✅ Fixed module loading order issues
-   - ✅ Clean module architecture established
-
-### 7. **Naming Conflicts** ✅
-   - ✅ Fixed Flux/MetalAcceleration cpu/gpu function conflicts
-   - ✅ Proper namespace isolation implemented
-   - ✅ Method dispatch disambiguation
-
-## ✅ COMPLETED IN v0.3.3:
-
-### 8. **Method Overwriting Error in dashboard.jl** ✅
-   - ✅ Fixed duplicate add_event! function definitions at lines 710 and 766
-   - ✅ Resolved precompilation failures
-   - ✅ Package compilation and testing now working
-
-### 9. **Neural Network Module Function Call Inconsistency** ✅
-   - ✅ Fixed has_metal_gpu() calls with proper module prefix
-   - ✅ Added missing NeuralNetwork module imports
-   - ✅ Resolved method not found errors during runtime
-
-### 10. **Neural Network Model Struct Field References** ✅
-   - ✅ Fixed save/load functions to match struct definition
-   - ✅ Resolved missing field references: config, best_val_loss, patience_counter, X_val, y_val
-   - ✅ Struct definition now consistent with persistence code
+### 2. **Configuration Management** ✅
+   - ✅ Created config.toml with API credentials template
+   - ✅ Tournament configuration properly setup
+   - ✅ Development/testing environment configuration working
 
 
-## 🔄 REMAINING HIGH PRIORITY ISSUES:
+## 🔄 HIGH PRIORITY REMAINING TASKS:
 
-### 1. **Neural Network Hanging Issues**
-   - Neural network training hangs indefinitely on some systems
-   - Temporarily disabled neural networks to prevent system locks
-   - Root causes have been fixed in v0.3.3 (function call inconsistencies and struct field mismatches)
-   - Neural networks remain disabled pending further testing and validation
+### 1. **Neural Network Method Signature Fix** 🚨
+   - train! method in neural_network.jl has signature mismatch
+   - Current: train!(model::NeuralNetwork, X::Matrix, y::Vector)
+   - Expected: train!(model::NeuralNetwork, data::Dict)
+   - Blocking neural network training functionality
 
-### 2. **Feature Groups Not Integrated**
-   - Feature groups parsing is complete and functional
+### 2. **Feature Groups Integration**
+   - Parsing functionality complete in dataloader.jl:152-164
    - Integration needed in pipeline.jl and models.jl
-   - Specific implementation plan documented
-   - File: src/ml/dataloader.jl:152-164
+   - Will improve model performance with proper feature grouping
 
-### 3. **Missing config.toml file**
-   - Tests running without API credentials
-   - Configuration file not found during test execution
-   - Need proper config.toml setup for testing environment
+### 3. **Multi-Target Training Support**
+   - V5 dataset has multiple targets, currently only using primary
+   - Requires neural network architecture changes
+   - Will unlock more sophisticated modeling capabilities
 
-### 4. **Multi-Target Support Missing**
-   - V5 dataset has multiple targets but only primary target used
-   - Need multi-target training capability for comprehensive modeling
-   - Requires changes to neural network architecture
+## 🔧 MEDIUM PRIORITY TASKS:
 
-## 🔧 MEDIUM PRIORITY IMPROVEMENTS:
+### 1. **Complete Test Placeholders**
+   - test_retry.jl:654 has incomplete test implementation
+   - Need to finish retry mechanism testing
 
-### 5. **Notification System Limited**
-   - Only macOS support, no Linux/Windows notifications
-   - No throttling or rich formatting capabilities
-   - Cross-platform notification abstraction needed
+### 2. **Cross-Platform Notifications**
+   - Currently macOS only, need Linux/Windows support
+   - Add notification throttling and rich formatting
 
-### 6. **Missing API Features**
-   - Leaderboard access not implemented
-   - Historical performance trends unavailable
-   - Webhook management missing
+## 🔮 FUTURE ENHANCEMENTS:
 
-### 7. **Configuration Hardcoding in TUI**
-   - Many hardcoded values (refresh intervals, display limits)
-   - Should be user-configurable through settings
-   - Need persistent configuration management
+### 1. **Extended API Features**
+   - Leaderboard access integration
+   - Historical performance trends
+   - Webhook management capabilities
+
+### 2. **TUI Configuration System**
+   - Replace hardcoded values with user settings
+   - Persistent configuration management
+   - Customizable refresh intervals and display limits

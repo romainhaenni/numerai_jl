@@ -16,11 +16,11 @@ using ProgressMeter
 using BSON
 using BSON: @save, @load
 
-# Import the base model interface
-include("models.jl")
-using .Models: NumeraiModel
-import .Models: train!, predict, feature_importance, save_model, load_model!
-# MetalAcceleration functions will be accessed through Main.NumeraiTournament.MetalAcceleration
+# Import the base model interface from parent module scope
+# Note: NumeraiModel is already defined in Models module
+import ..Models: NumeraiModel, train!, predict, feature_importance, save_model, load_model!
+# Import MetalAcceleration functions from parent module
+import ..MetalAcceleration: has_metal_gpu
 
 # Export neural network models
 export NeuralNetworkModel, MLPModel, ResNetModel, TabNetModel
@@ -146,7 +146,7 @@ function MLPModel(name::String="mlp_default";
                  early_stopping_patience::Int=10,
                  gpu_enabled::Bool=true)
     
-    use_gpu = gpu_enabled && Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()
+    use_gpu = gpu_enabled && has_metal_gpu()
     
     params = Dict{String, Any}(
         "hidden_layers" => hidden_layers,
@@ -178,7 +178,7 @@ function ResNetModel(name::String="resnet_default";
                     early_stopping_patience::Int=15,
                     gpu_enabled::Bool=true)
     
-    use_gpu = gpu_enabled && Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()
+    use_gpu = gpu_enabled && has_metal_gpu()
     
     params = Dict{String, Any}(
         "hidden_layers" => hidden_layers,
@@ -211,7 +211,7 @@ function TabNetModel(name::String="tabnet_default";
                     early_stopping_patience::Int=20,
                     gpu_enabled::Bool=true)
     
-    use_gpu = gpu_enabled && Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()
+    use_gpu = gpu_enabled && has_metal_gpu()
     
     params = Dict{String, Any}(
         "n_d" => n_d,  # Dimension of the decision prediction layer
@@ -341,7 +341,7 @@ function preprocess_for_neural_network(X_train::Matrix{Float64}, y_train::Vector
     X_val_f32 = X_val !== nothing ? Float32.(X_val) : nothing
     
     # Move to GPU if available and requested
-    if use_gpu && Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()
+    if use_gpu && has_metal_gpu()
         try
             X_train_gpu = Flux.gpu(X_train_f32)
             y_train_gpu = Flux.gpu(y_train_f32)
@@ -630,7 +630,7 @@ function train_neural_network!(model::NeuralNetworkModel,
     end
     
     # Move model to GPU if available
-    if model.gpu_enabled && Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()
+    if model.gpu_enabled && has_metal_gpu()
         try
             model.model = Flux.gpu(model.model)
             @info "Model moved to GPU successfully"
@@ -722,7 +722,7 @@ function train_neural_network!(model::NeuralNetworkModel,
     # Use best model if available
     if model.best_model !== nothing
         model.model = model.best_model
-        if model.gpu_enabled && Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()
+        if model.gpu_enabled && has_metal_gpu()
             model.model = Flux.gpu(model.model)
         end
     end
@@ -751,7 +751,7 @@ function predict_neural_network(model::NeuralNetworkModel, X::Matrix{Float64})::
     end
     
     # Move to GPU if model is on GPU
-    if model.gpu_enabled && Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()
+    if model.gpu_enabled && has_metal_gpu()
         try
             X_processed = Flux.gpu(X_processed)
         catch e
@@ -940,7 +940,7 @@ function load_model!(model::NeuralNetworkModel, filepath::String)
         end
         
         # Move model to GPU if available
-        if Main.NumeraiTournament.MetalAcceleration.has_metal_gpu()
+        if has_metal_gpu()
             model.model = Flux.gpu(model.model)
             @info "Model moved to Metal GPU"
         end

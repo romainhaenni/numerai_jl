@@ -326,6 +326,16 @@ function calculate_mmc(predictions::AbstractVector{T},
         return 0.0
     end
     
+    # Special case: if meta-model has no variation, MMC is just correlation
+    # between rank-gaussianized predictions and centered targets
+    if std(meta_model) == 0.0
+        p = gaussianize(tie_kept_rank(predictions))
+        centered_targets = targets .- mean(targets)
+        n = length(predictions)
+        mmc = dot(p, centered_targets) / n
+        return mmc
+    end
+    
     # Step 1: Rank and gaussianize predictions and meta-model
     p = gaussianize(tie_kept_rank(predictions))
     m = gaussianize(tie_kept_rank(meta_model))

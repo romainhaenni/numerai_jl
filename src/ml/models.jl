@@ -136,8 +136,20 @@ end
 function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
                X_val::Union{Nothing, Matrix{Float64}}=nothing,
                y_val::Union{Nothing, Vector{Float64}}=nothing,
+               feature_names::Union{Nothing, Vector{String}}=nothing,
+               feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
                verbose::Bool=false,
                preprocess_gpu::Bool=true)
+    
+    # Process feature groups if provided
+    interaction_constraints = nothing
+    if feature_groups !== nothing && feature_names !== nothing
+        @info "Processing feature groups for interaction constraints" num_groups=length(feature_groups)
+        interaction_constraints = DataLoader.create_interaction_constraints(feature_groups, feature_names)
+        if !isempty(interaction_constraints)
+            @info "Created interaction constraints" num_constraints=length(interaction_constraints)
+        end
+    end
     
     # GPU-accelerated preprocessing if enabled
     if model.gpu_enabled && preprocess_gpu
@@ -164,33 +176,45 @@ function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Vector{F
         watchlist = OrderedDict("train" => dtrain, "eval" => dval)
         
         # Train model with validation set
-        model.model = xgboost(
-            dtrain;
-            num_round=model.num_rounds,
-            max_depth=model.params["max_depth"],
-            eta=model.params["learning_rate"],
-            colsample_bytree=model.params["colsample_bytree"],
-            objective=model.params["objective"],
-            eval_metric=model.params["eval_metric"],
-            tree_method=model.params["tree_method"],
-            device=model.params["device"],
-            nthread=model.params["nthread"],
-            watchlist=watchlist
+        params = Dict(
+            "num_round" => model.num_rounds,
+            "max_depth" => model.params["max_depth"],
+            "eta" => model.params["learning_rate"],
+            "colsample_bytree" => model.params["colsample_bytree"],
+            "objective" => model.params["objective"],
+            "eval_metric" => model.params["eval_metric"],
+            "tree_method" => model.params["tree_method"],
+            "device" => model.params["device"],
+            "nthread" => model.params["nthread"],
+            "watchlist" => watchlist
         )
+        
+        # Add interaction constraints if available
+        if interaction_constraints !== nothing && !isempty(interaction_constraints)
+            params["interaction_constraints"] = interaction_constraints
+        end
+        
+        model.model = xgboost(dtrain; params...)
     else
         # Train model without validation set
-        model.model = xgboost(
-            dtrain;
-            num_round=model.num_rounds,
-            max_depth=model.params["max_depth"],
-            eta=model.params["learning_rate"],
-            colsample_bytree=model.params["colsample_bytree"],
-            objective=model.params["objective"],
-            eval_metric=model.params["eval_metric"],
-            tree_method=model.params["tree_method"],
-            device=model.params["device"],
-            nthread=model.params["nthread"]
+        params = Dict(
+            "num_round" => model.num_rounds,
+            "max_depth" => model.params["max_depth"],
+            "eta" => model.params["learning_rate"],
+            "colsample_bytree" => model.params["colsample_bytree"],
+            "objective" => model.params["objective"],
+            "eval_metric" => model.params["eval_metric"],
+            "tree_method" => model.params["tree_method"],
+            "device" => model.params["device"],
+            "nthread" => model.params["nthread"]
         )
+        
+        # Add interaction constraints if available
+        if interaction_constraints !== nothing && !isempty(interaction_constraints)
+            params["interaction_constraints"] = interaction_constraints
+        end
+        
+        model.model = xgboost(dtrain; params...)
     end
     
     return model
@@ -199,6 +223,8 @@ end
 function train!(model::LightGBMModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
                X_val::Union{Nothing, Matrix{Float64}}=nothing,
                y_val::Union{Nothing, Vector{Float64}}=nothing,
+               feature_names::Union{Nothing, Vector{String}}=nothing,
+               feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
                verbose::Bool=false)
     
     estimator = LGBMRegression(;
@@ -241,6 +267,8 @@ end
 function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
                X_val::Union{Nothing, Matrix{Float64}}=nothing,
                y_val::Union{Nothing, Vector{Float64}}=nothing,
+               feature_names::Union{Nothing, Vector{String}}=nothing,
+               feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
                verbose::Bool=false)
     
     # Prepare configuration for EvoTrees

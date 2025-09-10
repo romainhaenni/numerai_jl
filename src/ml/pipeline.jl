@@ -136,12 +136,14 @@ function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models
         elseif config.type == "tabnet"
             push!(models, NeuralNetworks.TabNetModel(
                 config.name;
-                hidden_layers=get(config.params, :hidden_layers, [256, 128, 64]),
-                dropout_rate=get(config.params, :dropout_rate, 0.15),
-                learning_rate=get(config.params, :learning_rate, 0.001),
-                batch_size=get(config.params, :batch_size, 512),
-                epochs=get(config.params, :epochs, 100),
-                early_stopping_patience=get(config.params, :early_stopping_patience, 10),
+                n_d=get(config.params, :n_d, 64),
+                n_a=get(config.params, :n_a, 64),
+                n_steps=get(config.params, :n_steps, 3),
+                gamma=get(config.params, :gamma, 1.3),
+                learning_rate=get(config.params, :learning_rate, 0.02),
+                batch_size=get(config.params, :batch_size, 1024),
+                epochs=get(config.params, :epochs, 200),
+                early_stopping_patience=get(config.params, :early_stopping_patience, 20),
                 gpu_enabled=get(config.params, :gpu_enabled, true)
             ))
         else
@@ -167,7 +169,7 @@ function prepare_data(pipeline::MLPipeline, df::DataFrame)::Tuple{Matrix{Float64
 end
 
 function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
-               verbose::Bool=true, parallel::Bool=true)
+               verbose::Bool=true, parallel::Bool=true, data_dir::Union{Nothing, String}=nothing)
     
     if verbose
         println("Preparing training data...")
@@ -178,6 +180,23 @@ function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
     if verbose
         println("Training data: $(size(X_train, 1)) samples, $(size(X_train, 2)) features")
         println("Validation data: $(size(X_val, 1)) samples")
+    end
+    
+    # Load feature groups if available
+    feature_groups = nothing
+    if data_dir !== nothing
+        metadata_path = joinpath(data_dir, "features.json")
+        if isfile(metadata_path)
+            try
+                metadata = DataLoader.load_features_metadata(metadata_path)
+                feature_groups = DataLoader.get_feature_groups(metadata)
+                if verbose
+                    println("📊 Loaded feature groups: $(length(feature_groups)) groups with $(sum(length(v) for v in values(feature_groups))) features")
+                end
+            catch e
+                @warn "Failed to load feature groups" error=e
+            end
+        end
     end
     
     ensemble = Ensemble.ModelEnsemble(pipeline.models)
@@ -192,7 +211,11 @@ function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
         if verbose
             ProgressMeter.update!(prog, i-1, desc="Training $(model.name): ")
         end
-        Models.train!(model, X_train, y_train, X_val=X_val, y_val=y_val, verbose=false)
+        Models.train!(model, X_train, y_train, 
+                     X_val=X_val, y_val=y_val, 
+                     feature_names=pipeline.feature_cols,
+                     feature_groups=feature_groups,
+                     verbose=false)
         if verbose
             ProgressMeter.update!(prog, i)
         end

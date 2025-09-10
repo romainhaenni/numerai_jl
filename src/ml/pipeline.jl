@@ -12,6 +12,50 @@ using ..Neutralization
 using ..Metrics
 using Flux: relu  # Import relu activation function from Flux
 
+# Helper function to resolve features from groups
+function resolve_features_from_groups(
+    feature_cols::Union{Vector{String}, Nothing},
+    feature_groups::Union{Dict{String, Vector{String}}, Nothing},
+    features_metadata::Union{Dict{String, Any}, Nothing},
+    group_names::Union{Vector{String}, Nothing}
+)::Vector{String}
+    
+    # Case 1: feature_cols provided - use directly (backward compatibility)
+    if feature_cols !== nothing
+        return feature_cols
+    end
+    
+    # Case 2: group_names provided with feature_groups
+    if group_names !== nothing && feature_groups !== nothing
+        resolved_features = String[]
+        for group_name in group_names
+            if haskey(feature_groups, group_name)
+                append!(resolved_features, feature_groups[group_name])
+            else
+                @warn "Group '$group_name' not found in feature_groups"
+            end
+        end
+        return unique(resolved_features)
+    end
+    
+    # Case 3: group_names provided with features_metadata (parse groups first)
+    if group_names !== nothing && features_metadata !== nothing
+        parsed_groups = DataLoader.get_feature_groups(features_metadata)
+        resolved_features = String[]
+        for group_name in group_names
+            if haskey(parsed_groups, group_name)
+                append!(resolved_features, parsed_groups[group_name])
+            else
+                @warn "Group '$group_name' not found in features metadata"
+            end
+        end
+        return unique(resolved_features)
+    end
+    
+    # Case 4: No valid feature specification
+    error("Must provide either 'feature_cols', or 'group_names' with 'feature_groups'/'features_metadata'")
+end
+
 # Configuration struct for model creation
 struct ModelConfig
     type::String  # "xgboost", "lightgbm", "evotrees", "mlp", "resnet", "tabnet"
@@ -33,16 +77,23 @@ mutable struct MLPipeline
     ensemble::Union{Nothing, Ensemble.ModelEnsemble}
     feature_cols::Vector{String}
     target_col::String
+    # Feature groups support
+    feature_groups::Union{Nothing, Dict{String, Vector{String}}}
+    features_metadata::Union{Nothing, Dict{String, Any}}
 end
 
 function MLPipeline(;
-    feature_cols::Vector{String},
+    feature_cols::Union{Vector{String}, Nothing}=nothing,
     target_col::String="target_cyrus_v4_20",
     neutralize::Bool=true,
     neutralize_proportion::Float64=0.5,
     ensemble_type::Symbol=:weighted,
     models::Vector{Models.NumeraiModel}=Models.NumeraiModel[],
-    model_configs::Vector{ModelConfig}=ModelConfig[])
+    model_configs::Vector{ModelConfig}=ModelConfig[],
+    # Feature groups parameters
+    feature_groups::Union{Dict{String, Vector{String}}, Nothing}=nothing,
+    features_metadata::Union{Dict{String, Any}, Nothing}=nothing,
+    group_names::Union{Vector{String}, Nothing}=nothing)
     
     config = Dict(
         :neutralize => neutralize,
@@ -76,7 +127,13 @@ function MLPipeline(;
         ]
     end
     
-    return MLPipeline(config, models, model_configs, nothing, feature_cols, target_col)
+    # Resolve features from groups if needed
+    resolved_features = resolve_features_from_groups(
+        feature_cols, feature_groups, features_metadata, group_names
+    )
+    
+    return MLPipeline(config, models, model_configs, nothing, resolved_features, target_col, 
+                     feature_groups, features_metadata)
 end
 
 # Helper function to create models from configs
@@ -614,7 +671,9 @@ function cross_validate_pipeline(pipeline::MLPipeline, df::DataFrame;
             target_col=pipeline.target_col,
             neutralize=pipeline.config[:neutralize],
             neutralize_proportion=pipeline.config[:neutralize_proportion],
-            ensemble_type=pipeline.config[:ensemble_type]
+            ensemble_type=pipeline.config[:ensemble_type],
+            feature_groups=pipeline.feature_groups,
+            features_metadata=pipeline.features_metadata
         )
         
         train!(fold_pipeline, train_df, val_df, verbose=false)

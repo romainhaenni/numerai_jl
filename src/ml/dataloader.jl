@@ -268,14 +268,21 @@ function load_features_json(filepath::String; feature_set::String="medium")
 end
 
 # Load all tournament data files at once
-function load_tournament_data(data_dir::String; show_progress::Bool=true, feature_set::String="medium")::TournamentData
+function load_tournament_data(data_dir::String; 
+                            show_progress::Bool=true, 
+                            feature_set::String="medium",
+                            group_names::Union{Vector{String}, Nothing}=nothing)::TournamentData
     train_path = joinpath(data_dir, "train.parquet")
     val_path = joinpath(data_dir, "validation.parquet")
     live_path = joinpath(data_dir, "live.parquet")
     features_path = joinpath(data_dir, "features.json")
     
     if show_progress
-        println("Loading tournament data from $data_dir with feature set: $feature_set")
+        if group_names !== nothing
+            println("Loading tournament data from $data_dir with feature groups: $(join(group_names, ", "))")
+        else
+            println("Loading tournament data from $data_dir with feature set: $feature_set")
+        end
     end
     
     # Use existing load functions
@@ -283,7 +290,29 @@ function load_tournament_data(data_dir::String; show_progress::Bool=true, featur
     val_df = load_training_data(val_path, sample_pct=1.0)  # validation uses same format as training
     live_df = load_live_data(live_path)
     
-    features, targets = load_features_json(features_path; feature_set=feature_set)
+    # Load features metadata
+    features_metadata = load_features_metadata(features_path)
+    
+    # Determine features to use
+    if group_names !== nothing
+        # Use feature groups
+        feature_groups = get_feature_groups(features_metadata)
+        selected_features = String[]
+        for group_name in group_names
+            if haskey(feature_groups, group_name)
+                append!(selected_features, feature_groups[group_name])
+            else
+                @warn "Group '$group_name' not found in features metadata"
+            end
+        end
+        features = unique(selected_features)
+    else
+        # Use feature set (existing behavior)
+        features, _ = load_features_json(features_path; feature_set=feature_set)
+    end
+    
+    # Always load all targets
+    _, targets = load_features_json(features_path; feature_set=feature_set)
     
     return TournamentData(train_df, val_df, live_df, features, targets)
 end

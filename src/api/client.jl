@@ -42,7 +42,9 @@ function graphql_query(client::NumeraiClient, query::String, variables::Dict=Dic
         response = HTTP.post(
             GRAPHQL_ENDPOINT,
             client.headers,
-            body
+            body;
+            readtimeout=30,
+            connect_timeout=30
         )
         
         duration = time() - start_time
@@ -113,6 +115,11 @@ function get_current_round(client::NumeraiClient)::Schemas.Round
     end
     
     # If no active round, return the most recent one as inactive
+    # Double-check we have rounds (this should already be validated above, but safety first)
+    if isempty(result["rounds"])
+        error("No rounds available to return as inactive round")
+    end
+    
     round_data = result["rounds"][1]
     return Schemas.Round(
         round_data["number"],
@@ -187,7 +194,7 @@ function download_dataset(client::NumeraiClient, dataset_type::String, output_pa
         
         @log_info "Downloaded dataset" type=dataset_type
     else
-        Downloads.download(url, output_path)
+        Downloads.download(url, output_path; timeout=300)
     end
     
     return output_path
@@ -202,7 +209,7 @@ function download_with_progress(url::String, output_path::String, name::String)
         
         # Download with retry logic
         with_download_retry(context="download $name") do
-            Downloads.download(url, temp_file)
+            Downloads.download(url, temp_file; timeout=300)
         end
         
         # Get file size after download
@@ -290,7 +297,9 @@ function submit_predictions(client::NumeraiClient, model_name::String, predictio
     upload_response = HTTP.put(
         upload_url,
         Dict("Content-Type" => "text/csv"),
-        file_content
+        file_content;
+        readtimeout=300,
+        connect_timeout=30
     )
     
     if upload_response.status != 200
@@ -311,7 +320,18 @@ function get_live_dataset_id(client::NumeraiClient)
     """
     
     result = graphql_query(client, query)
-    return result.rounds[1].datasetId
+    
+    # Check if we have rounds and they contain datasetId
+    if !haskey(result, :rounds) || isempty(result.rounds)
+        error("No rounds found in API response")
+    end
+    
+    first_round = result.rounds[1]
+    if !haskey(first_round, :datasetId)
+        error("No datasetId found in round data")
+    end
+    
+    return first_round.datasetId
 end
 
 function upload_predictions_multipart(client::NumeraiClient, model_id::String, predictions_path::String, round_number::Int; validate_window::Bool=true)
@@ -357,7 +377,7 @@ function upload_predictions_multipart(client::NumeraiClient, model_id::String, p
     
     # Upload the file
     file_content = read(predictions_path)
-    response = HTTP.put(upload_url, [], file_content)
+    response = HTTP.put(upload_url, [], file_content; readtimeout=300, connect_timeout=30)
     
     if response.status != 200
         error("Failed to upload predictions: $(response.status)")
@@ -818,6 +838,12 @@ function get_current_tournament_number(client::NumeraiClient)
         result = graphql_query(client, query)
         rounds = get(result, :rounds, [])
         
+        # Check if we have any rounds
+        if isempty(rounds)
+            @warn "No rounds found in tournament data"
+            return nothing
+        end
+        
         # Find the current active round
         current_time = now(UTC)
         for round in rounds
@@ -825,8 +851,9 @@ function get_current_tournament_number(client::NumeraiClient)
             close_time_str = get(round, :closeTime, nothing)
             
             if !isnothing(open_time_str) && !isnothing(close_time_str)
-                open_time = safe_parse_datetime(open_time_str)
-                close_time = safe_parse_datetime(close_time_str)
+                # Use parse_datetime_safe instead of undefined safe_parse_datetime
+                open_time = parse_datetime_safe(open_time_str)
+                close_time = parse_datetime_safe(close_time_str)
                 
                 if !isnothing(open_time) && !isnothing(close_time)
                     if current_time >= open_time && current_time <= close_time
@@ -836,12 +863,8 @@ function get_current_tournament_number(client::NumeraiClient)
             end
         end
         
-        # If no active round, get the most recent one
-        if !isempty(rounds)
-            return get(rounds[1], :number, nothing)
-        end
-        
-        return nothing
+        # If no active round, get the most recent one (bounds already checked above)
+        return get(rounds[1], :number, nothing)
     catch e
         @error "Failed to get tournament number: $e"
         return nothing

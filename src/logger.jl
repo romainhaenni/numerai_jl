@@ -7,12 +7,30 @@ using Term
 
 export init_logger, @log_debug, @log_info, @log_warn, @log_error, @log_critical
 export log_model_performance, log_api_call, log_submission, log_training_progress
-export set_log_level, get_logger
+export set_log_level, get_logger, close_logger
 
 mutable struct NumeraiLogger
     logger::AbstractLogger
     log_file::String
     log_level::LogLevel
+    file_handle::Union{IO, Nothing}
+    
+    function NumeraiLogger(logger::AbstractLogger, log_file::String, log_level::LogLevel, file_handle::Union{IO, Nothing})
+        instance = new(logger, log_file, log_level, file_handle)
+        # Add finalizer to ensure cleanup when garbage collected
+        if !isnothing(file_handle)
+            finalizer(instance) do x
+                if !isnothing(x.file_handle) && isopen(x.file_handle)
+                    try
+                        close(x.file_handle)
+                    catch
+                        # Silently ignore errors during finalization
+                    end
+                end
+            end
+        end
+        return instance
+    end
 end
 
 const GLOBAL_LOGGER = Ref{NumeraiLogger}()
@@ -51,27 +69,27 @@ function init_logger(;
         mkpath(log_dir)
     end
     
-    # Create file logger
-    file_logger = if append && isfile(log_file)
-        SimpleLogger(open(log_file, "a"), file_level)
+    # Create file logger with proper handle management
+    file_handle = if append && isfile(log_file)
+        open(log_file, "a")
     else
-        SimpleLogger(open(log_file, "w"), file_level)
+        open(log_file, "w")
     end
+    file_logger = SimpleLogger(file_handle, file_level)
     
     # Create console logger with formatting
-    console_logger = ConsoleLogger(stdout, console_level) do io, args
-        formatted = format_log_message(args.level, args.message, args._module, 
-                                      args.group, args.id, args.file, args.line; 
-                                      args.kwargs...)
-        color = get(LOG_COLORS, args.level, :default)
-        printstyled(io, formatted, "\n"; color = color)
-    end
+    console_logger = ConsoleLogger(stdout, console_level)
     
     # Combine loggers
     combined_logger = TeeLogger(console_logger, file_logger)
     
+    # Close any existing logger before creating new one
+    if isassigned(GLOBAL_LOGGER) && !isnothing(GLOBAL_LOGGER[].file_handle)
+        close(GLOBAL_LOGGER[].file_handle)
+    end
+    
     # Store global logger
-    GLOBAL_LOGGER[] = NumeraiLogger(combined_logger, log_file, min(console_level, file_level))
+    GLOBAL_LOGGER[] = NumeraiLogger(combined_logger, log_file, min(console_level, file_level), file_handle)
     
     # Set as global logger
     global_logger(combined_logger)
@@ -93,6 +111,22 @@ function get_logger()
         init_logger()
     end
     return GLOBAL_LOGGER[].logger
+end
+
+function close_logger()
+    """
+    Properly close the logger and release file handles to prevent resource leaks.
+    Should be called when the logger is no longer needed.
+    """
+    if isassigned(GLOBAL_LOGGER) && !isnothing(GLOBAL_LOGGER[].file_handle)
+        try
+            close(GLOBAL_LOGGER[].file_handle)
+            GLOBAL_LOGGER[].file_handle = nothing
+            @debug "Logger file handle closed successfully"
+        catch e
+            @warn "Error closing logger file handle" error=string(e)
+        end
+    end
 end
 
 # Convenience macros
@@ -178,8 +212,10 @@ function rotate_logs(; max_size_mb::Float64=100.0, max_files::Int=10)
     
     file_size_mb = filesize(log_file) / (1024 * 1024)
     if file_size_mb > max_size_mb
-        # Close current log file
-        close(GLOBAL_LOGGER[].logger.loggers[2].stream)
+        # Close current log file properly
+        if !isnothing(GLOBAL_LOGGER[].file_handle)
+            close(GLOBAL_LOGGER[].file_handle)
+        end
         
         # Rotate files
         base_name = splitext(log_file)[1]

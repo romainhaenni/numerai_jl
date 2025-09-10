@@ -102,12 +102,14 @@ mutable struct CronJob
     active::Bool
     last_run::Union{Nothing, DateTime}
     next_run::Union{Nothing, DateTime}
+    # Lock to prevent race conditions when updating job state
+    lock::ReentrantLock
 end
 
 function CronJob(expr::String, task::Function, name::String="")
     cron_expr = CronExpression(expr)
     next_time = next_run_time(cron_expr)
-    return CronJob(name, cron_expr, task, false, nothing, next_time)
+    return CronJob(name, cron_expr, task, false, nothing, next_time, ReentrantLock())
 end
 
 # Main scheduler structure
@@ -198,17 +200,35 @@ function run_scheduler_loop(scheduler::TournamentScheduler)
             
             # Check if this job should run at this minute
             if matches(job.cron_expression, current_minute)
-                # Check if we haven't already run it this minute
-                if job.last_run === nothing || job.last_run < current_minute
+                # Use synchronized access to check and update job state
+                should_run = lock(job.lock) do
+                    # Check if we haven't already run it this minute
+                    if job.last_run === nothing || job.last_run < current_minute
+                        # Mark that we're about to run this job to prevent duplicate execution
+                        job.last_run = current_minute
+                        true
+                    else
+                        false
+                    end
+                end
+                
+                if should_run
                     # Run the job asynchronously
                     @async begin
                         try
                             log_event(scheduler, :info, "Running cron job: $(job.name)")
                             job.task()
-                            job.last_run = current_minute
-                            job.next_run = next_run_time(job.cron_expression, current_minute + Minute(1))
+                            # Update next_run time after successful execution
+                            lock(job.lock) do
+                                job.next_run = next_run_time(job.cron_expression, current_minute + Minute(1))
+                            end
                         catch e
                             log_event(scheduler, :error, "Cron job $(job.name) failed: $e")
+                            # On failure, reset last_run to allow retry on next cycle
+                            lock(job.lock) do
+                                job.last_run = nothing
+                                job.next_run = next_run_time(job.cron_expression, current_minute + Minute(1))
+                            end
                         end
                     end
                 end

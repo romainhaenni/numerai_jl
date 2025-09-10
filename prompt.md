@@ -16,7 +16,9 @@ Important: We want single sources of truth, no migrations/adapters. If tests unr
 
 As soon as there are no build or test errors create a git tag. If there are no git tags start at 0.0.0 and increment patch by 1 for example 0.0.1 if 0.0.0 does not exist.
 
-You may add extra logging if required to be able to debug the issues. Put test files into @test. Put example scripts into @examples.
+You may add extra logging if required to be able to debug the issues.
+
+Put test files into @test. Put example scripts into @examples.
 
 ALWAYS KEEP @scratchpad.md up to do date with your learnings using a subagent. Especially after wrapping up/finishing your turn.
 

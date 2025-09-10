@@ -1,6 +1,10 @@
 module Notifications
 
 using Dates
+using TimeZones
+
+# Import UTC utility function
+include("utils.jl")
 
 function send_notification(title::String, message::String, type::Symbol=:info)
     sound = type == :error ? "Basso" : (type == :success ? "Glass" : "default")
@@ -35,7 +39,7 @@ end
 
 function send_round_open(round_number::Int, close_time::DateTime)
     title = "New Round Open"
-    time_remaining = close_time - now()
+    time_remaining = close_time - utc_now_datetime()
     hours = Dates.hour(time_remaining)
     minutes = Dates.minute(time_remaining)
     message = "Round $round_number is open\\nCloses in $(hours)h $(minutes)m"

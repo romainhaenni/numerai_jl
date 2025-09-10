@@ -3,6 +3,7 @@ module Dashboard
 using Term
 using Term: Panel, Grid
 using Dates
+using TimeZones
 using ThreadsX
 using Statistics
 using JSON3
@@ -11,6 +12,9 @@ using ..Pipeline
 using ..DataLoader
 using ..Panels
 using ..Notifications
+
+# Import UTC utility function
+include("../utils.jl")
 
 include("dashboard_commands.jl")
 
@@ -322,7 +326,7 @@ function update_model_performances!(dashboard::TournamentDashboard)
             
             # Add to history with timestamp
             push!(dashboard.performance_history[model_name], Dict(
-                :timestamp => Dates.now(),
+                :timestamp => utc_now_datetime(),
                 :corr => perf.corr,
                 :mmc => perf.mmc,
                 :fnc => perf.fnc,
@@ -358,7 +362,7 @@ end
 function get_staking_info(dashboard::TournamentDashboard)::Dict{Symbol, Any}
     try
         round_info = API.get_current_round(dashboard.api_client)
-        time_remaining = round_info.close_time - now()
+        time_remaining = round_info.close_time - utc_now_datetime()
         
         # Get actual staking data from API for each model
         total_stake = 0.0
@@ -453,7 +457,7 @@ function add_event!(dashboard::TournamentDashboard, type::Symbol, message::Strin
     event = Dict(
         :type => type,
         :message => message,
-        :time => now()
+        :time => utc_now_datetime()
     )
     push!(dashboard.events, event)
     

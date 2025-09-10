@@ -1,11 +1,15 @@
 module Scheduler
 
 using Dates
+using TimeZones
 using ..API
 using ..DataLoader
 using ..Pipeline
 using ..Dashboard
 using ..Notifications
+
+# Import UTC utility function
+include("../utils.jl")
 
 # CronExpression parser and matcher
 struct CronExpression
@@ -74,7 +78,7 @@ function matches(cron::CronExpression, dt::DateTime)
            cron_dow in cron.weekday
 end
 
-function next_run_time(cron::CronExpression, from::DateTime=now())
+function next_run_time(cron::CronExpression, from::DateTime=utc_now_datetime())
     # Find the next time this cron expression should run
     current = ceil(from, Minute)  # Round up to next minute
     
@@ -167,7 +171,7 @@ end
 
 function run_scheduler_loop(scheduler::TournamentScheduler)
     while scheduler.running
-        current_time = now()
+        current_time = utc_now_datetime()
         current_minute = floor(current_time, Minute)
         
         for job in scheduler.cron_jobs
@@ -196,7 +200,7 @@ function run_scheduler_loop(scheduler::TournamentScheduler)
         
         # Sleep until the next minute
         next_minute = current_minute + Minute(1)
-        sleep_duration = (next_minute - now()).value / 1000  # Convert to seconds
+        sleep_duration = (next_minute - utc_now_datetime()).value / 1000  # Convert to seconds
         if sleep_duration > 0
             sleep(sleep_duration)
         end
@@ -220,7 +224,7 @@ function setup_cron_jobs!(scheduler::TournamentScheduler)
     
     # Daily round job - weekdays at 18:00
     push!(scheduler.cron_jobs, CronJob(
-        "0 18 * * 1-5",  # At 18:00 on Monday through Friday (adjusted for Julia's dayofweek)
+        "0 18 * * 2-6",  # At 18:00 on Tuesday through Saturday (UTC)
         () -> daily_round_job(scheduler),
         "Daily Round Processing"
     ))
@@ -249,7 +253,7 @@ end
 
 # Helper function for testing
 function is_weekend()
-    return dayofweek(now()) in [6, 7]
+    return dayofweek(utc_now_datetime()) in [6, 7]
 end
 
 function weekend_round_job(scheduler::TournamentScheduler)
@@ -404,6 +408,27 @@ function generate_and_submit_predictions(scheduler::TournamentScheduler, round_n
         return
     end
     
+    # Validate submission window before generating predictions
+    try
+        window_status = API.validate_submission_window(scheduler.api_client)
+        
+        if !window_status.is_open
+            time_closed = abs(window_status.time_remaining)
+            log_event(scheduler, :warning, "Submission window is closed for $(window_status.round_type) round $(window_status.round_number). Window closed $(round(time_closed, digits=1)) hours ago")
+            
+            Notifications.send_notification(
+                "Numerai Schedule Warning",
+                "Submission window closed $(round(time_closed, digits=1)) hours ago for round $(window_status.round_number)",
+                :warning
+            )
+            return
+        end
+        
+        log_event(scheduler, :info, "Submission window is open for $(window_status.round_type) round $(window_status.round_number) ($(round(window_status.time_remaining, digits=1))h remaining)")
+    catch e
+        log_event(scheduler, :warning, "Could not validate submission window: $e. Proceeding anyway...")
+    end
+    
     log_event(scheduler, :info, "Generating predictions for round #$round_number")
     
     live_path = joinpath(scheduler.config.data_dir, "live.parquet")
@@ -427,6 +452,7 @@ function generate_and_submit_predictions(scheduler::TournamentScheduler, round_n
             DataLoader.save_predictions(submission_df, predictions_path)
             
             if scheduler.config.auto_submit
+                # Submit with validation enabled (default behavior)
                 API.submit_predictions(scheduler.api_client, model_name, predictions_path)
                 log_event(scheduler, :success, "Submitted predictions for $model_name")
                 
@@ -435,16 +461,35 @@ function generate_and_submit_predictions(scheduler::TournamentScheduler, round_n
                     "Successfully submitted predictions for $model_name",
                     :success
                 )
+            else
+                log_event(scheduler, :info, "Predictions saved for $model_name (auto-submit disabled)")
             end
             
         catch e
-            log_event(scheduler, :error, "Failed to submit $model_name: $e")
+            log_event(scheduler, :error, "Failed to process $model_name: $e")
+            
+            Notifications.send_notification(
+                "Numerai Submission Error",
+                "Failed to submit $model_name: $e",
+                :error
+            )
         end
     end
 end
 
 function check_and_submit(scheduler::TournamentScheduler)
     try
+        # First validate submission window
+        window_status = API.validate_submission_window(scheduler.api_client)
+        
+        if !window_status.is_open
+            time_closed = abs(window_status.time_remaining)
+            log_event(scheduler, :info, "Submission window is closed for round $(window_status.round_number). Window closed $(round(time_closed, digits=1)) hours ago - skipping check")
+            return
+        end
+        
+        log_event(scheduler, :info, "Checking submissions for round $(window_status.round_number) ($(round(window_status.time_remaining, digits=1))h remaining)")
+        
         round_info = API.get_current_round(scheduler.api_client)
         
         for model in scheduler.config.models
@@ -453,6 +498,8 @@ function check_and_submit(scheduler::TournamentScheduler)
             if isempty(status)
                 log_event(scheduler, :warning, "No submission found for $model, generating...")
                 generate_and_submit_predictions(scheduler, round_info.number)
+            else
+                log_event(scheduler, :info, "Submission already exists for $model")
             end
         end
     catch e
@@ -472,7 +519,7 @@ function check_model_performances(scheduler::TournamentScheduler)
 end
 
 function log_event(scheduler::TournamentScheduler, type::Symbol, message::String)
-    timestamp = Dates.format(now(), "yyyy-mm-dd HH:MM:SS")
+    timestamp = Dates.format(utc_now_datetime(), "yyyy-mm-dd HH:MM:SS")
     println("[$timestamp] $message")
     
     if scheduler.dashboard !== nothing

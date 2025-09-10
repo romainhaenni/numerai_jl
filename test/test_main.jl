@@ -6,6 +6,7 @@ push!(LOAD_PATH, joinpath(@__DIR__, "..", "src"))
 using NumeraiTournament
 using Test
 using Dates
+using TimeZones
 
 # Load environment variables
 if isfile(joinpath(@__DIR__, "..", ".env"))
@@ -44,7 +45,7 @@ end
     @testset "Data Structures" begin
         # Test Round schema
         round = NumeraiTournament.Schemas.Round(
-            1090, now(), now() + Day(2), now() + Day(7), true
+            1090, now(tz"UTC"), now(tz"UTC") + Day(2), now(tz"UTC") + Day(7), true
         )
         @test round.number == 1090
         @test round.is_active == true

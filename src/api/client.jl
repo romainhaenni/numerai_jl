@@ -3,9 +3,13 @@ module API
 using HTTP
 using JSON3
 using Dates
+using TimeZones
 using Downloads
 using ProgressMeter
 using ..Schemas
+
+# Import UTC utility function
+include("../utils.jl")
 
 const GRAPHQL_ENDPOINT = "https://api-tournament.numer.ai"
 const DATA_BASE_URL = "https://numerai-public-datasets.s3-us-west-2.amazonaws.com"
@@ -45,7 +49,7 @@ end
 
 function parse_datetime_safe(dt_str)
     if dt_str === nothing || dt_str == ""
-        return now()
+        return utc_now_datetime()
     end
     try
         # Try ISO format first
@@ -56,7 +60,7 @@ function parse_datetime_safe(dt_str)
             return unix2datetime(parse(Float64, dt_str))
         catch
             # Default to now if all else fails
-            return now()
+            return utc_now_datetime()
         end
     end
 end
@@ -81,7 +85,7 @@ function get_current_round(client::NumeraiClient)::Schemas.Round
     end
     
     # Find the current active round (first one that hasn't resolved yet)
-    current_time = now()
+    current_time = utc_now_datetime()
     for round_data in result["rounds"]
         close_time = parse_datetime_safe(get(round_data, "closeTime", nothing))
         if close_time > current_time
@@ -223,9 +227,25 @@ function get_submission_status(client::NumeraiClient, model_name::String, round_
     return result
 end
 
-function submit_predictions(client::NumeraiClient, model_name::String, predictions_path::String)
+function submit_predictions(client::NumeraiClient, model_name::String, predictions_path::String; validate_window::Bool=true)
     if !isfile(predictions_path)
         error("Predictions file not found: $predictions_path")
+    end
+    
+    # Validate submission window if requested
+    if validate_window
+        current_round = get_current_round(client)
+        window_info = get_submission_window_info(current_round.open_time)
+        
+        if !window_info.is_open
+            time_closed = abs(window_info.time_remaining)
+            error("Submission window is closed for round $(current_round.number). Window closed $(round(time_closed, digits=1)) hours ago (at $(window_info.window_end) UTC)")
+        end
+        
+        println("✅ Submission window is open for $(window_info.round_type) round $(current_round.number)")
+        if window_info.time_remaining > 0
+            println("   Time remaining: $(round(window_info.time_remaining, digits=1)) hours (closes at $(window_info.window_end) UTC)")
+        end
     end
     
     # First, get the upload URL
@@ -279,9 +299,25 @@ function get_live_dataset_id(client::NumeraiClient)
     return result.rounds[1].datasetId
 end
 
-function upload_predictions_multipart(client::NumeraiClient, model_id::String, predictions_path::String, round_number::Int)
+function upload_predictions_multipart(client::NumeraiClient, model_id::String, predictions_path::String, round_number::Int; validate_window::Bool=true)
     if !isfile(predictions_path)
         error("Predictions file not found: $predictions_path")
+    end
+    
+    # Validate submission window if requested
+    if validate_window
+        current_round = get_current_round(client)
+        window_info = get_submission_window_info(current_round.open_time)
+        
+        if !window_info.is_open
+            time_closed = abs(window_info.time_remaining)
+            error("Submission window is closed for round $(current_round.number). Window closed $(round(time_closed, digits=1)) hours ago (at $(window_info.window_end) UTC)")
+        end
+        
+        println("✅ Submission window is open for $(window_info.round_type) round $(current_round.number)")
+        if window_info.time_remaining > 0
+            println("   Time remaining: $(round(window_info.time_remaining, digits=1)) hours (closes at $(window_info.window_end) UTC)")
+        end
     end
     
     # Get AWS S3 presigned URL for upload
@@ -547,8 +583,27 @@ function get_latest_submission(client::NumeraiClient)
     end
 end
 
+function validate_submission_window(client::NumeraiClient)
+    """
+    Validates if submissions are currently allowed for the active round.
+    Returns a detailed status about the submission window.
+    """
+    current_round = get_current_round(client)
+    window_info = get_submission_window_info(current_round.open_time)
+    
+    return (
+        round_number = current_round.number,
+        round_type = window_info.round_type,
+        is_open = window_info.is_open,
+        window_end = window_info.window_end,
+        time_remaining = window_info.time_remaining,
+        open_time = current_round.open_time
+    )
+end
+
 export NumeraiClient, get_current_round, get_model_performance, download_dataset,
        submit_predictions, get_models_for_user, get_dataset_info, get_submission_status,
-       get_live_dataset_id, upload_predictions_multipart, get_model_stakes, get_latest_submission
+       get_live_dataset_id, upload_predictions_multipart, get_model_stakes, get_latest_submission,
+       validate_submission_window
 
 end

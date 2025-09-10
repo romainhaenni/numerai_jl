@@ -8,6 +8,11 @@ using Random
 using Statistics
 using ThreadsX
 using OrderedCollections
+using Logging
+
+# Include GPU acceleration module
+include("../gpu/metal_acceleration.jl")
+using .MetalAcceleration
 
 abstract type NumeraiModel end
 
@@ -16,25 +21,33 @@ mutable struct XGBoostModel <: NumeraiModel
     params::Dict{String, Any}
     num_rounds::Int
     name::String
+    gpu_enabled::Bool
 end
 
 mutable struct LightGBMModel <: NumeraiModel
     model::Union{Nothing, LGBMRegression}
     params::Dict{String, Any}
     name::String
+    gpu_enabled::Bool
 end
 
 mutable struct EvoTreesModel <: NumeraiModel
     model::Union{Nothing, EvoTrees.EvoTree}
     params::Dict{String, Any}
     name::String
+    gpu_enabled::Bool
 end
 
 function XGBoostModel(name::String="xgboost_default"; 
                      max_depth::Int=5,
                      learning_rate::Float64=0.01,
                      colsample_bytree::Float64=0.1,
-                     num_rounds::Int=1000)
+                     num_rounds::Int=1000,
+                     gpu_enabled::Bool=true)
+    
+    # Check if GPU is available and configure accordingly
+    use_gpu = gpu_enabled && has_metal_gpu()
+    
     params = Dict(
         "max_depth" => max_depth,
         "learning_rate" => learning_rate,
@@ -42,18 +55,29 @@ function XGBoostModel(name::String="xgboost_default";
         "objective" => "reg:squarederror",
         "eval_metric" => "rmse",
         "tree_method" => "hist",
-        "device" => "cpu",
+        "device" => use_gpu ? "gpu" : "cpu",
         "nthread" => Threads.nthreads()
     )
     
-    return XGBoostModel(nothing, params, num_rounds, name)
+    if use_gpu
+        @info "XGBoost model configured with GPU acceleration" name=name
+    else
+        @info "XGBoost model configured with CPU" name=name reason=(gpu_enabled ? "GPU not available" : "GPU disabled")
+    end
+    
+    return XGBoostModel(nothing, params, num_rounds, name, use_gpu)
 end
 
 function LightGBMModel(name::String="lgbm_default";
                       num_leaves::Int=31,
                       learning_rate::Float64=0.01,
                       feature_fraction::Float64=0.1,
-                      n_estimators::Int=1000)
+                      n_estimators::Int=1000,
+                      gpu_enabled::Bool=true)
+    
+    # Check if GPU is available and configure accordingly
+    use_gpu = gpu_enabled && has_metal_gpu()
+    
     params = Dict(
         "objective" => "regression",
         "metric" => "rmse",
@@ -64,10 +88,17 @@ function LightGBMModel(name::String="lgbm_default";
         "bagging_freq" => 5,
         "n_estimators" => n_estimators,
         "num_threads" => Threads.nthreads(),
+        "device_type" => use_gpu ? "gpu" : "cpu",
         "verbose" => -1
     )
     
-    return LightGBMModel(nothing, params, name)
+    if use_gpu
+        @info "LightGBM model configured with GPU acceleration" name=name
+    else
+        @info "LightGBM model configured with CPU" name=name reason=(gpu_enabled ? "GPU not available" : "GPU disabled")
+    end
+    
+    return LightGBMModel(nothing, params, name, use_gpu)
 end
 
 function EvoTreesModel(name::String="evotrees_default";
@@ -75,7 +106,12 @@ function EvoTreesModel(name::String="evotrees_default";
                       learning_rate::Float64=0.01,
                       subsample::Float64=0.8,
                       colsample::Float64=0.8,
-                      nrounds::Int=1000)
+                      nrounds::Int=1000,
+                      gpu_enabled::Bool=true)
+    
+    # Check if GPU is available and configure accordingly
+    use_gpu = gpu_enabled && has_metal_gpu()
+    
     params = Dict(
         "loss" => :mse,
         "metric" => :mse,
@@ -86,22 +122,46 @@ function EvoTreesModel(name::String="evotrees_default";
         "nrounds" => nrounds,
         "nbins" => 64,
         "monotone_constraints" => Dict{Int, Int}(),
-        "device" => "cpu"
+        "device" => use_gpu ? "gpu" : "cpu"
     )
     
-    return EvoTreesModel(nothing, params, name)
+    if use_gpu
+        @info "EvoTrees model configured with GPU acceleration" name=name
+    else
+        @info "EvoTrees model configured with CPU" name=name reason=(gpu_enabled ? "GPU not available" : "GPU disabled")
+    end
+    
+    return EvoTreesModel(nothing, params, name, use_gpu)
 end
 
 function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
                X_val::Union{Nothing, Matrix{Float64}}=nothing,
                y_val::Union{Nothing, Vector{Float64}}=nothing,
-               verbose::Bool=false)
+               verbose::Bool=false,
+               preprocess_gpu::Bool=true)
     
-    dtrain = DMatrix(X_train, label=y_train)
+    # GPU-accelerated preprocessing if enabled
+    if model.gpu_enabled && preprocess_gpu
+        @info "Using GPU for data preprocessing" model_name=model.name
+        X_train_processed = copy(X_train)
+        gpu_standardize!(X_train_processed)
+    else
+        X_train_processed = X_train
+    end
+    
+    dtrain = DMatrix(X_train_processed, label=y_train)
     
     # Train model with individual parameters instead of params dict
     if X_val !== nothing && y_val !== nothing
-        dval = DMatrix(X_val, label=y_val)
+        # Process validation data with same preprocessing
+        if model.gpu_enabled && preprocess_gpu
+            X_val_processed = copy(X_val)
+            gpu_standardize!(X_val_processed)
+        else
+            X_val_processed = X_val
+        end
+        
+        dval = DMatrix(X_val_processed, label=y_val)
         watchlist = OrderedDict("train" => dtrain, "eval" => dval)
         
         # Train model with validation set
@@ -261,12 +321,14 @@ function predict(model::EvoTreesModel, X::Matrix{Float64})::Vector{Float64}
 end
 
 function cross_validate(model_constructor::Function, X::Matrix{Float64}, y::Vector{Float64}, 
-                       eras::Vector{Int}; n_splits::Int=5)::Vector{Float64}
+                       eras::Vector{Int}; n_splits::Int=5, use_gpu::Bool=true)::Vector{Float64}
     unique_eras = unique(eras)
     n_eras = length(unique_eras)
     era_size = n_eras ÷ n_splits
     
     cv_scores = Float64[]
+    
+    @info "Starting cross-validation" n_splits=n_splits use_gpu=use_gpu
     
     for i in 1:n_splits
         val_start = (i - 1) * era_size + 1
@@ -285,10 +347,19 @@ function cross_validate(model_constructor::Function, X::Matrix{Float64}, y::Vect
         train!(model, X_train, y_train)
         
         predictions = predict(model, X_val)
-        score = cor(predictions, y_val)
+        
+        # Use GPU-accelerated correlation computation if available
+        score = if use_gpu && has_metal_gpu()
+            gpu_compute_correlations(predictions, y_val)
+        else
+            cor(predictions, y_val)
+        end
+        
         push!(cv_scores, score)
+        @info "CV fold completed" fold=i score=score
     end
     
+    @info "Cross-validation completed" mean_score=mean(cv_scores) std_score=std(cv_scores)
     return cv_scores
 end
 
@@ -359,7 +430,130 @@ function load_model!(model::EvoTreesModel, filepath::String)
     return model
 end
 
+"""
+GPU-accelerated ensemble prediction combining multiple models
+"""
+function ensemble_predict(models::Vector{<:NumeraiModel}, X::Matrix{Float64}, 
+                         weights::Union{Nothing, Vector{Float64}}=nothing)::Vector{Float64}
+    if isempty(models)
+        error("No models provided for ensemble prediction")
+    end
+    
+    # Check if any models are not trained
+    untrained = [i for (i, model) in enumerate(models) if model.model === nothing]
+    if !isempty(untrained)
+        error("Models at indices $untrained are not trained")
+    end
+    
+    n_models = length(models)
+    n_samples = size(X, 1)
+    
+    # Default to equal weights if none provided
+    if weights === nothing
+        weights = fill(1.0 / n_models, n_models)
+    elseif length(weights) != n_models
+        error("Number of weights ($(length(weights))) must match number of models ($n_models)")
+    end
+    
+    @info "Computing ensemble predictions" n_models=n_models n_samples=n_samples
+    
+    # Collect predictions from all models
+    predictions_matrix = Matrix{Float64}(undef, n_samples, n_models)
+    
+    for (i, model) in enumerate(models)
+        predictions_matrix[:, i] = predict(model, X)
+    end
+    
+    # Use GPU-accelerated ensemble computation if available
+    ensemble_predictions = if any(model.gpu_enabled for model in models) && has_metal_gpu()
+        @info "Using GPU for ensemble computation"
+        gpu_ensemble_predictions(predictions_matrix, weights)
+    else
+        predictions_matrix * weights
+    end
+    
+    return ensemble_predictions
+end
+
+"""
+GPU-accelerated feature selection for all models
+"""
+function gpu_feature_selection_for_models(X::Matrix{Float64}, y::Vector{Float64}, 
+                                         k::Int=100)::Vector{Int}
+    @info "Performing GPU-accelerated feature selection" k=k n_features=size(X, 2)
+    
+    return gpu_feature_selection(X, y, k)
+end
+
+"""
+Benchmark model training performance with and without GPU
+"""
+function benchmark_model_performance(model_constructor::Function, X::Matrix{Float64}, 
+                                   y::Vector{Float64}; n_runs::Int=3)
+    @info "Benchmarking model performance" n_runs=n_runs data_size=size(X)
+    
+    cpu_times = Float64[]
+    gpu_times = Float64[]
+    
+    # Benchmark CPU training
+    @info "Benchmarking CPU training"
+    for i in 1:n_runs
+        model_cpu = model_constructor(gpu_enabled=false)
+        cpu_time = @elapsed train!(model_cpu, X, y, preprocess_gpu=false)
+        push!(cpu_times, cpu_time)
+        @info "CPU run completed" run=i time=cpu_time
+    end
+    
+    # Benchmark GPU training (if available)
+    if has_metal_gpu()
+        @info "Benchmarking GPU training"
+        for i in 1:n_runs
+            model_gpu = model_constructor(gpu_enabled=true)
+            gpu_time = @elapsed train!(model_gpu, X, y, preprocess_gpu=true)
+            push!(gpu_times, gpu_time)
+            @info "GPU run completed" run=i time=gpu_time
+        end
+    else
+        @warn "GPU not available for benchmarking"
+        gpu_times = [Inf]
+    end
+    
+    cpu_mean = mean(cpu_times)
+    gpu_mean = mean(gpu_times)
+    speedup = cpu_mean / gpu_mean
+    
+    results = Dict(
+        "cpu_times" => cpu_times,
+        "gpu_times" => gpu_times,
+        "cpu_mean" => cpu_mean,
+        "gpu_mean" => gpu_mean,
+        "speedup" => speedup,
+        "gpu_available" => has_metal_gpu()
+    )
+    
+    @info "Benchmark completed" cpu_mean=cpu_mean gpu_mean=gpu_mean speedup=speedup
+    
+    return results
+end
+
+"""
+Get GPU status and memory information for all models
+"""
+function get_models_gpu_status()::Dict{String, Any}
+    gpu_info = get_gpu_info()
+    memory_info = gpu_memory_info()
+    
+    return Dict(
+        "gpu_available" => has_metal_gpu(),
+        "gpu_info" => gpu_info,
+        "memory_info" => memory_info,
+        "metal_functional" => has_metal_gpu()
+    )
+end
+
 export NumeraiModel, XGBoostModel, LightGBMModel, EvoTreesModel, train!, predict, 
-       cross_validate, feature_importance, save_model, load_model!
+       cross_validate, feature_importance, save_model, load_model!,
+       ensemble_predict, gpu_feature_selection_for_models, benchmark_model_performance,
+       get_models_gpu_status
 
 end

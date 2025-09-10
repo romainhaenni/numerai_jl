@@ -153,14 +153,71 @@ function get_feature_groups(metadata::Dict{String, Any})::Dict{String, Vector{St
     groups = Dict{String, Vector{String}}()
     
     for (feature, info) in metadata["feature_stats"]
-        group = get(info, "group", "default")
+        # Convert feature to String if it's a Symbol (JSON3 may parse keys as Symbols)
+        feature_str = string(feature)
+        
+        # Get group, converting to string if necessary
+        group_raw = get(info, "group", "default")
+        group = string(group_raw)
+        
         if !haskey(groups, group)
             groups[group] = String[]
         end
-        push!(groups[group], feature)
+        push!(groups[group], feature_str)
     end
     
     return groups
+end
+
+"""
+    create_interaction_constraints(feature_groups, feature_names)
+
+Convert feature groups to interaction constraint indices for tree-based models.
+This ensures features only interact within their logical groups.
+"""
+function create_interaction_constraints(feature_groups::Dict{String, Vector{String}}, 
+                                       feature_names::Vector{String})::Vector{Vector{Int}}
+    constraints = Vector{Vector{Int}}()
+    
+    for (group_name, group_features) in feature_groups
+        if length(group_features) > 1  
+            indices = Int[]
+            for feat in group_features
+                idx = findfirst(==(feat), feature_names)
+                if idx !== nothing
+                    push!(indices, idx - 1)  # XGBoost uses 0-based indexing
+                end
+            end
+            if length(indices) > 1
+                push!(constraints, indices)
+            end
+        end
+    end
+    
+    return constraints
+end
+
+"""
+    group_based_column_sampling(feature_groups, sample_fraction)
+
+Create feature weights for group-proportional sampling.
+Ensures balanced sampling across different feature groups.
+"""
+function group_based_column_sampling(feature_groups::Dict{String, Vector{String}}, 
+                                    sample_fraction::Float64=0.1)::Dict{String, Float64}
+    feature_weights = Dict{String, Float64}()
+    num_groups = length(feature_groups)
+    
+    for (group_name, group_features) in feature_groups
+        group_weight = sample_fraction / num_groups  
+        feature_weight = group_weight / length(group_features)   
+        
+        for feature in group_features
+            feature_weights[feature] = feature_weight
+        end
+    end
+    
+    return feature_weights
 end
 
 function validate_data(df::DataFrame; check_features::Bool=true, check_targets::Bool=false)::Bool
@@ -320,6 +377,7 @@ end
 export load_training_data, load_live_data, get_feature_columns, get_target_column,
        get_target_columns, get_era_column, split_by_era, create_submission_dataframe,
        save_predictions, load_features_metadata, get_feature_groups, validate_data,
+       create_interaction_constraints, group_based_column_sampling,
        combine_predictions, TournamentData, load_tournament_data, load_features_json
 
 end

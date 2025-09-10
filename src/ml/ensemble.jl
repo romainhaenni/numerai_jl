@@ -4,6 +4,7 @@ using Statistics
 using Random
 using ThreadsX
 using ..Models
+using ..Preprocessor: check_memory_before_allocation, safe_matrix_allocation
 
 struct ModelEnsemble
     models::Vector{<:Models.NumeraiModel}
@@ -109,8 +110,11 @@ end
 function optimize_weights(ensemble::ModelEnsemble, X_val::Matrix{Float64}, y_val::Vector{Float64};
                          metric::Function=cor, n_iterations::Int=1000)::Vector{Float64}
     n_models = length(ensemble.models)
+    n_samples = size(X_val, 1)
     
-    predictions_matrix = Matrix{Float64}(undef, size(X_val, 1), n_models)
+    # Check memory before allocation
+    predictions_matrix = safe_matrix_allocation(n_samples, n_models)
+    
     for (i, model) in enumerate(ensemble.models)
         predictions_matrix[:, i] = Models.predict(model, X_val)
     end

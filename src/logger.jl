@@ -7,7 +7,7 @@ using Term
 
 export init_logger, @log_debug, @log_info, @log_warn, @log_error, @log_critical
 export log_model_performance, log_api_call, log_submission, log_training_progress
-export set_log_level, get_logger, close_logger
+export set_log_level, get_logger, close_logger, flush_logger
 
 mutable struct NumeraiLogger
     logger::AbstractLogger
@@ -42,6 +42,26 @@ const LOG_COLORS = Dict(
     Logging.Error => :red
 )
 
+# Custom file logger that uses our formatting
+struct CustomFileLogger <: AbstractLogger
+    io::IO
+    min_level::LogLevel
+end
+
+function Logging.min_enabled_level(logger::CustomFileLogger)
+    return logger.min_level
+end
+
+function Logging.shouldlog(logger::CustomFileLogger, level, _module, group, id)
+    return level >= logger.min_level
+end
+
+function Logging.handle_message(logger::CustomFileLogger, level, message, _module, group, id, file, line; kwargs...)
+    formatted_msg = format_log_message(level, message, _module, group, id, file, line; kwargs...)
+    println(logger.io, formatted_msg)
+    flush(logger.io)
+end
+
 function format_log_message(level, message, _module, group, id, file, line; kwargs...)
     timestamp = Dates.format(now(), "yyyy-mm-dd HH:MM:SS.sss")
     level_str = uppercase(string(level))
@@ -75,7 +95,9 @@ function init_logger(;
     else
         open(log_file, "w")
     end
-    file_logger = SimpleLogger(file_handle, file_level)
+    
+    # Create a custom file logger that uses our formatting
+    file_logger = CustomFileLogger(file_handle, file_level)
     
     # Create console logger with formatting
     console_logger = ConsoleLogger(stdout, console_level)
@@ -129,34 +151,93 @@ function close_logger()
     end
 end
 
+function flush_logger()
+    """
+    Flush the logger file handle to ensure all pending log messages are written to disk.
+    This is particularly useful in tests where immediate file availability is needed.
+    """
+    if isassigned(GLOBAL_LOGGER) && !isnothing(GLOBAL_LOGGER[].file_handle)
+        try
+            flush(GLOBAL_LOGGER[].file_handle)
+        catch e
+            @warn "Error flushing logger file handle" error=string(e)
+        end
+    end
+end
+
 # Convenience macros
 macro log_debug(msg, kwargs...)
+    # Process kwargs to extract key-value pairs
+    kw_exprs = []
+    for kw in kwargs
+        if isa(kw, Expr) && kw.head == :(=)
+            push!(kw_exprs, Expr(:(=), kw.args[1], esc(kw.args[2])))
+        else
+            push!(kw_exprs, esc(kw))
+        end
+    end
     quote
-        @debug $(esc(msg)) $(map(esc, kwargs)...)
+        @debug $(esc(msg)) $(kw_exprs...)
     end
 end
 
 macro log_info(msg, kwargs...)
+    # Process kwargs to extract key-value pairs
+    kw_exprs = []
+    for kw in kwargs
+        if isa(kw, Expr) && kw.head == :(=)
+            push!(kw_exprs, Expr(:(=), kw.args[1], esc(kw.args[2])))
+        else
+            push!(kw_exprs, esc(kw))
+        end
+    end
     quote
-        @info $(esc(msg)) $(map(esc, kwargs)...)
+        @info $(esc(msg)) $(kw_exprs...)
     end
 end
 
 macro log_warn(msg, kwargs...)
+    # Process kwargs to extract key-value pairs
+    kw_exprs = []
+    for kw in kwargs
+        if isa(kw, Expr) && kw.head == :(=)
+            push!(kw_exprs, Expr(:(=), kw.args[1], esc(kw.args[2])))
+        else
+            push!(kw_exprs, esc(kw))
+        end
+    end
     quote
-        @warn $(esc(msg)) $(map(esc, kwargs)...)
+        @warn $(esc(msg)) $(kw_exprs...)
     end
 end
 
 macro log_error(msg, kwargs...)
+    # Process kwargs to extract key-value pairs
+    kw_exprs = []
+    for kw in kwargs
+        if isa(kw, Expr) && kw.head == :(=)
+            push!(kw_exprs, Expr(:(=), kw.args[1], esc(kw.args[2])))
+        else
+            push!(kw_exprs, esc(kw))
+        end
+    end
     quote
-        @error $(esc(msg)) $(map(esc, kwargs)...)
+        @error $(esc(msg)) $(kw_exprs...)
     end
 end
 
 macro log_critical(msg, kwargs...)
+    # Process kwargs to extract key-value pairs
+    kw_exprs = []
+    for kw in kwargs
+        if isa(kw, Expr) && kw.head == :(=)
+            push!(kw_exprs, Expr(:(=), kw.args[1], esc(kw.args[2])))
+        else
+            push!(kw_exprs, esc(kw))
+        end
+    end
     quote
-        @error "[CRITICAL] " * $(esc(msg)) $(map(esc, kwargs)...)
+        @error "[CRITICAL] " * $(esc(msg)) $(kw_exprs...)
     end
 end
 
@@ -190,13 +271,19 @@ function log_training_progress(model_name::String, epoch::Int, total_epochs::Int
                               metrics::Dict=Dict(), eta_seconds::Float64=0.0)
     progress_pct = round(100 * epoch / total_epochs, digits=1)
     eta_str = if eta_seconds > 0
-        mins, secs = divrem(Int(round(eta_seconds)), 60)
+        mins, secs = divrem(Int(floor(eta_seconds)), 60)
         "$(mins)m $(secs)s"
     else
         "unknown"
     end
     
-    @info "Training progress" model=model_name epoch=epoch total=total_epochs progress_pct=progress_pct eta=eta_str metrics...
+    # Convert metrics to keyword arguments with Symbol keys
+    metric_kwargs = []
+    for (k, v) in metrics
+        push!(metric_kwargs, Symbol(k) => v)
+    end
+    
+    @info "Training progress" model=model_name epoch=epoch total=total_epochs progress_pct=progress_pct eta=eta_str metric_kwargs...
 end
 
 # Log rotation functionality

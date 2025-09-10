@@ -1036,12 +1036,305 @@ function validate_submission_window(client::NumeraiClient)
     )
 end
 
+"""
+    create_webhook(client::NumeraiClient, model_id::String, webhook_url::String, 
+                   event_types::Vector{String}=["submission_status"])
+
+Create a webhook for model events.
+
+# Arguments
+- `client`: NumeraiClient instance
+- `model_id`: Model ID to attach webhook to
+- `webhook_url`: URL to receive webhook notifications
+- `event_types`: Types of events to subscribe to (default: ["submission_status"])
+
+# Returns
+- Webhook ID on success, nothing on failure
+"""
+function create_webhook(client::NumeraiClient, model_id::String, webhook_url::String, 
+                       event_types::Vector{String}=["submission_status"])
+    mutation = """
+    mutation(\$modelId: String!, \$webhookUrl: String!, \$eventTypes: [String!]!) {
+        createWebhook(modelId: \$modelId, webhookUrl: \$webhookUrl, eventTypes: \$eventTypes) {
+            id
+            url
+            status
+            eventTypes
+        }
+    }
+    """
+    
+    variables = Dict(
+        "modelId" => model_id,
+        "webhookUrl" => webhook_url,
+        "eventTypes" => event_types
+    )
+    
+    try
+        response = graphql_query(client, mutation, variables)
+        if haskey(response["data"], "createWebhook") && !isnothing(response["data"]["createWebhook"])
+            webhook = response["data"]["createWebhook"]
+            @log_info "Webhook created successfully" webhook_id=webhook["id"] url=webhook["url"]
+            return webhook["id"]
+        else
+            @error "Failed to create webhook" response=response
+            return nothing
+        end
+    catch e
+        @error "Error creating webhook" error=string(e)
+        return nothing
+    end
+end
+
+"""
+    delete_webhook(client::NumeraiClient, webhook_id::String)
+
+Delete an existing webhook.
+
+# Arguments
+- `client`: NumeraiClient instance
+- `webhook_id`: ID of webhook to delete
+
+# Returns
+- true on success, false on failure
+"""
+function delete_webhook(client::NumeraiClient, webhook_id::String)::Bool
+    mutation = """
+    mutation(\$webhookId: String!) {
+        deleteWebhook(webhookId: \$webhookId) {
+            success
+        }
+    }
+    """
+    
+    variables = Dict("webhookId" => webhook_id)
+    
+    try
+        response = graphql_query(client, mutation, variables)
+        if haskey(response["data"], "deleteWebhook") && response["data"]["deleteWebhook"]["success"]
+            @log_info "Webhook deleted successfully" webhook_id=webhook_id
+            return true
+        else
+            @error "Failed to delete webhook" response=response
+            return false
+        end
+    catch e
+        @error "Error deleting webhook" error=string(e)
+        return false
+    end
+end
+
+"""
+    list_webhooks(client::NumeraiClient, model_id::String)
+
+List all webhooks for a model.
+
+# Arguments
+- `client`: NumeraiClient instance
+- `model_id`: Model ID to list webhooks for
+
+# Returns
+- Array of webhook information, empty array on failure
+"""
+function list_webhooks(client::NumeraiClient, model_id::String)::Vector{Dict{String,Any}}
+    query = """
+    query(\$modelId: String!) {
+        model(modelId: \$modelId) {
+            webhooks {
+                id
+                url
+                status
+                eventTypes
+                createdAt
+                lastTriggeredAt
+                failureCount
+            }
+        }
+    }
+    """
+    
+    variables = Dict("modelId" => model_id)
+    
+    try
+        response = graphql_query(client, query, variables)
+        if haskey(response["data"], "model") && haskey(response["data"]["model"], "webhooks")
+            webhooks = response["data"]["model"]["webhooks"]
+            @log_info "Retrieved webhooks" count=length(webhooks) model_id=model_id
+            return webhooks
+        else
+            @warn "No webhooks found for model" model_id=model_id
+            return Dict{String,Any}[]
+        end
+    catch e
+        @error "Error listing webhooks" error=string(e)
+        return Dict{String,Any}[]
+    end
+end
+
+"""
+    update_webhook(client::NumeraiClient, webhook_id::String; 
+                   webhook_url::Union{String,Nothing}=nothing,
+                   event_types::Union{Vector{String},Nothing}=nothing,
+                   enabled::Union{Bool,Nothing}=nothing)
+
+Update an existing webhook configuration.
+
+# Arguments
+- `client`: NumeraiClient instance
+- `webhook_id`: ID of webhook to update
+- `webhook_url`: New URL (optional)
+- `event_types`: New event types (optional)
+- `enabled`: Enable/disable webhook (optional)
+
+# Returns
+- true on success, false on failure
+"""
+function update_webhook(client::NumeraiClient, webhook_id::String; 
+                       webhook_url::Union{String,Nothing}=nothing,
+                       event_types::Union{Vector{String},Nothing}=nothing,
+                       enabled::Union{Bool,Nothing}=nothing)::Bool
+    mutation = """
+    mutation(\$webhookId: String!, \$webhookUrl: String, \$eventTypes: [String!], \$enabled: Boolean) {
+        updateWebhook(webhookId: \$webhookId, webhookUrl: \$webhookUrl, eventTypes: \$eventTypes, enabled: \$enabled) {
+            id
+            url
+            status
+            eventTypes
+        }
+    }
+    """
+    
+    variables = Dict{String,Any}("webhookId" => webhook_id)
+    
+    if !isnothing(webhook_url)
+        variables["webhookUrl"] = webhook_url
+    end
+    if !isnothing(event_types)
+        variables["eventTypes"] = event_types
+    end
+    if !isnothing(enabled)
+        variables["enabled"] = enabled
+    end
+    
+    try
+        response = graphql_query(client, mutation, variables)
+        if haskey(response["data"], "updateWebhook") && !isnothing(response["data"]["updateWebhook"])
+            @log_info "Webhook updated successfully" webhook_id=webhook_id
+            return true
+        else
+            @error "Failed to update webhook" response=response
+            return false
+        end
+    catch e
+        @error "Error updating webhook" error=string(e)
+        return false
+    end
+end
+
+"""
+    test_webhook(client::NumeraiClient, webhook_id::String)
+
+Test a webhook by sending a test payload.
+
+# Arguments
+- `client`: NumeraiClient instance
+- `webhook_id`: ID of webhook to test
+
+# Returns
+- true if test successful, false otherwise
+"""
+function test_webhook(client::NumeraiClient, webhook_id::String)::Bool
+    mutation = """
+    mutation(\$webhookId: String!) {
+        testWebhook(webhookId: \$webhookId) {
+            success
+            statusCode
+            responseTime
+            errorMessage
+        }
+    }
+    """
+    
+    variables = Dict("webhookId" => webhook_id)
+    
+    try
+        response = graphql_query(client, mutation, variables)
+        if haskey(response["data"], "testWebhook")
+            test_result = response["data"]["testWebhook"]
+            if test_result["success"]
+                @log_info "Webhook test successful" webhook_id=webhook_id status_code=test_result["statusCode"] response_time=test_result["responseTime"]
+                return true
+            else
+                @error "Webhook test failed" webhook_id=webhook_id error=test_result["errorMessage"]
+                return false
+            end
+        else
+            @error "Failed to test webhook" response=response
+            return false
+        end
+    catch e
+        @error "Error testing webhook" error=string(e)
+        return false
+    end
+end
+
+"""
+    get_webhook_logs(client::NumeraiClient, webhook_id::String; limit::Int=100)
+
+Get delivery logs for a webhook.
+
+# Arguments
+- `client`: NumeraiClient instance
+- `webhook_id`: ID of webhook
+- `limit`: Maximum number of logs to retrieve (default: 100)
+
+# Returns
+- Array of webhook log entries
+"""
+function get_webhook_logs(client::NumeraiClient, webhook_id::String; limit::Int=100)::Vector{Dict{String,Any}}
+    query = """
+    query(\$webhookId: String!, \$limit: Int!) {
+        webhookLogs(webhookId: \$webhookId, limit: \$limit) {
+            id
+            timestamp
+            event
+            statusCode
+            responseTime
+            success
+            errorMessage
+            payload
+        }
+    }
+    """
+    
+    variables = Dict(
+        "webhookId" => webhook_id,
+        "limit" => limit
+    )
+    
+    try
+        response = graphql_query(client, query, variables)
+        if haskey(response["data"], "webhookLogs")
+            logs = response["data"]["webhookLogs"]
+            @log_info "Retrieved webhook logs" count=length(logs) webhook_id=webhook_id
+            return logs
+        else
+            @warn "No logs found for webhook" webhook_id=webhook_id
+            return Dict{String,Any}[]
+        end
+    catch e
+        @error "Error retrieving webhook logs" error=string(e)
+        return Dict{String,Any}[]
+    end
+end
+
 export NumeraiClient, get_current_round, get_model_performance, download_dataset,
        submit_predictions, get_models_for_user, get_dataset_info, get_submission_status,
        get_live_dataset_id, upload_predictions_multipart, get_model_stakes, get_latest_submission,
        validate_submission_window, stake_change, stake_increase, stake_decrease, stake_drain,
        withdraw_nmr, set_withdrawal_address, get_model_id, get_current_tournament_number,
        get_wallet_balance, validate_file_size, DEFAULT_MAX_UPLOAD_SIZE_MB,
-       TOURNAMENT_CLASSIC, TOURNAMENT_SIGNALS
+       TOURNAMENT_CLASSIC, TOURNAMENT_SIGNALS,
+       create_webhook, delete_webhook, list_webhooks, update_webhook, test_webhook, get_webhook_logs
 
 end

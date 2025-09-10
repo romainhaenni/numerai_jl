@@ -5,7 +5,15 @@ using Statistics
 
 # Create a proper mock dashboard using the actual TournamentDashboard structure
 function create_mock_dashboard()
-    # Create a basic config
+    # Create a basic config with proper tui_config
+    tui_config = Dict{String, Any}(
+        "refresh_rate" => 1.0,
+        "limits" => Dict(
+            "events_history_max" => 100,
+            "api_error_history_max" => 50
+        )
+    )
+    
     config = NumeraiTournament.TournamentConfig(
         "test_public_id",
         "test_secret_key", 
@@ -16,10 +24,13 @@ function create_mock_dashboard()
         0.0,
         1,
         false,
+        8,      # tournament_id
+        "v4.2", # feature_set
         false,  # compounding_enabled
         1.0,    # min_compound_amount
         100.0,  # compound_percentage
-        10000.0 # max_stake_amount
+        10000.0, # max_stake_amount
+        tui_config # tui_config
     )
     
     # Create the actual dashboard

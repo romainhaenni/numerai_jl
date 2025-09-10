@@ -632,8 +632,8 @@ logger = ConsoleLogger(stdout, Logging.Debug)
     @testset "Logging Integration" begin
         @testset "Retry logging messages" begin
             # Capture log messages during retry operations
+            call_count = 0
             with_logger(logger) do
-                call_count = 0
                 config = RetryConfig(max_attempts = 3, initial_delay = 0.01)
                 
                 try
@@ -650,8 +650,10 @@ logger = ConsoleLogger(stdout, Logging.Debug)
             end
             
             # Verify that appropriate log messages were generated
-            # Note: Specific log testing might depend on the logging framework used
-            @test true  # Placeholder for log message verification
+            # Since we're testing retry logic, the function should have been called the expected number of times
+            # The actual log verification would require mocking the logger, which is beyond the scope
+            # For now, we verify the retry behavior through the call count
+            @test call_count > 1  # At least one retry occurred
         end
     end
 end

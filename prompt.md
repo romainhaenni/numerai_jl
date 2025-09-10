@@ -10,13 +10,13 @@ Use @scratchpad.md as a scratchpad for your work. Store long term plans and todo
 
 You will need to write and run end to end and unit tests for the project. After implementing functionality or resolving problems, run the tests for that unit of code that was improved. If functionality is missing then it's your job to add it as per the application specifications. Think hard. Important: When authoring documentation capture why the tests and the backing implementation is important.
 
-Make a commit and push your changes after every single file edit. After the commit do a "git push" to push the changes to the remote repository.
+Make a commit and push your changes after every single file edit. After the commit do a "git push" to push the changes to the remote repository. If you create new branches, make sure to merge them into main and delete them afterwards. Do not leave feature branches open without merging them. Resolve any merge issues.
 
 Important: We want single sources of truth, no migrations/adapters. If tests unrelated to your work fail then it's your job to resolve these tests as part of the increment of change.
 
 As soon as there are no build or test errors create a git tag. If there are no git tags start at 0.0.0 and increment patch by 1 for example 0.0.1 if 0.0.0 does not exist.
 
-You may add extra logging if required to be able to debug the issues.
+You may add extra logging if required to be able to debug the issues. Put test files into @test. Put example scripts into @examples.
 
 ALWAYS KEEP @scratchpad.md up to do date with your learnings using a subagent. Especially after wrapping up/finishing your turn.
 

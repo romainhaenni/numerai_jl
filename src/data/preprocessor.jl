@@ -14,6 +14,19 @@ function fillna(df::DataFrame, value::Float64=0.0)::DataFrame
     return df_copy
 end
 
+"""
+    fillna!(df::DataFrame, value::Float64=0.0)
+
+In-place version of fillna that modifies the DataFrame directly.
+More memory efficient for large datasets.
+"""
+function fillna!(df::DataFrame, value::Float64=0.0)::DataFrame
+    for col in names(df)
+        df[!, col] = coalesce.(df[!, col], value)
+    end
+    return df
+end
+
 function rank_normalize(values::Vector{Float64})::Vector{Float64}
     n = length(values)
     ranks = ordinalrank(values)
@@ -93,6 +106,31 @@ function create_era_weighted_features(df::DataFrame, era_col::Symbol)::DataFrame
     return result
 end
 
+"""
+    create_era_weighted_features!(df::DataFrame, era_col::Symbol)
+
+In-place version that modifies the DataFrame directly.
+Saves memory by avoiding copying large DataFrames.
+"""
+function create_era_weighted_features!(df::DataFrame, era_col::Symbol)::DataFrame
+    eras = df[!, era_col]
+    unique_eras = unique(eras)
+    
+    for era in unique_eras
+        era_mask = eras .== era
+        era_weight = 1.0 / sum(era_mask)
+        sqrt_weight = sqrt(era_weight)
+        
+        for col in names(df)
+            if col != era_col && eltype(df[!, col]) <: Number
+                df[era_mask, col] .*= sqrt_weight
+            end
+        end
+    end
+    
+    return df
+end
+
 function clip_predictions(predictions::Vector{Float64}; lower::Float64=0.0003, upper::Float64=0.9997)::Vector{Float64}
     return clamp.(predictions, lower, upper)
 end
@@ -158,8 +196,35 @@ function reduce_memory_usage(df::DataFrame)::DataFrame
     return result
 end
 
-export fillna, rank_normalize, rank_predictions, gaussianize, neutralize_series, normalize_predictions,
-       feature_importance_filter, create_era_weighted_features, clip_predictions,
-       ensemble_predictions, reduce_memory_usage
+"""
+    check_memory_before_allocation(required_bytes::Int; safety_factor::Float64=0.8)
+
+Check if sufficient memory is available before large allocations.
+Throws OutOfMemoryError if insufficient memory.
+"""
+function check_memory_before_allocation(required_bytes::Int; safety_factor::Float64=0.8)
+    available_bytes = Sys.free_memory()
+    if required_bytes > available_bytes * safety_factor
+        required_gb = required_bytes / (1024^3)
+        available_gb = available_bytes / (1024^3)
+        throw(OutOfMemoryError("Insufficient memory: need $(round(required_gb, digits=2))GB, have $(round(available_gb, digits=2))GB available"))
+    end
+    return true
+end
+
+"""
+    safe_matrix_allocation(dims...; dtype::Type=Float64)
+
+Safely allocate a matrix with memory checking.
+"""
+function safe_matrix_allocation(dims...; dtype::Type=Float64)
+    required_bytes = prod(dims) * sizeof(dtype)
+    check_memory_before_allocation(required_bytes)
+    return Array{dtype}(undef, dims...)
+end
+
+export fillna, fillna!, rank_normalize, rank_predictions, gaussianize, neutralize_series, normalize_predictions,
+       feature_importance_filter, create_era_weighted_features, create_era_weighted_features!, clip_predictions,
+       ensemble_predictions, reduce_memory_usage, check_memory_before_allocation, safe_matrix_allocation
 
 end

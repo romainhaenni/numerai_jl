@@ -17,10 +17,10 @@ using BSON
 using BSON: @save, @load
 
 # Import the base model interface
-include("models.jl")
-using .Models: NumeraiModel
-import .Models: train!, predict, feature_importance, save_model, load_model!
+# Note: NumeraiModel will be available from parent scope when included in models.jl
 # MetalAcceleration functions will be accessed through Main.NumeraiTournament.MetalAcceleration
+
+# NumeraiModel abstract type will be available from Models module when included
 
 # Export neural network models
 export NeuralNetworkModel, MLPModel, ResNetModel, TabNetModel

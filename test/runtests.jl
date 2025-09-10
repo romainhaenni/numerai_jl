@@ -228,6 +228,9 @@ Random.seed!(123)
     # Include compounding module tests
     include("test_compounding.jl")
     
+    # Include retry logic tests
+    include("test_retry.jl")
+    
 end
 
 println("\n✅ All tests passed!")

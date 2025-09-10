@@ -3,6 +3,7 @@ module Retry
 using HTTP
 using Logging
 using LoggingExtras
+using Downloads
 
 export with_retry, RetryConfig, exponential_backoff
 
@@ -21,7 +22,7 @@ function RetryConfig(;
     max_delay::Float64 = 60.0,
     exponential_base::Float64 = 2.0,
     jitter::Bool = true,
-    retry_on::Vector{Type} = [HTTP.ExceptionRequest.StatusError, HTTP.TimeoutError, HTTP.ConnectionPool.ConnectError]
+    retry_on::Vector{Type} = Type[HTTP.ExceptionRequest.StatusError, HTTP.TimeoutError, HTTP.ConnectionPool.ConnectError]
 )
     RetryConfig(max_attempts, initial_delay, max_delay, exponential_base, jitter, retry_on)
 end
@@ -113,7 +114,7 @@ function with_download_retry(f::Function; context::String = "file download")
         max_delay = 60.0,
         exponential_base = 2.0,
         jitter = true,
-        retry_on = [Downloads.RequestError, HTTP.TimeoutError, InterruptException]
+        retry_on = Type[Downloads.RequestError, HTTP.TimeoutError, InterruptException]
     )
     return with_retry(f, config; context = context)
 end

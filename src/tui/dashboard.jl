@@ -707,6 +707,7 @@ function check_network_connectivity(dashboard::TournamentDashboard)::Bool
 end
 
 # Enhanced add_event! function with error categorization
+# Single function with optional exception parameter handles both cases
 function add_event!(dashboard::TournamentDashboard, type::Symbol, message::String, 
                    exception::Union{Nothing, Exception}=nothing)
     # If there's an exception, categorize it and create enhanced error info
@@ -760,11 +761,6 @@ function add_event!(dashboard::TournamentDashboard, type::Symbol, message::Strin
     if dashboard.config.notification_enabled && type in [:error, :success]
         Notifications.send_notification("Numerai Tournament", message, type)
     end
-end
-
-# Backward compatibility - keep original function signature
-function add_event!(dashboard::TournamentDashboard, type::Symbol, message::String)
-    add_event!(dashboard, type, message, nothing)
 end
 
 function start_training(dashboard::TournamentDashboard)

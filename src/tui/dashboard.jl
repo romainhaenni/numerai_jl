@@ -417,7 +417,8 @@ function render(dashboard::TournamentDashboard)
         println()
         println("Recent Events:")
         for (i, event) in enumerate(Iterators.take(Iterators.reverse(dashboard.events), 5))
-            println("  [$(event[:timestamp])] $(event[:message])")
+            timestamp = haskey(event, :time) ? event[:time] : "N/A"
+            println("  [$timestamp] $(event[:message])")
         end
         println()
         println("Commands: q=quit, p=pause, s=start training, h=help")

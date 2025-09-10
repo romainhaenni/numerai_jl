@@ -191,8 +191,9 @@ function create_events_panel(events::Vector{Dict{Symbol, Any}}, config=nothing; 
                 "[$timestamp] $icon $(event[:message])"
             end
             
-            # Apply color styling using Term
-            styled_line = Term.highlight(line, color)
+            # Apply color styling - Term.highlight doesn't support color, just use plain text
+            # or apply color using Term's markup syntax
+            styled_line = line  # For now, just use plain text
             push!(lines, styled_line)
         end
         

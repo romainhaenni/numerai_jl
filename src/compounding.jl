@@ -11,6 +11,7 @@ mutable struct CompoundingConfig
     compound_percentage::Float64  # Percentage of earnings to compound (0-100)
     max_stake_amount::Float64     # Maximum stake limit per model
     models::Vector{String}         # Models to apply compounding to
+    history_limit::Int            # Maximum number of history entries to keep (rolling window)
 end
 
 function CompoundingConfig(;
@@ -18,9 +19,10 @@ function CompoundingConfig(;
     min_compound_amount::Float64 = 1.0,
     compound_percentage::Float64 = 100.0,
     max_stake_amount::Float64 = 10000.0,
-    models::Vector{String} = String[]
+    models::Vector{String} = String[],
+    history_limit::Int = 1000
 )
-    CompoundingConfig(enabled, min_compound_amount, compound_percentage, max_stake_amount, models)
+    CompoundingConfig(enabled, min_compound_amount, compound_percentage, max_stake_amount, models, history_limit)
 end
 
 # Track compounding state for each model
@@ -29,7 +31,7 @@ mutable struct CompoundingState
     last_checked::DateTime
     last_balance::Float64
     total_compounded::Float64
-    compound_history::Vector{Tuple{DateTime, Float64}}
+    compound_history::Vector{Tuple{DateTime, Float64}}  # Rolling window history to prevent unbounded growth
 end
 
 function CompoundingState(model_name::String)
@@ -40,6 +42,23 @@ function CompoundingState(model_name::String)
         0.0,
         Tuple{DateTime, Float64}[]
     )
+end
+
+"""
+Add a new entry to the compound history while maintaining the rolling window size limit.
+Removes oldest entries when the limit is exceeded.
+"""
+function add_to_compound_history!(state::CompoundingState, timestamp::DateTime, amount::Float64, history_limit::Int)
+    # Add the new entry
+    push!(state.compound_history, (timestamp, amount))
+    
+    # If we exceed the limit, remove oldest entries
+    if length(state.compound_history) > history_limit
+        # Calculate how many entries to remove
+        entries_to_remove = length(state.compound_history) - history_limit
+        # Remove from the beginning (oldest entries)
+        deleteat!(state.compound_history, 1:entries_to_remove)
+    end
 end
 
 # Main compounding manager
@@ -118,7 +137,7 @@ function check_and_compound_earnings(manager::CompoundingManager, model_name::St
             state.last_checked = now(UTC)
             state.last_balance = current_balance - compound_amount
             state.total_compounded += compound_amount
-            push!(state.compound_history, (now(UTC), compound_amount))
+            add_to_compound_history!(state, now(UTC), compound_amount, manager.config.history_limit)
             
             @info "Successfully compounded earnings" model=model_name amount=compound_amount total_compounded=state.total_compounded
             return compound_amount
@@ -238,7 +257,8 @@ function update_compounding_config(manager::CompoundingManager;
     min_compound_amount::Union{Float64, Nothing} = nothing,
     compound_percentage::Union{Float64, Nothing} = nothing,
     max_stake_amount::Union{Float64, Nothing} = nothing,
-    models::Union{Vector{String}, Nothing} = nothing
+    models::Union{Vector{String}, Nothing} = nothing,
+    history_limit::Union{Int, Nothing} = nothing
 )
     if !isnothing(min_compound_amount)
         manager.config.min_compound_amount = min_compound_amount
@@ -254,6 +274,18 @@ function update_compounding_config(manager::CompoundingManager;
     
     if !isnothing(models)
         manager.config.models = models
+    end
+    
+    if !isnothing(history_limit)
+        manager.config.history_limit = max(1, history_limit)  # Ensure minimum of 1 entry
+        
+        # Apply new history limit to existing states
+        for (_, state) in manager.states
+            if length(state.compound_history) > manager.config.history_limit
+                entries_to_remove = length(state.compound_history) - manager.config.history_limit
+                deleteat!(state.compound_history, 1:entries_to_remove)
+            end
+        end
     end
     
     @info "Compounding configuration updated" config=manager.config

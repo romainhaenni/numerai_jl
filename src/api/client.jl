@@ -19,6 +19,10 @@ include("../utils.jl")
 const GRAPHQL_ENDPOINT = "https://api-tournament.numer.ai"
 const DATA_BASE_URL = "https://numerai-public-datasets.s3-us-west-2.amazonaws.com"
 
+# File size validation constants
+const DEFAULT_MAX_UPLOAD_SIZE_MB = 100.0
+const MAX_UPLOAD_SIZE_BYTES = Int64(DEFAULT_MAX_UPLOAD_SIZE_MB * 1024 * 1024)
+
 mutable struct NumeraiClient
     public_id::String
     secret_key::String
@@ -77,6 +81,37 @@ function parse_datetime_safe(dt_str)
             return utc_now_datetime()
         end
     end
+end
+
+function validate_file_size(file_path::String; max_size_mb::Float64=DEFAULT_MAX_UPLOAD_SIZE_MB)
+    """
+    Validates that a file size is within acceptable limits before reading it into memory.
+    
+    Parameters:
+    - file_path: Path to the file to validate
+    - max_size_mb: Maximum allowed file size in megabytes (default: 100MB)
+    
+    Throws:
+    - ArgumentError if file doesn't exist or exceeds size limit
+    
+    Returns:
+    - file_size_bytes: The actual file size in bytes
+    """
+    if !isfile(file_path)
+        throw(ArgumentError("File not found: $file_path"))
+    end
+    
+    file_size_bytes = filesize(file_path)
+    max_size_bytes = round(Int64, max_size_mb * 1024 * 1024)
+    file_size_mb = file_size_bytes / (1024 * 1024)
+    
+    if file_size_bytes > max_size_bytes
+        @log_error "File size validation failed" file=basename(file_path) size_mb=round(file_size_mb, digits=2) max_size_mb=max_size_mb
+        throw(ArgumentError("File size ($(round(file_size_mb, digits=2)) MB) exceeds maximum allowed size ($(max_size_mb) MB) for file: $(basename(file_path))"))
+    end
+    
+    @log_debug "File size validation passed" file=basename(file_path) size_mb=round(file_size_mb, digits=2) max_size_mb=max_size_mb
+    return file_size_bytes
 end
 
 function get_current_round(client::NumeraiClient)::Schemas.Round
@@ -249,10 +284,13 @@ function get_submission_status(client::NumeraiClient, model_name::String, round_
     return result
 end
 
-function submit_predictions(client::NumeraiClient, model_name::String, predictions_path::String; validate_window::Bool=true)
+function submit_predictions(client::NumeraiClient, model_name::String, predictions_path::String; validate_window::Bool=true, max_upload_size_mb::Float64=DEFAULT_MAX_UPLOAD_SIZE_MB)
     if !isfile(predictions_path)
         error("Predictions file not found: $predictions_path")
     end
+    
+    # Validate file size before reading into memory
+    validate_file_size(predictions_path; max_size_mb=max_upload_size_mb)
     
     # Validate submission window if requested
     if validate_window
@@ -334,10 +372,13 @@ function get_live_dataset_id(client::NumeraiClient)
     return first_round.datasetId
 end
 
-function upload_predictions_multipart(client::NumeraiClient, model_id::String, predictions_path::String, round_number::Int; validate_window::Bool=true)
+function upload_predictions_multipart(client::NumeraiClient, model_id::String, predictions_path::String, round_number::Int; validate_window::Bool=true, max_upload_size_mb::Float64=DEFAULT_MAX_UPLOAD_SIZE_MB)
     if !isfile(predictions_path)
         error("Predictions file not found: $predictions_path")
     end
+    
+    # Validate file size before reading into memory
+    validate_file_size(predictions_path; max_size_mb=max_upload_size_mb)
     
     # Validate submission window if requested
     if validate_window
@@ -995,6 +1036,6 @@ export NumeraiClient, get_current_round, get_model_performance, download_dataset
        get_live_dataset_id, upload_predictions_multipart, get_model_stakes, get_latest_submission,
        validate_submission_window, stake_change, stake_increase, stake_decrease, stake_drain,
        withdraw_nmr, set_withdrawal_address, get_model_id, get_current_tournament_number,
-       get_wallet_balance
+       get_wallet_balance, validate_file_size, DEFAULT_MAX_UPLOAD_SIZE_MB
 
 end

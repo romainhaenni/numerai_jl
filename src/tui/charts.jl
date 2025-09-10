@@ -24,7 +24,7 @@ function create_sparkline(values::Vector{Float64}; width::Int=40, height::Int=8)
 end
 
 function create_bar_chart(labels::Vector{String}, values::Vector{Float64}; 
-                         width::Int=40)::String
+                         width::Int=40, config=nothing)::String
     if isempty(labels) || isempty(values)
         return "No data"
     end
@@ -38,7 +38,7 @@ function create_bar_chart(labels::Vector{String}, values::Vector{Float64};
     return string(plt)
 end
 
-function create_histogram(values::Vector{Float64}; bins::Int=20, width::Int=40)::String
+function create_histogram(values::Vector{Float64}; bins::Int=20, width::Int=40, config=nothing)::String
     if isempty(values)
         return "No data"
     end
@@ -68,7 +68,7 @@ function create_performance_sparklines(performance_history::Dict{String, Vector{
     return sparklines
 end
 
-function format_correlation_bar(corr::Float64; width::Int=20)::String
+function format_correlation_bar(corr::Float64; width::Int=20, config=nothing)::String
     if isnan(corr)
         return "─" ^ width
     end
@@ -78,9 +78,21 @@ function format_correlation_bar(corr::Float64; width::Int=20)::String
     
     bar = "█" ^ filled * "░" ^ (width - filled)
     
-    color = if corr > 0.02
+    # Get correlation thresholds from config
+    positive_threshold = if config !== nothing && haskey(config.tui_config, "charts") && haskey(config.tui_config["charts"], "correlation_positive_threshold")
+        config.tui_config["charts"]["correlation_positive_threshold"]
+    else
+        0.02  # default fallback
+    end
+    negative_threshold = if config !== nothing && haskey(config.tui_config, "charts") && haskey(config.tui_config["charts"], "correlation_negative_threshold")
+        config.tui_config["charts"]["correlation_negative_threshold"]
+    else
+        -0.02  # default fallback
+    end
+    
+    color = if corr > positive_threshold
         "\e[32m"
-    elseif corr < -0.02
+    elseif corr < negative_threshold
         "\e[31m"
     else
         "\e[33m"
@@ -89,7 +101,7 @@ function format_correlation_bar(corr::Float64; width::Int=20)::String
     return "$(color)$(bar)\e[0m $(round(corr, digits=4))"
 end
 
-function create_mini_chart(values::Vector{Float64}; width::Int=10)::String
+function create_mini_chart(values::Vector{Float64}; width::Int=10, config=nothing)::String
     if isempty(values)
         return " " ^ width
     end

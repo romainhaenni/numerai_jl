@@ -8,7 +8,7 @@ using DataFrames
 using ..Charts
 using Statistics: mean, std
 
-function create_model_performance_panel(performances::Vector{Dict{Symbol, Any}})::Panel
+function create_model_performance_panel(performances::Vector{Dict{Symbol, Any}}, config=nothing)::Panel
     if isempty(performances)
         content = "No models running"
     else
@@ -30,15 +30,22 @@ function create_model_performance_panel(performances::Vector{Dict{Symbol, Any}})
         content = TermTables.Table(rows, box=:ROUNDED)
     end
     
+    # Get panel width from config
+    panel_width = if config !== nothing && haskey(config.tui_config, "panels") && haskey(config.tui_config["panels"], "model_panel_width")
+        config.tui_config["panels"]["model_panel_width"]
+    else
+        60  # default fallback
+    end
+    
     return Panel(
         content,
         title="📊 Model Performance",
         style="blue",
-        width=60
+        width=panel_width
     )
 end
 
-function create_staking_panel(stake_info::Dict{Symbol, Any})::Panel
+function create_staking_panel(stake_info::Dict{Symbol, Any}, config=nothing)::Panel
     content = """
     Total Staked: $(stake_info[:total_stake]) NMR
     At Risk: $(stake_info[:at_risk]) NMR
@@ -49,19 +56,38 @@ function create_staking_panel(stake_info::Dict{Symbol, Any})::Panel
     Time Remaining: $(stake_info[:time_remaining])
     """
     
+    # Get panel width from config
+    panel_width = if config !== nothing && haskey(config.tui_config, "panels") && haskey(config.tui_config["panels"], "staking_panel_width")
+        config.tui_config["panels"]["staking_panel_width"]
+    else
+        40  # default fallback
+    end
+    
     return Panel(
         content,
         title="💰 Staking Status",
         style="green",
-        width=40
+        width=panel_width
     )
 end
 
-function create_predictions_panel(predictions_history::Vector{Float64})::Panel
+function create_predictions_panel(predictions_history::Vector{Float64}, config=nothing)::Panel
     if isempty(predictions_history)
         content = "No predictions yet"
     else
-        chart = Charts.create_sparkline(predictions_history, width=35, height=6)
+        # Get chart dimensions from config
+        chart_width = if config !== nothing && haskey(config.tui_config, "charts") && haskey(config.tui_config["charts"], "sparkline_width")
+            config.tui_config["charts"]["sparkline_width"]
+        else
+            35  # default fallback
+        end
+        chart_height = if config !== nothing && haskey(config.tui_config, "charts") && haskey(config.tui_config["charts"], "sparkline_height")
+            config.tui_config["charts"]["sparkline_height"]
+        else
+            6  # default fallback
+        end
+        
+        chart = Charts.create_sparkline(predictions_history, width=chart_width, height=chart_height)
         
         stats = """
         Latest: $(round(predictions_history[end], digits=4))
@@ -72,19 +98,35 @@ function create_predictions_panel(predictions_history::Vector{Float64})::Panel
         content = chart * "\n\n" * stats
     end
     
+    # Get panel width from config
+    panel_width = if config !== nothing && haskey(config.tui_config, "panels") && haskey(config.tui_config["panels"], "predictions_panel_width")
+        config.tui_config["panels"]["predictions_panel_width"]
+    else
+        40  # default fallback
+    end
+    
     return Panel(
         content,
         title="📈 Live Predictions",
         style="yellow",
-        width=40
+        width=panel_width
     )
 end
 
-function create_events_panel(events::Vector{Dict{Symbol, Any}}; max_events::Int=20)::Panel
+function create_events_panel(events::Vector{Dict{Symbol, Any}}, config=nothing; max_events::Union{Int,Nothing}=nothing)::Panel
     if isempty(events)
         content = "No recent events"
     else
         lines = String[]
+        
+        # Get max events from config if not provided
+        if max_events === nothing
+            max_events = if config !== nothing && haskey(config.tui_config, "limits") && haskey(config.tui_config["limits"], "max_events_display")
+                config.tui_config["limits"]["max_events_display"]
+            else
+                20  # default fallback
+            end
+        end
         
         for event in events[max(1, end-max_events+1):end]
             timestamp = Dates.format(event[:time], "HH:MM:SS")
@@ -169,16 +211,28 @@ function create_events_panel(events::Vector{Dict{Symbol, Any}}; max_events::Int=
         ""
     end
     
+    # Get panel dimensions from config
+    panel_width = if config !== nothing && haskey(config.tui_config, "panels") && haskey(config.tui_config["panels"], "events_panel_width")
+        config.tui_config["panels"]["events_panel_width"]
+    else
+        60  # default fallback
+    end
+    panel_height = if config !== nothing && haskey(config.tui_config, "panels") && haskey(config.tui_config["panels"], "events_panel_height")
+        config.tui_config["panels"]["events_panel_height"]
+    else
+        22  # default fallback
+    end
+    
     return Panel(
         content,
         title="🔔 Recent Events$title_suffix",
         style="cyan",
-        width=60,
-        height=22
+        width=panel_width,
+        height=panel_height
     )
 end
 
-function create_system_panel(system_info::Dict{Symbol, Any}, network_status::Union{Nothing, Dict{Symbol, Any}}=nothing)::Panel
+function create_system_panel(system_info::Dict{Symbol, Any}, network_status::Union{Nothing, Dict{Symbol, Any}}=nothing, config=nothing)::Panel
     cpu_bar = create_progress_bar(system_info[:cpu_usage], 100)
     mem_bar = create_progress_bar(system_info[:memory_used], system_info[:memory_total])
     
@@ -215,19 +269,33 @@ function create_system_panel(system_info::Dict{Symbol, Any}, network_status::Uni
     $network_info
     """
     
+    # Get panel width from config
+    panel_width = if config !== nothing && haskey(config.tui_config, "panels") && haskey(config.tui_config["panels"], "system_panel_width")
+        config.tui_config["panels"]["system_panel_width"]
+    else
+        40  # default fallback
+    end
+    
     return Panel(
         content,
         title="⚙️ System Status",
         style="magenta",
-        width=40
+        width=panel_width
     )
 end
 
-function create_training_panel(training_info::Dict{Symbol, Any})::Panel
+function create_training_panel(training_info::Dict{Symbol, Any}, config=nothing)::Panel
     if !training_info[:is_training]
         content = "No training in progress"
     else
-        progress_bar = create_progress_bar(training_info[:progress], 100)
+        # Get progress bar width from config
+        progress_width = if config !== nothing && haskey(config.tui_config, "training") && haskey(config.tui_config["training"], "progress_bar_width")
+            config.tui_config["training"]["progress_bar_width"]
+        else
+            20  # default fallback
+        end
+        
+        progress_bar = create_progress_bar(training_info[:progress], 100, width=progress_width)
         
         content = """
         Model: $(training_info[:current_model])
@@ -241,11 +309,18 @@ function create_training_panel(training_info::Dict{Symbol, Any})::Panel
         """
     end
     
+    # Get panel width from config
+    panel_width = if config !== nothing && haskey(config.tui_config, "panels") && haskey(config.tui_config["panels"], "training_panel_width")
+        config.tui_config["panels"]["training_panel_width"]
+    else
+        40  # default fallback
+    end
+    
     return Panel(
         content,
         title="🚀 Training Progress",
         style="blue",
-        width=40
+        width=panel_width
     )
 end
 
@@ -276,7 +351,7 @@ function format_uptime(seconds::Int)::String
     end
 end
 
-function create_help_panel()::Panel
+function create_help_panel(config=nothing)::Panel
     content = """
     Keyboard Controls:
     ─────────────────
@@ -297,11 +372,18 @@ function create_help_panel()::Panel
     /download - Download latest data
     """
     
+    # Get panel width from config
+    panel_width = if config !== nothing && haskey(config.tui_config, "panels") && haskey(config.tui_config["panels"], "help_panel_width")
+        config.tui_config["panels"]["help_panel_width"]
+    else
+        40  # default fallback
+    end
+    
     return Panel(
         content,
         title="❓ Help",
         style="white",
-        width=40
+        width=panel_width
     )
 end
 

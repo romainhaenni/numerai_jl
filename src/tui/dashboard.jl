@@ -138,10 +138,13 @@ function TournamentDashboard(config)
         :consecutive_failures => 0
     )
     
+    # Get refresh rate from config
+    refresh_rate = get(config.tui_config, "refresh_rate", 1.0)
+    
     return TournamentDashboard(
         config, api_client, models, Vector{Dict{Symbol, Any}}(),
         system_info, training_info, Float64[], performance_history,
-        false, false, false, 1, 1.0,  # Set refresh rate to 1 second for smoother updates
+        false, false, false, 1, refresh_rate,  # Use configured refresh rate
         false, nothing,  # wizard_active and wizard_state
         "", false,  # command_buffer and command_mode
         false, nothing, nothing,  # show_model_details, selected_model_details, selected_model_stats
@@ -178,8 +181,9 @@ function update_loop(dashboard::TournamentDashboard, start_time::Float64)
     last_model_update = time()
     last_render = time()
     last_network_check = time()
-    model_update_interval = 30.0  # Update model data every 30 seconds
-    network_check_interval = 60.0  # Check network every minute
+    # Get intervals from configuration
+    model_update_interval = get(dashboard.config.tui_config, "model_update_interval", 30.0)
+    network_check_interval = get(dashboard.config.tui_config, "network_check_interval", 60.0)
     render_interval = dashboard.refresh_rate  # Render at user-specified rate
     
     while dashboard.running
@@ -346,26 +350,26 @@ function render(dashboard::TournamentDashboard)
         # Show model details interface
         panels = [
             render_model_details_panel(dashboard),
-            Panels.create_events_panel(dashboard.events)
+            Panels.create_events_panel(dashboard.events, dashboard.config)
         ]
         layout = Grid(panels..., layout=(1, 2))
     elseif dashboard.wizard_active
         # Show wizard interface
         panels = [
             render_wizard_panel(dashboard),
-            Panels.create_events_panel(dashboard.events)
+            Panels.create_events_panel(dashboard.events, dashboard.config)
         ]
         layout = Grid(panels..., layout=(1, 2))
     else
         panels = [
-            Panels.create_model_performance_panel(dashboard.models),
-            Panels.create_staking_panel(get_staking_info(dashboard)),
-            Panels.create_predictions_panel(dashboard.predictions_history),
-            Panels.create_events_panel(dashboard.events),
-            Panels.create_system_panel(dashboard.system_info, dashboard.network_status),
+            Panels.create_model_performance_panel(dashboard.models, dashboard.config),
+            Panels.create_staking_panel(get_staking_info(dashboard), dashboard.config),
+            Panels.create_predictions_panel(dashboard.predictions_history, dashboard.config),
+            Panels.create_events_panel(dashboard.events, dashboard.config),
+            Panels.create_system_panel(dashboard.system_info, dashboard.network_status, dashboard.config),
             dashboard.training_info[:is_training] ? 
-                Panels.create_training_panel(dashboard.training_info) : 
-                (dashboard.show_help ? Panels.create_help_panel() : nothing)
+                Panels.create_training_panel(dashboard.training_info, dashboard.config) : 
+                (dashboard.show_help ? Panels.create_help_panel(dashboard.config) : nothing)
         ]
         
         # Filter out nothing values and create 6-column grid (2 rows, 3 columns)
@@ -447,8 +451,9 @@ function update_model_performances!(dashboard::TournamentDashboard)
                 :stake => get(model, :stake, 0.0)
             ))
             
-            # Keep only last 100 entries per model to manage memory
-            if length(dashboard.performance_history[model_name]) > 100
+            # Keep only configured number of entries per model to manage memory
+            max_history = get(dashboard.config.tui_config["limits"], "performance_history_max", 100)
+            if length(dashboard.performance_history[model_name]) > max_history
                 popfirst!(dashboard.performance_history[model_name])
             end
             
@@ -688,7 +693,8 @@ function check_network_connectivity(dashboard::TournamentDashboard)::Bool
     try
         start_time = time()
         # Simple HTTP check to Google DNS
-        response = HTTP.get("https://8.8.8.8", timeout=5)
+        network_timeout = get(dashboard.config.tui_config, "network_timeout", 5)
+        response = HTTP.get("https://8.8.8.8", timeout=network_timeout)
         latency = time() - start_time
         
         dashboard.network_status[:is_connected] = true
@@ -776,7 +782,9 @@ function start_training(dashboard::TournamentDashboard)
     dashboard.training_info[:is_training] = true
     dashboard.training_info[:current_model] = dashboard.models[dashboard.selected_model][:name]
     dashboard.training_info[:progress] = 0
-    dashboard.training_info[:total_epochs] = 100
+    # Get default epochs from config
+    default_epochs = get(dashboard.config.tui_config["training"], "default_epochs", 100)
+    dashboard.training_info[:total_epochs] = default_epochs
     
     add_event!(dashboard, :info, "Starting training for $(dashboard.training_info[:current_model])")
     

@@ -359,7 +359,7 @@ using NumeraiTournament.HyperOpt
         @test nrow(all_results) == 1
         
         # Test updating with worse score (shouldn't update best)
-        params2 = Dict(:max_depth => 3, :learning_rate => 0.1)
+        params2 = Dict{Symbol,Any}(:max_depth => 3, :learning_rate => 0.1)
         score2 = 0.6
         cv_scores2 = [0.55, 0.6, 0.65]
         

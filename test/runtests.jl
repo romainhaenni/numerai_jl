@@ -310,3 +310,6 @@ println("\n✅ All tests passed!")
 
 # Run end-to-end tests
 include("test_e2e.jl")
+
+# Run comprehensive integration tests
+include("test_integration.jl")

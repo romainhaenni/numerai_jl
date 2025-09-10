@@ -88,16 +88,19 @@ end
 function TournamentDashboard(config)
     api_client = API.NumeraiClient(config.api_public_key, config.api_secret_key, config.tournament_id)
     
+    # Ensure there's at least one model for display
+    model_names = isempty(config.models) ? ["default_model"] : config.models
+    
     models = [Dict(:name => model, :is_active => false, :corr => 0.0, 
                   :mmc => 0.0, :fnc => 0.0, :sharpe => 0.0) 
-             for model in config.models]
+             for model in model_names]
     
     system_info = Dict(
         :cpu_usage => 0,
         :memory_used => 0.0,
         :memory_total => round(Sys.total_memory() / (1024^3), digits=1),  # Get actual system memory in GB
         :active_models => 0,
-        :total_models => length(config.models),
+        :total_models => length(model_names),
         :threads => Threads.nthreads(),
         :uptime => 0
     )
@@ -115,7 +118,7 @@ function TournamentDashboard(config)
     
     # Initialize performance history for each model
     performance_history = Dict{String, Vector{Dict{Symbol, Any}}}()
-    for model in config.models
+    for model in model_names
         performance_history[model] = Vector{Dict{Symbol, Any}}()
     end
     
@@ -163,6 +166,19 @@ function run_dashboard(dashboard::TournamentDashboard)
     
     try
         add_event!(dashboard, :info, "Dashboard started")
+        
+        # Initial render to show something immediately
+        try
+            render(dashboard)
+        catch e
+            println("\n⚠️ Error during initial render: ", e)
+            println("\nStack trace:")
+            for (exc, bt) in Base.catch_stack()
+                showerror(stdout, exc, bt)
+                println()
+            end
+            println("\nPress Ctrl+C to exit...")
+        end
         
         @async update_loop(dashboard, start_time)
         
@@ -224,7 +240,12 @@ function update_loop(dashboard::TournamentDashboard, start_time::Float64)
             
             # Render at consistent intervals
             if current_time - last_render >= render_interval
-                render(dashboard)
+                try
+                    render(dashboard)
+                catch e
+                    # Log render errors but don't crash
+                    add_event!(dashboard, :error, "Render error: $(e)")
+                end
                 last_render = current_time
             end
         end
@@ -345,8 +366,9 @@ function render(dashboard::TournamentDashboard)
     # Clear screen using ANSI escape sequence
     print("\033[2J\033[H")
     
-    # Create panels for 6-column grid layout
-    if dashboard.show_model_details
+    try
+        # Create panels for 6-column grid layout
+        if dashboard.show_model_details
         # Show model details interface
         panels = [
             render_model_details_panel(dashboard),
@@ -377,10 +399,31 @@ function render(dashboard::TournamentDashboard)
         layout = Grid(valid_panels..., layout=(2, 3))
     end
     
-    println(layout)
-    
-    status_line = create_status_line(dashboard)
-    println("\n" * status_line)
+        println(layout)
+        
+        status_line = create_status_line(dashboard)
+        println("\n" * status_line)
+    catch e
+        # Fallback rendering if panels fail
+        println("═══════════════════════════════════════════════════════════════")
+        println("     🚀 Numerai Tournament Dashboard - Recovery Mode")
+        println("═══════════════════════════════════════════════════════════════")
+        println()
+        println("⚠️  Error rendering dashboard: ", e)
+        println()
+        println("📊 Models configured: ", join(dashboard.config.models, ", "))
+        println("🔧 System: $(dashboard.system_info[:threads]) threads, $(dashboard.system_info[:memory_total]) GB RAM")
+        println("🌐 Network: ", dashboard.network_status[:is_connected] ? "Connected ✅" : "Disconnected ❌")
+        println()
+        println("Recent Events:")
+        for (i, event) in enumerate(Iterators.take(Iterators.reverse(dashboard.events), 5))
+            println("  [$(event[:timestamp])] $(event[:message])")
+        end
+        println()
+        println("Commands: q=quit, p=pause, s=start training, h=help")
+        println()
+        println("Debug: Press 'd' to show detailed error information")
+    end
 end
 
 function create_status_line(dashboard::TournamentDashboard)::String
@@ -389,7 +432,13 @@ function create_status_line(dashboard::TournamentDashboard)::String
         return "Command: /$(dashboard.command_buffer)_"
     else
         status = dashboard.paused ? "PAUSED" : "RUNNING"
-        selected = dashboard.models[dashboard.selected_model][:name]
+        
+        # Safely get selected model name
+        selected = if !isempty(dashboard.models) && 1 <= dashboard.selected_model <= length(dashboard.models)
+            dashboard.models[dashboard.selected_model][:name]
+        else
+            "None"
+        end
         
         return "Status: $status | Selected: $selected | Press '/' for commands | 'h' for help | 'q' to quit"
     end

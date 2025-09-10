@@ -19,6 +19,7 @@ include("ml/pipeline.jl")
 include("notifications.jl")
 include("notifications/macos.jl")
 include("performance/optimization.jl")
+include("compounding.jl")
 include("tui/charts.jl")
 include("tui/panels.jl")
 include("tui/dashboard.jl")
@@ -36,6 +37,11 @@ mutable struct TournamentConfig
     stake_amount::Float64
     max_workers::Int
     notification_enabled::Bool
+    # Compounding configuration
+    compounding_enabled::Bool
+    min_compound_amount::Float64
+    compound_percentage::Float64
+    max_stake_amount::Float64
 end
 
 function load_config(path::String="config.toml")::TournamentConfig
@@ -60,7 +66,11 @@ function load_config(path::String="config.toml")::TournamentConfig
             true,
             0.0,
             Sys.CPU_THREADS,
-            true
+            true,
+            false,  # compounding_enabled
+            1.0,    # min_compound_amount
+            100.0,  # compound_percentage
+            10000.0 # max_stake_amount
         )
     end
     
@@ -74,7 +84,11 @@ function load_config(path::String="config.toml")::TournamentConfig
         get(config, "auto_submit", true),
         get(config, "stake_amount", 0.0),
         get(config, "max_workers", Sys.CPU_THREADS),
-        get(config, "notification_enabled", true)
+        get(config, "notification_enabled", true),
+        get(config, "compounding_enabled", false),
+        get(config, "min_compound_amount", 1.0),
+        get(config, "compound_percentage", 100.0),
+        get(config, "max_stake_amount", 10000.0)
     )
 end
 

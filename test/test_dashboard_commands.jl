@@ -15,7 +15,11 @@ function create_mock_dashboard()
         true,
         0.0,
         1,
-        false
+        false,
+        false,  # compounding_enabled
+        1.0,    # min_compound_amount
+        100.0,  # compound_percentage
+        10000.0 # max_stake_amount
     )
     
     # Create the actual dashboard

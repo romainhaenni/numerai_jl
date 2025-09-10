@@ -833,6 +833,42 @@ function get_current_tournament_number(client::NumeraiClient)
     end
 end
 
+function get_wallet_balance(client::NumeraiClient)
+    """
+    Get the current wallet balance.
+    
+    Returns:
+    - Dict with wallet information including NMR balance
+    """
+    query = """
+    query {
+        account {
+            nmrBalance
+            usdBalance
+            status
+        }
+    }
+    """
+    
+    try
+        result = graphql_query(client, query)
+        account = get(result, :account, Dict())
+        
+        return Dict(
+            :nmr_balance => parse(Float64, get(account, :nmrBalance, "0")),
+            :usd_balance => parse(Float64, get(account, :usdBalance, "0")),
+            :status => get(account, :status, "unknown")
+        )
+    catch e
+        @error "Failed to get wallet balance: $e"
+        return Dict(
+            :nmr_balance => 0.0,
+            :usd_balance => 0.0,
+            :status => "error"
+        )
+    end
+end
+
 function get_latest_submission(client::NumeraiClient)
     """
     Get the latest submission across all models for the user.
@@ -920,6 +956,7 @@ export NumeraiClient, get_current_round, get_model_performance, download_dataset
        submit_predictions, get_models_for_user, get_dataset_info, get_submission_status,
        get_live_dataset_id, upload_predictions_multipart, get_model_stakes, get_latest_submission,
        validate_submission_window, stake_change, stake_increase, stake_decrease, stake_drain,
-       withdraw_nmr, set_withdrawal_address, get_model_id, get_current_tournament_number
+       withdraw_nmr, set_withdrawal_address, get_model_id, get_current_tournament_number,
+       get_wallet_balance
 
 end

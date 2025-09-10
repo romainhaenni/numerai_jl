@@ -7,6 +7,7 @@ using ..DataLoader
 using ..Pipeline
 using ..Dashboard
 using ..Notifications
+using ..Compounding
 
 # Import UTC utility function
 include("../utils.jl")
@@ -118,10 +119,25 @@ mutable struct TournamentScheduler
     running::Bool
     dashboard::Union{Nothing, Dashboard.TournamentDashboard}
     scheduler_task::Union{Nothing, Task}
+    compounding_manager::Union{Nothing, Compounding.CompoundingManager}
 end
 
 function TournamentScheduler(config)
     api_client = API.NumeraiClient(config.api_public_key, config.api_secret_key)
+    
+    # Create compounding manager if enabled
+    compounding_manager = if config.compounding_enabled
+        compound_config = Compounding.CompoundingConfig(
+            enabled = config.compounding_enabled,
+            min_compound_amount = config.min_compound_amount,
+            compound_percentage = config.compound_percentage,
+            max_stake_amount = config.max_stake_amount,
+            models = config.models
+        )
+        Compounding.CompoundingManager(api_client, compound_config)
+    else
+        nothing
+    end
     
     return TournamentScheduler(
         config,
@@ -130,7 +146,8 @@ function TournamentScheduler(config)
         CronJob[],
         false,
         nothing,
-        nothing
+        nothing,
+        compounding_manager
     )
 end
 
@@ -243,6 +260,15 @@ function setup_cron_jobs!(scheduler::TournamentScheduler)
         "Hourly Performance Monitoring"
     ))
     
+    # Compounding job - every Wednesday at 14:30 UTC (after payouts)
+    if !isnothing(scheduler.compounding_manager) && scheduler.config.compounding_enabled
+        push!(scheduler.cron_jobs, CronJob(
+            "30 14 * * 3",  # At 14:30 on Wednesday
+            () -> compounding_job(scheduler),
+            "Automatic Earnings Compounding"
+        ))
+    end
+    
     # Activate all jobs
     for job in scheduler.cron_jobs
         job.active = true
@@ -339,6 +365,52 @@ function hourly_monitoring(scheduler::TournamentScheduler)
         end
     catch e
         # Silent fail for monitoring
+    end
+end
+
+function compounding_job(scheduler::TournamentScheduler)
+    """
+    Job to automatically compound earnings into stake.
+    Runs on Wednesdays after payouts are processed.
+    """
+    if isnothing(scheduler.compounding_manager)
+        return
+    end
+    
+    try
+        log_event(scheduler, :info, "Starting automatic compounding process...")
+        
+        # Check if compounding should run
+        if !Compounding.should_run_compounding(scheduler.compounding_manager)
+            log_event(scheduler, :info, "Compounding conditions not met, skipping")
+            return
+        end
+        
+        # Process compounding for all models
+        total_compounded = Compounding.process_all_compounding(scheduler.compounding_manager)
+        
+        if total_compounded > 0
+            log_event(scheduler, :success, "Compounded $(total_compounded) NMR total across all models")
+            
+            # Send notification if enabled
+            if scheduler.config.notification_enabled
+                Notifications.send_notification(
+                    "Compounding Complete",
+                    "Successfully compounded $(total_compounded) NMR into stake"
+                )
+            end
+        else
+            log_event(scheduler, :info, "No earnings to compound at this time")
+        end
+        
+    catch e
+        log_event(scheduler, :error, "Compounding failed: $e")
+        if scheduler.config.notification_enabled
+            Notifications.send_notification(
+                "Compounding Failed",
+                "Error during automatic compounding: $e"
+            )
+        end
     end
 end
 

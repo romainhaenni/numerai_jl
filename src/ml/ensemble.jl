@@ -54,21 +54,55 @@ function train_ensemble!(ensemble::ModelEnsemble, X_train::Matrix{Float64}, y_tr
 end
 
 function predict_ensemble(ensemble::ModelEnsemble, X::Matrix{Float64}; 
-                         return_individual::Bool=false)::Union{Vector{Float64}, Tuple{Vector{Float64}, Matrix{Float64}}}
+                         return_individual::Bool=false)::Union{Vector{Float64}, Matrix{Float64}, Tuple{Union{Vector{Float64}, Matrix{Float64}}, Array{Float64}}}
     n_samples = size(X, 1)
     n_models = length(ensemble.models)
-    predictions_matrix = Matrix{Float64}(undef, n_samples, n_models)
     
-    ThreadsX.foreach(enumerate(ensemble.models)) do (i, model)
-        predictions_matrix[:, i] = Models.predict(model, X)
-    end
+    # Get prediction from first model to determine output shape
+    first_prediction = Models.predict(ensemble.models[1], X)
+    is_multi_target = first_prediction isa Matrix
+    n_targets = is_multi_target ? size(first_prediction, 2) : 1
     
-    weighted_predictions = predictions_matrix * ensemble.weights
-    
-    if return_individual
-        return weighted_predictions, predictions_matrix
+    if is_multi_target
+        # Multi-target case: 3D array (samples, targets, models)
+        predictions_array = Array{Float64}(undef, n_samples, n_targets, n_models)
+        predictions_array[:, :, 1] = first_prediction
+        
+        # Get predictions from remaining models
+        ThreadsX.foreach(2:n_models) do i
+            model_pred = Models.predict(ensemble.models[i], X)
+            predictions_array[:, :, i] = model_pred isa Matrix ? model_pred : reshape(model_pred, n_samples, 1)
+        end
+        
+        # Weighted average across models for each target
+        weighted_predictions = Matrix{Float64}(undef, n_samples, n_targets)
+        for t in 1:n_targets
+            target_predictions = predictions_array[:, t, :]
+            weighted_predictions[:, t] = target_predictions * ensemble.weights
+        end
+        
+        if return_individual
+            return weighted_predictions, predictions_array
+        else
+            return weighted_predictions
+        end
     else
-        return weighted_predictions
+        # Single target case: 2D matrix (samples, models)
+        predictions_matrix = Matrix{Float64}(undef, n_samples, n_models)
+        predictions_matrix[:, 1] = first_prediction
+        
+        ThreadsX.foreach(2:n_models) do i
+            model_pred = Models.predict(ensemble.models[i], X)
+            predictions_matrix[:, i] = model_pred isa Vector ? model_pred : vec(model_pred)
+        end
+        
+        weighted_predictions = predictions_matrix * ensemble.weights
+        
+        if return_individual
+            return weighted_predictions, predictions_matrix
+        else
+            return weighted_predictions
+        end
     end
 end
 

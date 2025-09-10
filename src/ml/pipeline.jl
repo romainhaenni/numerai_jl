@@ -1105,7 +1105,7 @@ function cross_validate_pipeline(pipeline::MLPipeline, df::DataFrame;
         
         fold_pipeline = MLPipeline(
             feature_cols=pipeline.feature_cols,
-            target_col=pipeline.target_col,
+            target_cols=pipeline.target_cols,
             neutralize=pipeline.config[:neutralize],
             neutralize_proportion=pipeline.config[:neutralize_proportion],
             ensemble_type=pipeline.config[:ensemble_type]

@@ -314,13 +314,13 @@ end
             # Create ML pipeline
             pipeline = NumeraiTournament.Pipeline.MLPipeline(
                 feature_cols=feature_cols[1:100],  # Use subset for faster testing
-                target_col="target_cyrus_v4_20",
+                target_cols=["target_cyrus_v4_20"],
                 neutralize=true,
                 neutralize_proportion=0.3
             )
             
             @test length(pipeline.models) > 0
-            @test pipeline.target_col == "target_cyrus_v4_20"
+            @test pipeline.target_cols == ["target_cyrus_v4_20"]
             
             # Train pipeline
             try

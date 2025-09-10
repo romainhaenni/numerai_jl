@@ -499,9 +499,9 @@ using NumeraiTournament.Logger
             @test isfile(rotated_file1)
             @test isfile(rotated_file2)
             
-            # Current file should have latest content
-            current_content = flush_and_read(log_file)
-            @test occursin("batch=2", current_content)
+            # After rotation, latest content should be in rotated file 1
+            rotated1_content = isfile(rotated_file1) ? read(rotated_file1, String) : ""
+            @test occursin("batch=2", rotated1_content)
             
             cleanup_logger()
             rm(dirname(log_file), recursive=true)

@@ -887,8 +887,8 @@ function run_real_training(dashboard::TournamentDashboard)
         predictions = Pipeline.predict(pipeline, val_data)
         
         # Calculate performance metrics
-        if haskey(val_data, Symbol(pipeline.target_col))
-            target = val_data[!, Symbol(pipeline.target_col)]
+        if haskey(val_data, Symbol(pipeline.target_cols[1]))
+            target = val_data[!, Symbol(pipeline.target_cols[1])]
             correlation = cor(predictions, target)
             
             # Update model with real performance

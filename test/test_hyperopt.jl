@@ -376,13 +376,3 @@ using NumeraiTournament.HyperOpt
     end
 end
 
-# Run the tests
-@testset "HyperOpt Module" begin
-    println("\n" * "="^60)
-    println("Running HyperOpt Module Tests")
-    println("="^60)
-    
-    @time include("test_hyperopt.jl")
-    
-    println("\nHyperOpt tests completed successfully!")
-end

@@ -775,7 +775,9 @@ function train!(model::NeuralNetworkModel, X_train::Matrix{Float64}, y_train::Ve
                X_val::Union{Nothing, Matrix{Float64}}=nothing,
                y_val::Union{Nothing, Vector{Float64}}=nothing,
                verbose::Bool=false,
-               preprocess_gpu::Bool=true)
+               preprocess_gpu::Bool=true,
+               feature_names::Union{Nothing, Vector{String}}=nothing,
+               feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing)
     
     return train_neural_network!(model, X_train, y_train, 
                                 X_val=X_val, y_val=y_val, verbose=verbose)

@@ -15,7 +15,8 @@ using Distributions: Normal, cdf, pdf
 
 export HyperOptConfig, GridSearchOptimizer, RandomSearchOptimizer, BayesianOptimizer,
        optimize_hyperparameters, evaluate_params, get_best_params,
-       create_param_grid, create_param_distributions, OptimizationResult
+       create_param_grid, create_param_distributions, OptimizationResult,
+       calculate_expected_improvement, calculate_upper_confidence_bound
 
 # Helper function for time series data splitting
 function split_time_series_data(
@@ -459,7 +460,7 @@ function optimize_hyperparameters(
         end
         
         for result in results
-            update_best_params!(
+            best_score = update_best_params!(
                 result.params, result.score, result.cv_scores,
                 best_params, best_score, best_cv_scores,
                 optimization_history, all_results
@@ -472,7 +473,7 @@ function optimize_hyperparameters(
             params = Dict(zip(param_names, combination))
             score, cv_scores = evaluate_params(params, data, optimizer.config, targets)
             
-            update_best_params!(
+            best_score = update_best_params!(
                 params, score, cv_scores,
                 best_params, best_score, best_cv_scores,
                 optimization_history, all_results
@@ -538,7 +539,7 @@ function optimize_hyperparameters(
         end
         
         for result in results
-            update_best_params!(
+            best_score = update_best_params!(
                 result.params, result.score, result.cv_scores,
                 best_params, best_score, best_cv_scores,
                 optimization_history, all_results
@@ -556,7 +557,7 @@ function optimize_hyperparameters(
             
             score, cv_scores = evaluate_params(params, data, optimizer.config, targets)
             
-            update_best_params!(
+            best_score = update_best_params!(
                 params, score, cv_scores,
                 best_params, best_score, best_cv_scores,
                 optimization_history, all_results
@@ -630,7 +631,7 @@ function optimize_hyperparameters(
         push!(observed_params, param_vector)
         push!(observed_scores, score)
         
-        update_best_params!(
+        best_score = update_best_params!(
             params, score, cv_scores,
             best_params, best_score, best_cv_scores,
             optimization_history, all_results
@@ -659,7 +660,7 @@ function optimize_hyperparameters(
         push!(observed_params, next_params)
         push!(observed_scores, score)
         
-        update_best_params!(
+        best_score = update_best_params!(
             params, score, cv_scores,
             best_params, best_score, best_cv_scores,
             optimization_history, all_results
@@ -895,13 +896,19 @@ function update_best_params!(
     ))
     
     # Update best if improved
-    if score > best_score
+    # Find previous best score from history (excluding the current entry we just added)
+    previous_best_score = length(optimization_history) <= 1 ? -Inf : maximum(h[:score] for h in optimization_history[1:end-1])
+    
+    if score > previous_best_score
         empty!(best_params)
         merge!(best_params, params)
-        best_score = score
+        previous_best_score = score
         empty!(best_cv_scores)
         append!(best_cv_scores, cv_scores)
     end
+    
+    # Return the actual current best score (the one we should be tracking)
+    current_best_score = length(optimization_history) == 1 ? score : max(previous_best_score, score)
     
     # Add to results DataFrame
     result_row = DataFrame(
@@ -916,7 +923,7 @@ function update_best_params!(
     
     append!(all_results, result_row)
     
-    return best_score
+    return current_best_score
 end
 
 # Get best parameters from optimization result
@@ -968,6 +975,66 @@ function load_optimization_results(filepath::String)
         results_dict["cv_scores"],
         results_dict["training_time"]
     )
+end
+
+# Wrapper functions for test compatibility - these provide the expected interface
+function calculate_expected_improvement(
+    candidate::Vector{Float64},
+    observed_params::Vector{Vector{Float64}},
+    observed_scores::Vector{Float64}
+)
+    # Initialize GP for prediction
+    gp = SimpleGaussianProcess(noise=1e-6, length_scale=1.0)
+    
+    # Standardize scores
+    if isempty(observed_scores)
+        return 0.0
+    end
+    
+    mean_score = mean(observed_scores)
+    std_score = std(observed_scores)
+    std_score = std_score == 0 ? 1.0 : std_score
+    normalized_scores = (observed_scores .- mean_score) ./ std_score
+    
+    # Get GP predictions
+    mean_pred, var_pred = gp_predict(gp, observed_params, normalized_scores, candidate)
+    
+    # Denormalize predictions
+    mean_pred = mean_pred * std_score + mean_score
+    var_pred = var_pred * std_score^2
+    
+    # Calculate Expected Improvement
+    return calculate_expected_improvement_gp(mean_pred, sqrt(var_pred), observed_scores)
+end
+
+function calculate_upper_confidence_bound(
+    candidate::Vector{Float64},
+    observed_params::Vector{Vector{Float64}},
+    observed_scores::Vector{Float64};
+    beta::Float64 = 2.0
+)
+    # Initialize GP for prediction
+    gp = SimpleGaussianProcess(noise=1e-6, length_scale=1.0)
+    
+    # Standardize scores
+    if isempty(observed_scores)
+        return 0.0
+    end
+    
+    mean_score = mean(observed_scores)
+    std_score = std(observed_scores)
+    std_score = std_score == 0 ? 1.0 : std_score
+    normalized_scores = (observed_scores .- mean_score) ./ std_score
+    
+    # Get GP predictions
+    mean_pred, var_pred = gp_predict(gp, observed_params, normalized_scores, candidate)
+    
+    # Denormalize predictions
+    mean_pred = mean_pred * std_score + mean_score
+    var_pred = var_pred * std_score^2
+    
+    # Calculate Upper Confidence Bound
+    return calculate_upper_confidence_bound_gp(mean_pred, sqrt(var_pred), beta=beta)
 end
 
 end # module HyperOpt

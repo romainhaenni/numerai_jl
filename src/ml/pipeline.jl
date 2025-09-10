@@ -134,6 +134,19 @@ function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models
                 colsample=get(config.params, :colsample, 0.1),
                 subsample=get(config.params, :subsample, 0.8)
             ))
+        elseif config.type == "catboost"
+            push!(models, Models.CatBoostModel(
+                config.name;
+                depth=get(config.params, :depth, 6),
+                learning_rate=get(config.params, :learning_rate, 0.03),
+                iterations=get(config.params, :iterations, 1000),
+                l2_leaf_reg=get(config.params, :l2_leaf_reg, 3.0),
+                bagging_temperature=get(config.params, :bagging_temperature, 1.0),
+                subsample=get(config.params, :subsample, 0.8),
+                colsample_bylevel=get(config.params, :colsample_bylevel, 0.8),
+                random_strength=get(config.params, :random_strength, 1.0),
+                gpu_enabled=get(config.params, :gpu_enabled, false)
+            ))
         elseif config.type == "mlp"
             push!(models, NeuralNetworks.MLPModel(
                 config.name;

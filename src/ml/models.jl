@@ -3,6 +3,7 @@ module Models
 using XGBoost
 using LightGBM
 using EvoTrees
+using CatBoost
 using DataFrames
 using Random
 using Statistics
@@ -32,6 +33,13 @@ end
 
 mutable struct EvoTreesModel <: NumeraiModel
     model::Union{Nothing, EvoTrees.EvoTree}
+    params::Dict{String, Any}
+    name::String
+    gpu_enabled::Bool
+end
+
+mutable struct CatBoostModel <: NumeraiModel
+    model::Any  # CatBoost uses PyObject internally
     params::Dict{String, Any}
     name::String
     gpu_enabled::Bool
@@ -131,6 +139,44 @@ function EvoTreesModel(name::String="evotrees_default";
     end
     
     return EvoTreesModel(nothing, params, name, use_gpu)
+end
+
+function CatBoostModel(name::String="catboost_default";
+                      depth::Int=6,
+                      learning_rate::Float64=0.03,
+                      iterations::Int=1000,
+                      l2_leaf_reg::Float64=3.0,
+                      bagging_temperature::Float64=1.0,
+                      subsample::Float64=0.8,
+                      colsample_bylevel::Float64=0.8,
+                      random_strength::Float64=1.0,
+                      gpu_enabled::Bool=true)
+    
+    # Check for GPU availability
+    use_gpu = gpu_enabled && false  # CatBoost GPU support needs special setup, disable for now
+    
+    params = Dict{String, Any}(
+        "loss_function" => "RMSE",
+        "depth" => depth,
+        "learning_rate" => learning_rate,
+        "iterations" => iterations,
+        "l2_leaf_reg" => l2_leaf_reg,
+        "bagging_temperature" => bagging_temperature,
+        "subsample" => subsample,
+        "colsample_bylevel" => colsample_bylevel,
+        "random_strength" => random_strength,
+        "thread_count" => Threads.nthreads(),
+        "verbose" => false,
+        "random_seed" => 42
+    )
+    
+    if use_gpu
+        @info "CatBoost model configured with GPU acceleration" name=name
+    else
+        @info "CatBoost model configured with CPU" name=name reason="GPU support disabled for CatBoost"
+    end
+    
+    return CatBoostModel(nothing, params, name, use_gpu)
 end
 
 function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
@@ -363,6 +409,72 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Vector{
     return model
 end
 
+function train!(model::CatBoostModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
+               X_val::Union{Nothing, Matrix{Float64}}=nothing,
+               y_val::Union{Nothing, Vector{Float64}}=nothing,
+               feature_names::Union{Nothing, Vector{String}}=nothing,
+               feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
+               verbose::Bool=false)
+    
+    # Process feature groups for CatBoost if provided
+    cat_features = Int[]  # CatBoost can handle categorical features
+    interaction_indices = nothing
+    
+    if feature_groups !== nothing && feature_names !== nothing
+        if verbose
+            @info "Processing feature groups for CatBoost" num_groups=length(feature_groups)
+        end
+        # Create interaction constraints
+        interaction_indices = DataLoader.create_interaction_constraints(feature_groups, feature_names)
+        
+        # Adjust colsample_bylevel based on number of groups if needed
+        if !isempty(interaction_indices)
+            num_groups = length(interaction_indices)
+            adjusted_colsample = min(1.0, model.params["colsample_bylevel"] * sqrt(num_groups))
+            model.params["colsample_bylevel"] = adjusted_colsample
+            if verbose
+                @info "Adjusted colsample_bylevel for CatBoost" value=adjusted_colsample
+            end
+        end
+    end
+    
+    # Create CatBoost pool
+    train_pool = CatBoost.Pool(X_train, y_train; cat_features=cat_features)
+    
+    # Create validation pool if provided
+    eval_pool = nothing
+    if X_val !== nothing && y_val !== nothing
+        eval_pool = CatBoost.Pool(X_val, y_val; cat_features=cat_features)
+    end
+    
+    # Configure CatBoost parameters
+    catboost_params = Dict{String, Any}(
+        :loss_function => model.params["loss_function"],
+        :depth => model.params["depth"],
+        :learning_rate => model.params["learning_rate"],
+        :iterations => model.params["iterations"],
+        :l2_leaf_reg => model.params["l2_leaf_reg"],
+        :bagging_temperature => model.params["bagging_temperature"],
+        :subsample => model.params["subsample"],
+        :colsample_bylevel => model.params["colsample_bylevel"],
+        :random_strength => model.params["random_strength"],
+        :thread_count => model.params["thread_count"],
+        :verbose => verbose,
+        :random_seed => model.params["random_seed"]
+    )
+    
+    # Train the model
+    model.model = CatBoost.CatBoostRegressor(; catboost_params...)
+    
+    if eval_pool !== nothing
+        CatBoost.fit!(model.model, train_pool; eval_set=eval_pool, verbose=verbose)
+    else
+        CatBoost.fit!(model.model, train_pool; verbose=verbose)
+    end
+    
+    return model
+end
+
 function predict(model::XGBoostModel, X::Matrix{Float64})::Vector{Float64}
     if model.model === nothing
         error("Model not trained yet")
@@ -397,6 +509,25 @@ function predict(model::EvoTreesModel, X::Matrix{Float64})::Vector{Float64}
     predictions = EvoTrees.predict(model.model, X)
     
     # Convert to Vector if it's a Matrix
+    if predictions isa Matrix
+        return vec(predictions)
+    else
+        return predictions
+    end
+end
+
+function predict(model::CatBoostModel, X::Matrix{Float64})::Vector{Float64}
+    if model.model === nothing
+        error("Model not trained yet")
+    end
+    
+    # Create a pool for prediction
+    test_pool = CatBoost.Pool(X)
+    
+    # Get predictions
+    predictions = CatBoost.predict(model.model, test_pool)
+    
+    # Ensure predictions are a Vector
     if predictions isa Matrix
         return vec(predictions)
     else
@@ -494,6 +625,8 @@ function save_model(model::NumeraiModel, filepath::String)
         LightGBM.savemodel(model.model, filepath)
     elseif model isa EvoTreesModel
         EvoTrees.save(model.model, filepath)
+    elseif model isa CatBoostModel
+        CatBoost.save_model(model.model, filepath)
     end
     
     println("Model saved to $filepath")
@@ -511,6 +644,12 @@ end
 
 function load_model!(model::EvoTreesModel, filepath::String)
     model.model = EvoTrees.load(filepath)
+    return model
+end
+
+function load_model!(model::CatBoostModel, filepath::String)
+    model.model = CatBoost.CatBoostRegressor()
+    CatBoost.load_model!(model.model, filepath)
     return model
 end
 
@@ -635,7 +774,7 @@ function get_models_gpu_status()::Dict{String, Any}
     )
 end
 
-export NumeraiModel, XGBoostModel, LightGBMModel, EvoTreesModel, train!, predict, 
+export NumeraiModel, XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel, train!, predict, 
        cross_validate, feature_importance, save_model, load_model!,
        ensemble_predict, gpu_feature_selection_for_models, benchmark_model_performance,
        get_models_gpu_status

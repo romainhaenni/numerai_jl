@@ -227,18 +227,54 @@ function train!(model::LightGBMModel, X_train::Matrix{Float64}, y_train::Vector{
                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
                verbose::Bool=false)
     
-    estimator = LGBMRegression(;
-        objective=model.params["objective"],
-        metric=[model.params["metric"]],
-        num_leaves=model.params["num_leaves"],
-        learning_rate=model.params["learning_rate"],
-        feature_fraction=model.params["feature_fraction"],
-        bagging_fraction=model.params["bagging_fraction"],
-        bagging_freq=model.params["bagging_freq"],
-        num_iterations=model.params["n_estimators"],
-        num_threads=model.params["num_threads"],
-        verbosity=verbose ? 1 : -1
+    # Prepare interaction constraints for LightGBM if feature groups are provided
+    interaction_constraints = nothing
+    feature_fraction_bynode = model.params["feature_fraction"]
+    
+    if feature_groups !== nothing && feature_names !== nothing
+        if verbose
+            @info "Processing feature groups for LightGBM" num_groups=length(feature_groups)
+        end
+        # Create interaction constraints in LightGBM format
+        interaction_constraints = DataLoader.create_interaction_constraints(feature_groups, feature_names)
+        
+        # Adjust feature fraction based on number of groups
+        if !isempty(interaction_constraints)
+            num_groups = length(interaction_constraints)
+            # Use group-based column sampling to ensure balanced feature usage
+            feature_fraction_bynode = min(1.0, num_groups / length(feature_names))
+            if verbose
+                @info "Adjusted feature_fraction_bynode for group-based sampling" value=feature_fraction_bynode
+            end
+        end
+    end
+    
+    # Build parameters dictionary
+    lgbm_params = Dict{Symbol, Any}(
+        :objective => model.params["objective"],
+        :metric => [model.params["metric"]],
+        :num_leaves => model.params["num_leaves"],
+        :learning_rate => model.params["learning_rate"],
+        :feature_fraction => model.params["feature_fraction"],
+        :feature_fraction_bynode => feature_fraction_bynode,
+        :bagging_fraction => model.params["bagging_fraction"],
+        :bagging_freq => model.params["bagging_freq"],
+        :num_iterations => model.params["n_estimators"],
+        :num_threads => model.params["num_threads"],
+        :verbosity => verbose ? 1 : -1
     )
+    
+    # Add interaction constraints if available (LightGBM uses string format)
+    if interaction_constraints !== nothing && !isempty(interaction_constraints)
+        # Convert to LightGBM string format: [[0,1,2],[3,4,5]]
+        constraints_str = "[" * join(["[" * join(group, ",") * "]" for group in interaction_constraints], ",") * "]"
+        lgbm_params[:interaction_constraints] = constraints_str
+        if verbose
+            @info "Applied interaction constraints to LightGBM" constraints=constraints_str
+        end
+    end
+    
+    estimator = LGBMRegression(; lgbm_params...)
     
     # Use the correct parameter names for LightGBM.jl v2.0.0
     if X_val !== nothing && y_val !== nothing
@@ -271,6 +307,27 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Vector{
                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
                verbose::Bool=false)
     
+    # Process feature groups for EvoTrees if provided
+    colsample_val = model.params["colsample"]
+    
+    if feature_groups !== nothing && feature_names !== nothing
+        if verbose
+            @info "Processing feature groups for EvoTrees" num_groups=length(feature_groups)
+        end
+        
+        # EvoTrees doesn't directly support interaction constraints,
+        # but we can adjust column sampling to respect feature groups
+        num_groups = length(feature_groups)
+        if num_groups > 0
+            # Adjust colsample to ensure features from all groups are sampled
+            # Use a higher colsample value when we have feature groups to ensure diversity
+            colsample_val = min(1.0, model.params["colsample"] * sqrt(num_groups))
+            if verbose
+                @info "Adjusted colsample for group-based sampling" original=model.params["colsample"] adjusted=colsample_val
+            end
+        end
+    end
+    
     # Prepare configuration for EvoTrees
     config = EvoTrees.EvoTreeRegressor(;
         loss=model.params["loss"],
@@ -278,7 +335,7 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Vector{
         max_depth=model.params["max_depth"],
         eta=model.params["eta"],
         rowsample=model.params["rowsample"],
-        colsample=model.params["colsample"],
+        colsample=colsample_val,
         nrounds=model.params["nrounds"],
         nbins=model.params["nbins"],
         monotone_constraints=model.params["monotone_constraints"],

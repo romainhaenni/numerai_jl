@@ -6,8 +6,8 @@ using ProgressMeter
 using ..DataLoader
 using ..Preprocessor
 using ..Models
-using ..LinearModels
-using ..NeuralNetworks
+using ..Models: RidgeModel, LassoModel, ElasticNetModel
+using ..Models: MLPModel, ResNetModel, TabNetModel
 using ..Ensemble
 using ..Neutralization
 using ..Metrics
@@ -84,8 +84,8 @@ function MLPipeline(;
             Models.XGBoostModel("xgb_shallow", max_depth=4, learning_rate=0.02, colsample_bytree=0.2),
             Models.LightGBMModel("lgbm_small", num_leaves=31, learning_rate=0.01, feature_fraction=0.1),
             Models.LightGBMModel("lgbm_large", num_leaves=63, learning_rate=0.005, feature_fraction=0.15),
-            NeuralNetworks.MLPModel("mlp_default", hidden_layers=[128, 64, 32], epochs=50),
-            NeuralNetworks.ResNetModel("resnet_small", hidden_layers=[128, 128, 64], epochs=75)
+            MLPModel("mlp_default", hidden_layers=[128, 64, 32], epochs=50),
+            ResNetModel("resnet_small", hidden_layers=[128, 128, 64], epochs=75)
         ]
         # Create configs from existing models for consistency
         model_configs = [
@@ -150,7 +150,7 @@ function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models
                 gpu_enabled=get(config.params, :gpu_enabled, false)
             ))
         elseif config.type == "mlp"
-            push!(models, NeuralNetworks.MLPModel(
+            push!(models, MLPModel(
                 config.name;
                 hidden_layers=get(config.params, :hidden_layers, [128, 64, 32]),
                 dropout_rate=get(config.params, :dropout_rate, 0.2),
@@ -161,7 +161,7 @@ function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models
                 gpu_enabled=get(config.params, :gpu_enabled, true)
             ))
         elseif config.type == "resnet"
-            push!(models, NeuralNetworks.ResNetModel(
+            push!(models, ResNetModel(
                 config.name;
                 hidden_layers=get(config.params, :hidden_layers, [256, 256, 256, 128]),
                 dropout_rate=get(config.params, :dropout_rate, 0.1),
@@ -172,7 +172,7 @@ function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models
                 gpu_enabled=get(config.params, :gpu_enabled, true)
             ))
         elseif config.type == "tabnet"
-            push!(models, NeuralNetworks.TabNetModel(
+            push!(models, TabNetModel(
                 config.name;
                 n_d=get(config.params, :n_d, 64),
                 n_a=get(config.params, :n_a, 64),
@@ -185,7 +185,7 @@ function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models
                 gpu_enabled=get(config.params, :gpu_enabled, true)
             ))
         elseif config.type == "ridge"
-            push!(models, LinearModels.RidgeModel(
+            push!(models, RidgeModel(
                 config.name;
                 alpha=get(config.params, :alpha, 1.0),
                 fit_intercept=get(config.params, :fit_intercept, true),
@@ -193,7 +193,7 @@ function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models
                 tol=get(config.params, :tol, 1e-4)
             ))
         elseif config.type == "lasso"
-            push!(models, LinearModels.LassoModel(
+            push!(models, LassoModel(
                 config.name;
                 alpha=get(config.params, :alpha, 1.0),
                 fit_intercept=get(config.params, :fit_intercept, true),
@@ -201,7 +201,7 @@ function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models
                 tol=get(config.params, :tol, 1e-4)
             ))
         elseif config.type == "elasticnet"
-            push!(models, LinearModels.ElasticNetModel(
+            push!(models, ElasticNetModel(
                 config.name;
                 alpha=get(config.params, :alpha, 1.0),
                 l1_ratio=get(config.params, :l1_ratio, 0.5),
@@ -876,11 +876,11 @@ function create_optimized_model(pipeline::MLPipeline, model_type::Symbol,
     elseif model_type == :CatBoost
         return Models.CatBoostModel(model_name; best_params...)
     elseif model_type == :Ridge
-        return LinearModels.RidgeModel(model_name; best_params...)
+        return RidgeModel(model_name; best_params...)
     elseif model_type == :Lasso
-        return LinearModels.LassoModel(model_name; best_params...)
+        return LassoModel(model_name; best_params...)
     elseif model_type == :ElasticNet
-        return LinearModels.ElasticNetModel(model_name; best_params...)
+        return ElasticNetModel(model_name; best_params...)
     elseif model_type == :NeuralNetwork
         # Handle neural network parameters specially
         hidden_layers = get(best_params, :hidden_layers, [128, 64, 32])
@@ -889,7 +889,7 @@ function create_optimized_model(pipeline::MLPipeline, model_type::Symbol,
         batch_size = get(best_params, :batch_size, 512)
         dropout_rate = get(best_params, :dropout_rate, 0.1)
         
-        return NeuralNetworks.MLPModel(
+        return MLPModel(
             model_name,
             hidden_layers=hidden_layers,
             epochs=epochs,

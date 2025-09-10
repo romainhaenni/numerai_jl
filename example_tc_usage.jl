@@ -29,7 +29,13 @@ function create_example_data(n_samples=1000, n_features=20, n_models=4)
     y = 0.3 * sum(X[:, 1:5], dims=2)[:, 1] + 0.7 * randn(n_samples)
     
     # Create eras (sequential groups)
-    eras = repeat(1:50, inner=20)
+    eras = repeat(1:div(n_samples, 20), inner=20)
+    # Ensure eras vector has exactly n_samples elements
+    if length(eras) > n_samples
+        eras = eras[1:n_samples]
+    elseif length(eras) < n_samples
+        eras = vcat(eras, fill(eras[end], n_samples - length(eras)))
+    end
     
     # Create DataFrame
     feature_names = ["feature_$i" for i in 1:n_features]

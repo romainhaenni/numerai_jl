@@ -556,4 +556,13 @@ export NumeraiModel, XGBoostModel, LightGBMModel, EvoTreesModel, train!, predict
        ensemble_predict, gpu_feature_selection_for_models, benchmark_model_performance,
        get_models_gpu_status
 
+# Include and re-export neural networks
+include("neural_networks.jl")
+using .NeuralNetworks: MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel, 
+                       train_neural_network!, predict_neural_network,
+                       correlation_loss, mse_correlation_loss
+export MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel,
+       train_neural_network!, predict_neural_network,
+       correlation_loss, mse_correlation_loss
+
 end

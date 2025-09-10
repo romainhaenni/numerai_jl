@@ -6,13 +6,15 @@ using ProgressMeter
 using ..DataLoader
 using ..Preprocessor
 using ..Models
+using ..NeuralNetworks
 using ..Ensemble
 using ..Neutralization
 using ..Metrics
+using Flux: relu  # Import relu activation function from Flux
 
 # Configuration struct for model creation
 struct ModelConfig
-    type::String  # "xgboost", "lightgbm", "evotrees"
+    type::String  # "xgboost", "lightgbm", "evotrees", "mlp", "resnet", "tabnet"
     name::String  # Optional model name
     params::Dict{Symbol, Any}  # Model-specific parameters
     
@@ -54,19 +56,23 @@ function MLPipeline(;
     if !isempty(model_configs)
         models = create_models_from_configs(model_configs)
     elseif isempty(models)
-        # Default models if none provided
+        # Default models if none provided - including neural networks
         models = [
             Models.XGBoostModel("xgb_deep", max_depth=8, learning_rate=0.01, colsample_bytree=0.1),
             Models.XGBoostModel("xgb_shallow", max_depth=4, learning_rate=0.02, colsample_bytree=0.2),
             Models.LightGBMModel("lgbm_small", num_leaves=31, learning_rate=0.01, feature_fraction=0.1),
-            Models.LightGBMModel("lgbm_large", num_leaves=63, learning_rate=0.005, feature_fraction=0.15)
+            Models.LightGBMModel("lgbm_large", num_leaves=63, learning_rate=0.005, feature_fraction=0.15),
+            NeuralNetworks.MLPModel("mlp_default", hidden_layers=[128, 64, 32], epochs=50),
+            NeuralNetworks.ResNetModel("resnet_small", hidden_layers=[128, 128, 64], epochs=75)
         ]
         # Create configs from existing models for consistency
         model_configs = [
             ModelConfig("xgboost", Dict(:max_depth=>8, :learning_rate=>0.01, :colsample_bytree=>0.1), name="xgb_deep"),
             ModelConfig("xgboost", Dict(:max_depth=>4, :learning_rate=>0.02, :colsample_bytree=>0.2), name="xgb_shallow"),
             ModelConfig("lightgbm", Dict(:num_leaves=>31, :learning_rate=>0.01, :feature_fraction=>0.1), name="lgbm_small"),
-            ModelConfig("lightgbm", Dict(:num_leaves=>63, :learning_rate=>0.005, :feature_fraction=>0.15), name="lgbm_large")
+            ModelConfig("lightgbm", Dict(:num_leaves=>63, :learning_rate=>0.005, :feature_fraction=>0.15), name="lgbm_large"),
+            ModelConfig("mlp", Dict(:hidden_layers=>[128, 64, 32], :epochs=>50), name="mlp_default"),
+            ModelConfig("resnet", Dict(:hidden_layers=>[128, 128, 64], :epochs=>75), name="resnet_small")
         ]
     end
     
@@ -104,6 +110,42 @@ function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models
                 nrounds=get(config.params, :n_estimators, 100),  # Map n_estimators to nrounds
                 colsample=get(config.params, :colsample, 0.1),
                 subsample=get(config.params, :subsample, 0.8)
+            ))
+        elseif config.type == "mlp"
+            push!(models, NeuralNetworks.MLPModel(
+                config.name;
+                hidden_layers=get(config.params, :hidden_layers, [256, 128, 64]),
+                dropout_rate=get(config.params, :dropout_rate, 0.2),
+                activation=get(config.params, :activation, relu),
+                learning_rate=get(config.params, :learning_rate, 0.001),
+                batch_size=get(config.params, :batch_size, 512),
+                epochs=get(config.params, :epochs, 100),
+                early_stopping_patience=get(config.params, :early_stopping_patience, 10),
+                gpu_enabled=get(config.params, :gpu_enabled, true)
+            ))
+        elseif config.type == "resnet"
+            push!(models, NeuralNetworks.ResNetModel(
+                config.name;
+                hidden_layers=get(config.params, :hidden_layers, [256, 256, 256, 128]),
+                dropout_rate=get(config.params, :dropout_rate, 0.1),
+                learning_rate=get(config.params, :learning_rate, 0.001),
+                batch_size=get(config.params, :batch_size, 512),
+                epochs=get(config.params, :epochs, 150),
+                early_stopping_patience=get(config.params, :early_stopping_patience, 15),
+                gpu_enabled=get(config.params, :gpu_enabled, true)
+            ))
+        elseif config.type == "tabnet"
+            push!(models, NeuralNetworks.TabNetModel(
+                config.name;
+                n_d=get(config.params, :n_d, 64),
+                n_a=get(config.params, :n_a, 64),
+                n_steps=get(config.params, :n_steps, 3),
+                gamma=get(config.params, :gamma, 1.3),
+                learning_rate=get(config.params, :learning_rate, 0.02),
+                batch_size=get(config.params, :batch_size, 1024),
+                epochs=get(config.params, :epochs, 200),
+                early_stopping_patience=get(config.params, :early_stopping_patience, 20),
+                gpu_enabled=get(config.params, :gpu_enabled, true)
             ))
         else
             @warn "Unknown model type: $(config.type), skipping"

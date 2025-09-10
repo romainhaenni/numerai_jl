@@ -187,6 +187,67 @@ Random.seed!(123)
         end
     end
     
+    @testset "Neural Network Models" begin
+        @testset "MLPModel creation" begin
+            model = NumeraiTournament.MLPModel("test_mlp", gpu_enabled=false)
+            @test model.name == "test_mlp"
+            @test model isa NumeraiTournament.NeuralNetworkModel
+            @test model.params["hidden_layers"] == [256, 128, 64]
+            @test model.gpu_enabled == false
+        end
+        
+        @testset "ResNetModel creation" begin
+            model = NumeraiTournament.ResNetModel("test_resnet", gpu_enabled=false)
+            @test model.name == "test_resnet"
+            @test model isa NumeraiTournament.NeuralNetworkModel
+            @test model.params["hidden_layers"] == [256, 256, 256, 128]
+        end
+        
+        @testset "TabNetModel creation" begin
+            model = NumeraiTournament.TabNetModel("test_tabnet", gpu_enabled=false)
+            @test model.name == "test_tabnet"
+            @test model isa NumeraiTournament.NeuralNetworkModel
+            @test model.params["n_d"] == 64
+            @test model.params["n_a"] == 64
+        end
+    end
+    
+    @testset "ML Pipeline" begin
+        @testset "ModelConfig for neural networks" begin
+            # Test neural network model configs
+            mlp_config = NumeraiTournament.Pipeline.ModelConfig("mlp", 
+                Dict(:hidden_layers=>[128, 64], :epochs=>5), name="test_mlp")
+            @test mlp_config.type == "mlp"
+            @test mlp_config.name == "test_mlp"
+            @test mlp_config.params[:hidden_layers] == [128, 64]
+            
+            resnet_config = NumeraiTournament.Pipeline.ModelConfig("resnet",
+                Dict(:hidden_layers=>[64, 64], :epochs=>5), name="test_resnet")  
+            @test resnet_config.type == "resnet"
+            @test resnet_config.name == "test_resnet"
+            
+            tabnet_config = NumeraiTournament.Pipeline.ModelConfig("tabnet",
+                Dict(:n_d=>32, :n_a=>32, :epochs=>5), name="test_tabnet")
+            @test tabnet_config.type == "tabnet"
+            @test tabnet_config.name == "test_tabnet"
+        end
+        
+        @testset "Default pipeline includes neural networks" begin
+            feature_cols = ["feature_$(i)" for i in 1:10]
+            pipeline = NumeraiTournament.Pipeline.MLPipeline(
+                feature_cols=feature_cols,
+                target_col="target_cyrus_v4_20"
+            )
+            
+            # Should include both traditional ML models and neural networks
+            @test length(pipeline.models) == 6  # 4 traditional + 2 neural networks
+            @test any(model -> model isa NumeraiTournament.MLPModel, pipeline.models)
+            @test any(model -> model isa NumeraiTournament.ResNetModel, pipeline.models)
+            @test any(model -> model isa NumeraiTournament.XGBoostModel, pipeline.models)
+            @test any(model -> model isa NumeraiTournament.LightGBMModel, pipeline.models)
+        end
+    end
+    
     @testset "Ensemble" begin
         @testset "ModelEnsemble creation" begin
             models = [
@@ -198,6 +259,18 @@ Random.seed!(123)
             ensemble = NumeraiTournament.Ensemble.ModelEnsemble(models)
             @test length(ensemble.models) == 3
             @test sum(ensemble.weights) ≈ 1.0
+        end
+        
+        @testset "Ensemble with neural networks" begin
+            models = [
+                NumeraiTournament.Models.XGBoostModel("xgb1"),
+                NumeraiTournament.MLPModel("mlp1", gpu_enabled=false)
+            ]
+            
+            ensemble = NumeraiTournament.Ensemble.ModelEnsemble(models)
+            @test length(ensemble.models) == 2
+            @test sum(ensemble.weights) ≈ 1.0
+            @test any(model -> model isa NumeraiTournament.NeuralNetworkModel, ensemble.models)
         end
         
         @testset "diversity_score" begin

@@ -7,11 +7,12 @@ using DataFrames
 using Random
 using Logging
 using LoggingExtras
+using Printf
 
 # Core GPU functionality
 export MetalDevice, GPUArray, cpu, gpu
 export has_metal_gpu, get_gpu_info, configure_metal_device
-export gpu_memory_info, clear_gpu_cache!, gpu_synchronize
+export gpu_memory_info, gpu_memory_status, clear_gpu_cache!, gpu_synchronize
 
 # GPU-accelerated operations
 export gpu_matrix_multiply, gpu_vector_add, gpu_element_wise_ops
@@ -120,6 +121,11 @@ end
 
 """
 Get current GPU memory information
+
+Returns a dictionary with:
+- total: Total GPU memory available (recommended working set)
+- used: Currently allocated GPU memory
+- free: Available GPU memory
 """
 function gpu_memory_info()::Dict{String, Int64}
     if !has_metal_gpu()
@@ -127,12 +133,44 @@ function gpu_memory_info()::Dict{String, Int64}
     end
     
     try
-        # For now, return placeholder values until Metal.jl API is stable
-        return Dict("total" => 0, "free" => 0, "used" => 0)
+        device = Metal.current_device()
+        
+        # Get memory information from Metal device
+        total_memory = Int64(device.recommendedMaxWorkingSetSize)
+        used_memory = Int64(device.currentAllocatedSize)
+        free_memory = max(0, total_memory - used_memory)
+        
+        return Dict(
+            "total" => total_memory,
+            "used" => used_memory,
+            "free" => free_memory
+        )
     catch e
         @error "Failed to get GPU memory info" exception=e
         return Dict("total" => 0, "free" => 0, "used" => 0)
     end
+end
+
+"""
+Get formatted GPU memory information string
+
+Returns a human-readable string with memory usage information.
+"""
+function gpu_memory_status()::String
+    info = gpu_memory_info()
+    
+    if info["total"] == 0
+        return "GPU memory not available"
+    end
+    
+    # Convert bytes to GB for readability
+    total_gb = info["total"] / (1024^3)
+    used_gb = info["used"] / (1024^3)
+    free_gb = info["free"] / (1024^3)
+    usage_percent = (info["used"] / info["total"]) * 100
+    
+    return @sprintf("GPU Memory: %.2f/%.2f GB used (%.1f%%), %.2f GB free", 
+                    used_gb, total_gb, usage_percent, free_gb)
 end
 
 """

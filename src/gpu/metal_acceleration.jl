@@ -70,15 +70,33 @@ function configure_metal_device()::MetalDevice
     
     try
         device = Metal.device()
-        # Get basic device info without specific memory queries for compatibility
+        
+        # Get system memory as proxy for unified memory
+        # Apple Silicon shares memory between CPU and GPU
+        total_memory_gb = Sys.total_memory() / (1024^3)
+        
+        # Estimate GPU-available memory (typically ~75% of system memory on Apple Silicon)
+        gpu_memory_bytes = round(Int, Sys.total_memory() * 0.75)
+        
+        # Estimate free memory based on current system state
+        # This is an approximation since Metal doesn't expose direct memory queries
+        free_memory_bytes = round(Int, Sys.free_memory() * 0.75)
+        
+        # Apple Silicon GPU compute units (typical values)
+        # M1: 7-8 cores, M1 Pro: 14-16, M1 Max: 24-32, M2 series similar
+        # We'll use a conservative estimate
+        compute_units = 16  # Reasonable default for M-series chips
+        
+        # Maximum threads per threadgroup (typical for Apple Silicon)
+        max_threads = 1024
         
         metal_device = MetalDevice(
             device,
             true,
-            0,  # Memory info will be queried separately
-            0,  # Memory info will be queried separately  
-            0,  # Will be set later if needed
-            0,  # Will be set later if needed
+            gpu_memory_bytes,
+            free_memory_bytes,
+            compute_units,
+            max_threads,
             true  # Apple Silicon supports unified memory
         )
         
@@ -102,14 +120,29 @@ function get_gpu_info()::Dict{String, Any}
         return Dict("available" => false, "reason" => "Metal GPU not available")
     end
     
-    try        
+    try
+        # Get current memory state
+        memory_used = device.memory_total - device.memory_free
+        memory_gb = device.memory_total / (1024^3)
+        
+        # Determine GPU model based on compute units
+        gpu_name = if device.compute_units <= 8
+            "Apple M1 GPU"
+        elseif device.compute_units <= 16
+            "Apple M1 Pro/M2 GPU"
+        elseif device.compute_units <= 32
+            "Apple M1 Max/M2 Max GPU"
+        else
+            "Apple M-series Ultra GPU"
+        end
+        
         return Dict(
             "available" => true,
-            "device_name" => "Metal GPU",
-            "memory_total" => 0,  # Will be updated when memory info is available
-            "memory_free" => 0,   # Will be updated when memory info is available
-            "memory_used" => 0,   # Will be updated when memory info is available
-            "memory_gb" => 0.0,   # Memory in GB for compatibility with tests
+            "device_name" => gpu_name,
+            "memory_total" => device.memory_total,
+            "memory_free" => device.memory_free,
+            "memory_used" => memory_used,
+            "memory_gb" => memory_gb,
             "compute_units" => device.compute_units,
             "max_threads_per_group" => device.max_threads_per_group,
             "supports_unified_memory" => device.supports_unified_memory
@@ -311,15 +344,16 @@ function gpu_standardize!(X::AbstractMatrix{Float64})
         X_f32 = Float32.(X)
         X_gpu = gpu(X_f32)
         
-        # Compute mean and std for each column
-        for j in 1:size(X_gpu, 2)
-            col = view(X_gpu, :, j)
-            μ = mean(col)
-            σ = std(col)
-            if σ > 0
-                col .= (col .- μ) ./ σ
-            end
-        end
+        # Batch compute mean and std for all columns at once
+        # This is much more efficient on GPU than column-by-column processing
+        μ = mean(X_gpu, dims=1)  # Row vector of means
+        σ = std(X_gpu, dims=1, corrected=true)  # Row vector of stds
+        
+        # Avoid division by zero - replace zero stds with 1
+        σ_safe = max.(σ, Float32(1e-10))
+        
+        # Standardize all columns in one operation using broadcasting
+        X_gpu .= (X_gpu .- μ) ./ σ_safe
         
         # Convert back to Float64 and copy to original array
         X .= Float64.(cpu(X_gpu))
@@ -361,15 +395,17 @@ function gpu_normalize!(X::AbstractMatrix{Float64})
         X_f32 = Float32.(X)
         X_gpu = gpu(X_f32)
         
-        # Compute min and max for each column
-        for j in 1:size(X_gpu, 2)
-            col = view(X_gpu, :, j)
-            min_val = minimum(col)
-            max_val = maximum(col)
-            if max_val > min_val
-                col .= (col .- min_val) ./ (max_val - min_val)
-            end
-        end
+        # Batch compute min and max for all columns at once
+        # This is much more efficient on GPU than column-by-column processing
+        min_vals = minimum(X_gpu, dims=1)  # Row vector of minimums
+        max_vals = maximum(X_gpu, dims=1)  # Row vector of maximums
+        
+        # Compute range and avoid division by zero
+        range_vals = max_vals .- min_vals
+        range_safe = max.(range_vals, Float32(1e-10))
+        
+        # Normalize all columns in one operation using broadcasting
+        X_gpu .= (X_gpu .- min_vals) ./ range_safe
         
         # Convert back to Float64 and copy to original array
         X .= Float64.(cpu(X_gpu))
@@ -654,14 +690,29 @@ function gpu_feature_selection(X::AbstractMatrix{Float64}, y::AbstractVector{Flo
     if has_metal_gpu()
         try
             # Convert to Float32 for GPU operations
+            X_f32 = Float32.(X)
             y_f32 = Float32.(y)
+            X_gpu = gpu(X_f32)
             y_gpu = gpu(y_f32)
             
-            for i in 1:n_features
-                feature_f32 = Float32.(X[:, i])
-                feature_gpu = gpu(feature_f32)
-                correlations[i] = abs(Float64(cor(feature_gpu, y_gpu)))
-            end
+            # Standardize for correlation computation
+            X_mean = mean(X_gpu, dims=1)
+            X_std = std(X_gpu, dims=1, corrected=true)
+            X_std_safe = max.(X_std, Float32(1e-10))
+            X_standardized = (X_gpu .- X_mean) ./ X_std_safe
+            
+            y_mean = mean(y_gpu)
+            y_std = std(y_gpu, corrected=true)
+            y_std_safe = max(y_std, Float32(1e-10))
+            y_standardized = (y_gpu .- y_mean) ./ y_std_safe
+            
+            # Compute correlations for all features at once using matrix multiplication
+            # correlation = (X'y) / n for standardized variables
+            n = Float32(size(X, 1))
+            correlations_gpu = abs.(vec(X_standardized' * y_standardized) ./ n)
+            
+            # Copy back to CPU
+            correlations .= Float64.(cpu(correlations_gpu))
         catch e
             @warn "GPU feature selection failed, falling back to CPU" exception=e
             for i in 1:n_features

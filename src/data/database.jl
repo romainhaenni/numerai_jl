@@ -48,6 +48,9 @@ end
 
 function create_tables(conn::DatabaseConnection)
     try
+        # Begin transaction for atomic table creation
+        SQLite.execute(conn.db, "BEGIN TRANSACTION")
+        
         # Model performance history table
         SQLite.execute(conn.db, """
         CREATE TABLE IF NOT EXISTS model_performance (
@@ -156,8 +159,16 @@ function create_tables(conn::DatabaseConnection)
         )
     """)
     
+        # Commit transaction on success
+        SQLite.execute(conn.db, "COMMIT")
         @log_debug "Database tables created successfully"
     catch e
+        # Rollback transaction on failure
+        try
+            SQLite.execute(conn.db, "ROLLBACK")
+        catch rollback_error
+            @log_error "Failed to rollback transaction" error=rollback_error
+        end
         @log_error "Failed to create database tables" error=e
         rethrow(e)
     end
@@ -165,6 +176,9 @@ end
 
 function create_indexes(conn::DatabaseConnection)
     try
+        # Begin transaction for atomic index creation
+        SQLite.execute(conn.db, "BEGIN TRANSACTION")
+        
         # Performance indexes
         SQLite.execute(conn.db, """
         CREATE INDEX IF NOT EXISTS idx_perf_model_round 
@@ -194,8 +208,16 @@ function create_indexes(conn::DatabaseConnection)
         ON training_runs(model_name, created_at DESC)
     """)
     
+        # Commit transaction on success
+        SQLite.execute(conn.db, "COMMIT")
         @log_debug "Database indexes created successfully"
     catch e
+        # Rollback transaction on failure
+        try
+            SQLite.execute(conn.db, "ROLLBACK")
+        catch rollback_error
+            @log_error "Failed to rollback transaction" error=rollback_error
+        end
         @log_error "Failed to create database indexes" error=e
         rethrow(e)
     end
@@ -487,6 +509,9 @@ function cleanup_old_data(conn::DatabaseConnection; days_to_keep::Int = 365)
     cutoff_date = now() - Day(days_to_keep)
     
     try
+        # Begin transaction for atomic cleanup
+        SQLite.execute(conn.db, "BEGIN TRANSACTION")
+        
         # Clean old predictions archive
         SQLite.execute(conn.db, """
             DELETE FROM predictions_archive 
@@ -506,8 +531,16 @@ function cleanup_old_data(conn::DatabaseConnection; days_to_keep::Int = 365)
             )
         """, [cutoff_date])
         
+        # Commit transaction on success
+        SQLite.execute(conn.db, "COMMIT")
         @log_info "Old data cleaned up" days_kept=days_to_keep
     catch e
+        # Rollback transaction on failure
+        try
+            SQLite.execute(conn.db, "ROLLBACK")
+        catch rollback_error
+            @log_error "Failed to rollback cleanup transaction" error=rollback_error
+        end
         @log_error "Failed to cleanup old data" error=e days_to_keep=days_to_keep
         # Don't rethrow - cleanup is not critical
     end
@@ -577,6 +610,9 @@ Save prediction data to the database archive.
 """
 function save_predictions(conn::DatabaseConnection, df::DataFrame, model_name::String, round_number::Int)
     try
+        # Begin transaction for atomic bulk insert
+        SQLite.execute(conn.db, "BEGIN TRANSACTION")
+        
         # Prepare the insert statement
         stmt = SQLite.Stmt(conn.db, """
             INSERT INTO predictions_archive 
@@ -600,9 +636,18 @@ function save_predictions(conn::DatabaseConnection, df::DataFrame, model_name::S
         end
         
         SQLite.finalize!(stmt)
+        
+        # Commit transaction on success
+        SQLite.execute(conn.db, "COMMIT")
         @log_info "Saved $(nrow(df)) predictions for $model_name round $round_number"
         return true
     catch e
+        # Rollback transaction on failure
+        try
+            SQLite.execute(conn.db, "ROLLBACK")
+        catch rollback_error
+            @log_error "Failed to rollback predictions transaction" error=rollback_error
+        end
         @log_error "Failed to save predictions" error=e model=model_name round=round_number
         return false
     end
@@ -665,11 +710,15 @@ function save_model_metadata(conn::DatabaseConnection, model_name::String, round
         if round_number > 0
             save_training_run(conn, Dict(
                 "model_name" => model_name,
+                "model_type" => get(metadata, "model_type", "unknown"),
                 "round_number" => round_number,
+                "training_time_seconds" => get(metadata, "duration_seconds", 0),
+                "validation_score" => get(metadata, "validation_score", nothing),
+                "test_score" => get(metadata, "test_score", nothing),
                 "hyperparameters" => metadata,
-                "metrics" => get(metadata, "metrics", Dict()),
-                "duration_seconds" => get(metadata, "duration_seconds", 0),
-                "num_samples" => get(metadata, "num_samples", 0)
+                "num_samples" => get(metadata, "num_samples", 0),
+                "num_features" => get(metadata, "num_features", nothing),
+                "dataset_version" => get(metadata, "dataset_version", nothing)
             ))
         end
         

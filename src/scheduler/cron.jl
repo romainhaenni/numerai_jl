@@ -369,14 +369,20 @@ end
 function hourly_monitoring(scheduler::TournamentScheduler)
     try
         for model in scheduler.config.models
-            perf = API.get_model_performance(scheduler.api_client, model)
-            
-            if perf.corr < -0.05
-                @log_warn "Model performance alert" model=model correlation=perf.corr
+            try
+                perf = API.get_model_performance(scheduler.api_client, model)
+                
+                if perf.corr < -0.05
+                    @log_warn "Model performance alert" model=model correlation=perf.corr
+                end
+            catch model_error
+                log_event(scheduler, :error, "Failed to get performance for $model: $model_error")
+                @log_error "Failed to get performance for model" model=model error=model_error
             end
         end
     catch e
-        # Silent fail for monitoring
+        log_event(scheduler, :error, "Hourly monitoring failed: $e")
+        @log_error "Hourly monitoring failed" error=e
     end
 end
 

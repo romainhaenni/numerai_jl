@@ -10,11 +10,13 @@ mutable struct ModelEnsemble
     models::Vector{<:Models.NumeraiModel}
     weights::Vector{Float64}
     name::String
+    feature_indices::Union{Nothing, Vector{Vector{Int}}}  # For bagging: which features each model uses
 end
 
 function ModelEnsemble(models::Vector{<:Models.NumeraiModel}; 
                       weights::Union{Nothing, Vector{Float64}}=nothing,
-                      name::String="ensemble")
+                      name::String="ensemble",
+                      feature_indices::Union{Nothing, Vector{Vector{Int}}}=nothing)
     n_models = length(models)
     
     if weights === nothing
@@ -26,7 +28,7 @@ function ModelEnsemble(models::Vector{<:Models.NumeraiModel};
         weights = weights ./ sum(weights)
     end
     
-    return ModelEnsemble(models, weights, name)
+    return ModelEnsemble(models, weights, name, feature_indices)
 end
 
 function train_ensemble!(ensemble::ModelEnsemble, X_train::Matrix{Float64}, y_train::Vector{Float64};
@@ -86,7 +88,13 @@ function predict_ensemble(ensemble::ModelEnsemble, X::Matrix{Float64};
     n_models = length(ensemble.models)
     
     # Get prediction from first model to determine output shape
-    first_prediction = Models.predict(ensemble.models[1], X)
+    # Handle feature subsetting for bagged models
+    X_first = if ensemble.feature_indices !== nothing && length(ensemble.feature_indices) >= 1
+        X[:, ensemble.feature_indices[1]]
+    else
+        X
+    end
+    first_prediction = Models.predict(ensemble.models[1], X_first)
     is_multi_target = first_prediction isa Matrix
     n_targets = is_multi_target ? size(first_prediction, 2) : 1
     
@@ -97,7 +105,12 @@ function predict_ensemble(ensemble::ModelEnsemble, X::Matrix{Float64};
         
         # Get predictions from remaining models
         ThreadsX.foreach(2:n_models) do i
-            model_pred = Models.predict(ensemble.models[i], X)
+            X_i = if ensemble.feature_indices !== nothing && length(ensemble.feature_indices) >= i
+                X[:, ensemble.feature_indices[i]]
+            else
+                X
+            end
+            model_pred = Models.predict(ensemble.models[i], X_i)
             predictions_array[:, :, i] = model_pred isa Matrix ? model_pred : reshape(model_pred, n_samples, 1)
         end
         
@@ -119,7 +132,12 @@ function predict_ensemble(ensemble::ModelEnsemble, X::Matrix{Float64};
         predictions_matrix[:, 1] = first_prediction
         
         ThreadsX.foreach(2:n_models) do i
-            model_pred = Models.predict(ensemble.models[i], X)
+            X_i = if ensemble.feature_indices !== nothing && length(ensemble.feature_indices) >= i
+                X[:, ensemble.feature_indices[i]]
+            else
+                X
+            end
+            model_pred = Models.predict(ensemble.models[i], X_i)
             predictions_matrix[:, i] = model_pred isa Vector ? model_pred : vec(model_pred)
         end
         
@@ -166,22 +184,24 @@ end
 
 # Multi-target overload for optimize_weights
 function optimize_weights(ensemble::ModelEnsemble, X_val::Matrix{Float64}, y_val::Matrix{Float64};
-                         metric::Function=cor, n_iterations::Int=1000)::Vector{Float64}
+                         metric::Function=cor, n_iterations::Int=1000)::Matrix{Float64}
     n_models = length(ensemble.models)
     n_samples = size(X_val, 1)
     n_targets = size(y_val, 2)
     
-    # For multi-target, optimize weights based on average performance across targets
-    best_weights = ensemble.weights
-    best_score = -Inf
+    # For multi-target, optimize weights independently for each target
+    best_weights = safe_matrix_allocation(n_models, n_targets)
     
-    for _ in 1:n_iterations
-        trial_weights = rand(n_models)
-        trial_weights = trial_weights ./ sum(trial_weights)
+    for target_idx in 1:n_targets
+        # Optimize weights for this specific target
+        best_target_weights = ensemble.weights
+        best_score = -Inf
         
-        # Calculate weighted predictions for all targets
-        trial_score = 0.0
-        for target_idx in 1:n_targets
+        for _ in 1:n_iterations
+            trial_weights = rand(n_models)
+            trial_weights = trial_weights ./ sum(trial_weights)
+            
+            # Calculate weighted predictions for this target
             predictions_matrix = safe_matrix_allocation(n_samples, n_models)
             for (i, model) in enumerate(ensemble.models)
                 model_pred = Models.predict(model, X_val)
@@ -192,14 +212,15 @@ function optimize_weights(ensemble::ModelEnsemble, X_val::Matrix{Float64}, y_val
                 end
             end
             trial_predictions = predictions_matrix * trial_weights
-            trial_score += metric(trial_predictions, y_val[:, target_idx])
+            trial_score = metric(trial_predictions, y_val[:, target_idx])
+            
+            if trial_score > best_score
+                best_score = trial_score
+                best_target_weights = trial_weights
+            end
         end
-        trial_score /= n_targets  # Average across targets
         
-        if trial_score > best_score
-            best_score = trial_score
-            best_weights = trial_weights
-        end
+        best_weights[:, target_idx] = best_target_weights
     end
     
     return best_weights
@@ -209,7 +230,8 @@ function bagging_ensemble(model_constructor::Function, n_models::Int,
                          X_train::Matrix{Float64}, y_train::Vector{Float64};
                          sample_ratio::Float64=0.8,
                          feature_ratio::Float64=0.8,
-                         parallel::Bool=true)::ModelEnsemble
+                         parallel::Bool=true,
+                         verbose::Bool=false)::ModelEnsemble
     n_samples = size(X_train, 1)
     n_features = size(X_train, 2)
     
@@ -217,6 +239,7 @@ function bagging_ensemble(model_constructor::Function, n_models::Int,
     n_feature_subset = Int(floor(n_features * feature_ratio))
     
     models = Models.NumeraiModel[]
+    feature_indices_list = Vector{Vector{Int}}()
     
     train_func = function(i)
         Random.seed!(i)
@@ -228,18 +251,24 @@ function bagging_ensemble(model_constructor::Function, n_models::Int,
         y_subset = y_train[sample_indices]
         
         model = model_constructor()
-        Models.train!(model, X_subset, y_subset, verbose=false)
+        Models.train!(model, X_subset, y_subset, verbose=verbose)
         
-        return model
+        return (model, feature_indices)
     end
     
     if parallel && Threads.nthreads() > 1
-        models = ThreadsX.map(train_func, 1:n_models)
+        results = ThreadsX.map(train_func, 1:n_models)
     else
-        models = [train_func(i) for i in 1:n_models]
+        results = [train_func(i) for i in 1:n_models]
     end
     
-    return ModelEnsemble(models, name="bagging_ensemble")
+    # Unpack models and feature indices
+    for (model, feature_indices) in results
+        push!(models, model)
+        push!(feature_indices_list, feature_indices)
+    end
+    
+    return ModelEnsemble(models, name="bagging_ensemble", feature_indices=feature_indices_list)
 end
 
 # Multi-target overload for bagging_ensemble
@@ -247,7 +276,8 @@ function bagging_ensemble(model_constructor::Function, n_models::Int,
                          X_train::Matrix{Float64}, y_train::Matrix{Float64};
                          sample_ratio::Float64=0.8,
                          feature_ratio::Float64=0.8,
-                         parallel::Bool=true)::ModelEnsemble
+                         parallel::Bool=true,
+                         verbose::Bool=false)::ModelEnsemble
     n_samples = size(X_train, 1)
     n_features = size(X_train, 2)
     
@@ -255,6 +285,7 @@ function bagging_ensemble(model_constructor::Function, n_models::Int,
     n_feature_subset = Int(floor(n_features * feature_ratio))
     
     models = Models.NumeraiModel[]
+    feature_indices_list = Vector{Vector{Int}}()
     
     train_func = function(i)
         Random.seed!(i)
@@ -266,18 +297,24 @@ function bagging_ensemble(model_constructor::Function, n_models::Int,
         y_subset = y_train[sample_indices, :]  # Select all targets for the sample subset
         
         model = model_constructor()
-        Models.train!(model, X_subset, y_subset, verbose=false)
+        Models.train!(model, X_subset, y_subset, verbose=verbose)
         
-        return model
+        return (model, feature_indices)
     end
     
     if parallel && Threads.nthreads() > 1
-        models = ThreadsX.map(train_func, 1:n_models)
+        results = ThreadsX.map(train_func, 1:n_models)
     else
-        models = [train_func(i) for i in 1:n_models]
+        results = [train_func(i) for i in 1:n_models]
     end
     
-    return ModelEnsemble(models, name="bagging_ensemble")
+    # Unpack models and feature indices
+    for (model, feature_indices) in results
+        push!(models, model)
+        push!(feature_indices_list, feature_indices)
+    end
+    
+    return ModelEnsemble(models, name="bagging_ensemble", feature_indices=feature_indices_list)
 end
 
 function stacking_ensemble(base_models::Vector{<:Models.NumeraiModel}, 

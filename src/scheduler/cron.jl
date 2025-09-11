@@ -460,16 +460,17 @@ function train_models(scheduler::TournamentScheduler)
     train_path = joinpath(scheduler.config.data_dir, "train.parquet")
     val_path = joinpath(scheduler.config.data_dir, "validation.parquet")
     
-    train_df = DataLoader.load_training_data(train_path, sample_pct=0.1)
+    # Use configuration values instead of hardcoded parameters
+    train_df = DataLoader.load_training_data(train_path, sample_pct=scheduler.config.sample_pct)
     val_df = DataLoader.load_training_data(val_path)
     
     feature_cols = filter(name -> startswith(name, "feature_"), names(train_df))
     
     scheduler.pipeline = Pipeline.MLPipeline(
         feature_cols=feature_cols,
-        target_col="target_cyrus_v4_20",
-        neutralize=true,
-        neutralize_proportion=0.5
+        target_col=scheduler.config.target_col,
+        neutralize=scheduler.config.enable_neutralization,
+        neutralize_proportion=scheduler.config.neutralization_proportion
     )
     
     Pipeline.train!(scheduler.pipeline, train_df, val_df, verbose=true)

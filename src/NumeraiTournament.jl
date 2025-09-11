@@ -73,6 +73,11 @@ mutable struct TournamentConfig
     max_stake_amount::Float64
     # TUI configuration
     tui_config::Dict{String, Any}
+    # ML Pipeline configuration
+    sample_pct::Float64
+    target_col::String
+    enable_neutralization::Bool
+    neutralization_proportion::Float64
 end
 
 function load_config(path::String="config.toml")::TournamentConfig
@@ -144,7 +149,11 @@ function load_config(path::String="config.toml")::TournamentConfig
             1.0,    # min_compound_amount
             100.0,  # compound_percentage
             10000.0, # max_stake_amount
-            default_tui_config  # tui_config
+            default_tui_config,  # tui_config
+            0.1,    # sample_pct default
+            "target_cyrus_v4_20",  # target_col default
+            false,  # enable_neutralization default
+            0.5     # neutralization_proportion default
         )
     end
     
@@ -170,6 +179,9 @@ function load_config(path::String="config.toml")::TournamentConfig
         tui_config = default_tui_config
     end
     
+    # Load ML configuration section or use defaults
+    ml_config = get(config, "ml", Dict{String, Any}())
+    
     return TournamentConfig(
         get(config, "api_public_key", default_public_id),
         get(config, "api_secret_key", default_secret_key),
@@ -185,7 +197,11 @@ function load_config(path::String="config.toml")::TournamentConfig
         get(config, "min_compound_amount", 1.0),
         get(config, "compound_percentage", 100.0),
         get(config, "max_stake_amount", 10000.0),
-        tui_config  # Add TUI configuration
+        tui_config,  # Add TUI configuration
+        get(ml_config, "sample_pct", 0.1),
+        get(ml_config, "target_col", "target_cyrus_v4_20"),
+        get(ml_config, "enable_neutralization", false),
+        get(ml_config, "neutralization_proportion", 0.5)
     )
 end
 

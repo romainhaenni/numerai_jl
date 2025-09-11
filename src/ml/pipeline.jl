@@ -109,9 +109,14 @@ function MLPipeline(;
     if target_col !== nothing && target_cols !== nothing
         error("Specify either target_col or target_cols, not both")
     elseif target_col !== nothing
-        # Single target mode (backward compatible)
-        target_cols_vec = [target_col]
-        target_mode = :single
+        # Handle both String and Vector{String} for target_col
+        if target_col isa String
+            target_cols_vec = [target_col]
+            target_mode = :single
+        else  # target_col isa Vector{String}
+            target_cols_vec = target_col
+            target_mode = length(target_col) == 1 ? :single : :multi
+        end
     elseif target_cols !== nothing
         # Multi-target mode
         target_cols_vec = target_cols

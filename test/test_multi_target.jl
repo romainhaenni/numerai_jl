@@ -18,7 +18,7 @@ using Random
 using Statistics
 
 # Load our module
-include("src/NumeraiTournament.jl")
+include("../src/NumeraiTournament.jl")
 using .NumeraiTournament
 
 # Set random seed for reproducibility

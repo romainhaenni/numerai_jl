@@ -451,6 +451,8 @@ function hourly_monitoring(scheduler::TournamentScheduler)
                 
                 if perf.corr < -0.05
                     @log_warn "Model performance alert" model=model correlation=perf.corr
+                    # Send notification for performance alert
+                    Notifications.notify_performance_alert(model, "correlation", perf.corr, -0.05)
                 end
             catch model_error
                 log_event(scheduler, :error, "Failed to get performance for $model: $model_error")

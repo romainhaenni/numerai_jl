@@ -8,6 +8,7 @@ using TimeZones
 
 include("logger.jl")
 include("utils.jl")
+include("notifications.jl")
 include("api/schemas.jl")
 include("api/client.jl")
 include("ml/dataloader.jl")
@@ -38,8 +39,12 @@ export run_tournament, TournamentConfig, TournamentDashboard, TournamentSchedule
        has_metal_gpu, get_gpu_info, gpu_standardize!, run_comprehensive_gpu_benchmark,
        download_tournament_data, train_model, train_all_models,
        submit_predictions, submit_all_predictions,
-       show_model_performance, show_all_performance
+       show_model_performance, show_all_performance,
+       send_notification, notify_training_complete, notify_submission_complete,
+       notify_performance_alert, notify_error, notify_round_open
 using .Logger: init_logger, @log_info, @log_warn, @log_error
+using .Notifications: send_notification, notify_training_complete, notify_submission_complete,
+                      notify_performance_alert, notify_error, notify_round_open
 using .Models: XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel, 
                RidgeModel, LassoModel, ElasticNetModel,
                get_models_gpu_status, create_model

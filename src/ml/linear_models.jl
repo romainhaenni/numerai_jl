@@ -450,14 +450,26 @@ function train!(model::ElasticNetModel, X_train::Matrix{Float64}, y_train::Union
 end
 
 # Prediction function for all linear models
-function predict(model::Union{RidgeModel, LassoModel, ElasticNetModel}, X::Matrix{Float64})::Vector{Float64}
+function predict(model::Union{RidgeModel, LassoModel, ElasticNetModel}, X::Matrix{Float64})::Union{Vector{Float64}, Matrix{Float64}}
     if model.model === nothing
         error("Model not trained yet")
     end
     
-    predictions = X * model.model["coef"] .+ model.model["intercept"]
+    is_multi_target = get(model.model, "is_multi_target", false)
     
-    return predictions
+    if is_multi_target
+        # Multi-target prediction
+        n_targets = model.model["n_targets"]
+        predictions = Matrix{Float64}(undef, size(X, 1), n_targets)
+        for i in 1:n_targets
+            predictions[:, i] = X * model.model["coef"][:, i] .+ model.model["intercept"][i]
+        end
+        return predictions
+    else
+        # Single target prediction
+        predictions = X * model.model["coef"] .+ model.model["intercept"]
+        return predictions
+    end
 end
 
 # Save/load functions for linear models

@@ -114,18 +114,21 @@ function main()
         return
     end
     
-    # Load configuration
+    # Load configuration (gracefully handles missing config files)
     config_file = options["config"]
     if !isfile(config_file)
-        println("Error: Configuration file '$config_file' not found")
-        println("Please create a config.toml file or specify one with --config")
-        exit(1)
+        println("Warning: Configuration file '$config_file' not found")
+        println("Using default configuration with environment variables")
+        # The load_config function will handle the missing file gracefully
     end
     
-    # Check for environment variables
-    if !haskey(ENV, "NUMERAI_PUBLIC_ID") || !haskey(ENV, "NUMERAI_SECRET_KEY")
-        println("Warning: NUMERAI_PUBLIC_ID and NUMERAI_SECRET_KEY environment variables not set")
-        println("API operations will fail without proper credentials")
+    # Check for environment variables only if config file is missing
+    if !isfile(config_file) && (!haskey(ENV, "NUMERAI_PUBLIC_ID") || !haskey(ENV, "NUMERAI_SECRET_KEY"))
+        println("Error: No config file found and NUMERAI_PUBLIC_ID/NUMERAI_SECRET_KEY environment variables not set")
+        println("Please either:")
+        println("  1. Create a config.toml file, or")
+        println("  2. Set NUMERAI_PUBLIC_ID and NUMERAI_SECRET_KEY environment variables")
+        exit(1)
     end
     
     try

@@ -1,5 +1,10 @@
 # Numerai Tournament System - Development Tracker
 
+## User Inputs
+- Remove packager for ana executable. we want to run the program directly with Julia in the terminal
+- Simplify the TUI
+- Ensure that the program and API clients work with the Numerai API. Do not use recovery mode or any other workarounds.
+
 ## 🔴 CRITICAL BUGS REQUIRING IMMEDIATE FIX:
 
 ### 1. **API Logging MethodError** ❌ **CRITICAL**

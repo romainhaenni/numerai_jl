@@ -2,7 +2,7 @@
 
 Implement the core modules as specified: API client, ML pipeline with feature neutralization, ensemble management, TUI dashboard, scheduler, and notification system.
 
-The program runs in the terminal (provide an executable) and is monitored by the user through a comprehensible TUI.
+The program runs in the terminal and is monitored by the user through a comprehensible TUI. It must be run directly with Julia, does not need to have an executable.
 
 ### **Core Language & Runtime**
 - **Julia 1.10+** - High-performance scientific computing language
@@ -120,17 +120,5 @@ Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
 Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
 ```
 
-### **Deployment Architecture**
-- **SystemD service** - Linux deployment
-- **LaunchAgent** - macOS auto-start
-- **PackageCompiler.jl** - Create standalone executables
-- **Docker** - Containerization with Julia base images
-
-### **Performance Expectations**
-- **2-10x faster** than Python for numerical operations
-- **Near C-level performance** for tight loops
-- **Native Metal.jl** provides better M4 GPU utilization than PyTorch MPS
-- **First-time compilation** causes initial delay (solved by precompilation)
-- **Memory usage** comparable to Python, less than Elixir for numerical work
 
 This Julia stack provides superior numerical performance while maintaining similar capabilities for automation, monitoring, and notifications, making it an excellent choice for compute-intensive Numerai tournament participation on M4 Max hardware.

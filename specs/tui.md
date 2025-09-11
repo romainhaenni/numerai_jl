@@ -8,9 +8,8 @@ The Numerai Trading System TUI provides a comprehensive real-time monitoring int
 - TUI dashboard for real-time monitoring and performance analysis of past rounds
 - Automated tournament participation with scheduled downloads and submissions
 - Progress is shown in the TUI for all tasks (file downloads, trainings, predictions, file uploads)
-- Multi-model ensemble with gradient boosting
-- macOS notifications
 - Optimized for M4 Max's 16 CPU cores and 48GB unified memory
+- Status Panels are split horizontally, with an additional event log panel below the status panels
 
 
 ### **📊 Model Performance Panel**
@@ -67,12 +66,9 @@ The Numerai Trading System TUI provides a comprehensive real-time monitoring int
 - **Asynchronous data refresh** without blocking the UI
 - **Event-driven architecture** for instant notification display
 - **Auto-updating metrics** as new tournament data arrives
-- No polling required - push-based updates for efficiency
 
 ### **Integration Features**
-- **Synchronized with notification system** - events appear in macOS simultaneously
 - **Direct connection to ML pipeline** - shows training progress in real-time
 - **API status monitoring** - displays connection health to Numerai servers
-- **Performance telemetry** - integrates with Elixir's telemetry system
 
 This TUI transforms your terminal into a professional-grade trading dashboard, providing all essential information at a glance while maintaining the efficiency and simplicity of a text-based interface. It's designed specifically for traders who prefer keyboard-driven workflows and want to monitor their Numerai tournament participation without leaving their development environment.

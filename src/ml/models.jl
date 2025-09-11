@@ -36,7 +36,7 @@ mutable struct LightGBMModel <: NumeraiModel
 end
 
 mutable struct EvoTreesModel <: NumeraiModel
-    model::Union{Nothing, EvoTrees.EvoTree}
+    model::Union{Nothing, EvoTrees.EvoTree, Vector{EvoTrees.EvoTree}}  # Single model or vector of models for multi-target
     params::Dict{String, Any}
     name::String
     gpu_enabled::Bool
@@ -538,12 +538,29 @@ function train!(model::LightGBMModel, X_train::Matrix{Float64}, y_train::Union{V
     end
 end
 
-function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
+function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Union{Vector{Float64}, Matrix{Float64}};
                X_val::Union{Nothing, Matrix{Float64}}=nothing,
-               y_val::Union{Nothing, Vector{Float64}}=nothing,
+               y_val::Union{Nothing, Vector{Float64}, Matrix{Float64}}=nothing,
                feature_names::Union{Nothing, Vector{String}}=nothing,
                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
                verbose::Bool=false)
+    
+    # Detect multi-target case and set up appropriate parameters
+    is_multitarget = y_train isa Matrix{Float64}
+    n_targets = is_multitarget ? size(y_train, 2) : 1
+    
+    if is_multitarget
+        @info "Training EvoTrees with multi-target support (using multiple single-target models)" n_targets=n_targets model_name=model.name
+        # EvoTrees doesn't natively support multi-target regression, so we'll train multiple models
+        # Store target information for later use in prediction
+        model.params["n_targets"] = n_targets
+    else
+        @info "Training EvoTrees with single-target" model_name=model.name
+        # Remove multi-target parameters if they exist
+        if haskey(model.params, "n_targets")
+            delete!(model.params, "n_targets")
+        end
+    end
     
     # Process feature groups for EvoTrees if provided
     colsample_val = model.params["colsample"]
@@ -566,36 +583,92 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Vector{
         end
     end
     
-    # Prepare configuration for EvoTrees
-    config = EvoTrees.EvoTreeRegressor(;
-        loss=model.params["loss"],
-        metric=model.params["metric"],
-        max_depth=model.params["max_depth"],
-        eta=model.params["eta"],
-        rowsample=model.params["rowsample"],
-        colsample=colsample_val,
-        nrounds=model.params["nrounds"],
-        nbins=model.params["nbins"],
-        monotone_constraints=model.params["monotone_constraints"],
-        device=model.params["device"]
-    )
-    
-    # Train the model
-    if X_val !== nothing && y_val !== nothing
-        # Train with validation set (avoiding early stopping due to EvoTrees bug)
-        model.model = EvoTrees.fit_evotree(config; 
-                                          x_train=X_train, 
-                                          y_train=y_train,
-                                          print_every_n=0)  # Avoid division error in EvoTrees
+    if is_multitarget
+        # For multi-target, train separate models for each target
+        models = EvoTrees.EvoTree[]
+        
+        for target_idx in 1:n_targets
+            @info "Training EvoTrees model for target $target_idx/$n_targets"
+            y_target = y_train[:, target_idx]
+            
+            # Prepare configuration for EvoTrees
+            config = EvoTrees.EvoTreeRegressor(;
+                loss=model.params["loss"],
+                metric=model.params["metric"],
+                max_depth=model.params["max_depth"],
+                eta=model.params["eta"],
+                rowsample=model.params["rowsample"],
+                colsample=colsample_val,
+                nrounds=model.params["nrounds"],
+                nbins=model.params["nbins"],
+                monotone_constraints=model.params["monotone_constraints"],
+                device=model.params["device"]
+            )
+            
+            # Train model for this target with appropriate validation data
+            target_model = if X_val !== nothing && y_val isa Matrix{Float64}
+                y_val_target = y_val[:, target_idx]
+                EvoTrees.fit_evotree(config; 
+                                    x_train=X_train, 
+                                    y_train=y_target,
+                                    x_eval=X_val,
+                                    y_eval=y_val_target,
+                                    print_every_n=0)  # Avoid division error in EvoTrees
+            elseif X_val !== nothing && y_val isa Vector{Float64} && target_idx == 1
+                # Use single-target validation for first target only
+                EvoTrees.fit_evotree(config; 
+                                    x_train=X_train, 
+                                    y_train=y_target,
+                                    x_eval=X_val,
+                                    y_eval=y_val,
+                                    print_every_n=0)  # Avoid division error in EvoTrees
+            else
+                EvoTrees.fit_evotree(config; 
+                                    x_train=X_train, 
+                                    y_train=y_target,
+                                    print_every_n=0)  # Avoid division error in EvoTrees
+            end
+            
+            push!(models, target_model)
+        end
+        
+        model.model = models
+        return model
     else
-        # Train without validation set
-        model.model = EvoTrees.fit_evotree(config; 
-                                          x_train=X_train, 
-                                          y_train=y_train,
-                                          print_every_n=0)  # Avoid division error in EvoTrees
+        # Single-target training
+        # Prepare configuration for EvoTrees
+        config = EvoTrees.EvoTreeRegressor(;
+            loss=model.params["loss"],
+            metric=model.params["metric"],
+            max_depth=model.params["max_depth"],
+            eta=model.params["eta"],
+            rowsample=model.params["rowsample"],
+            colsample=colsample_val,
+            nrounds=model.params["nrounds"],
+            nbins=model.params["nbins"],
+            monotone_constraints=model.params["monotone_constraints"],
+            device=model.params["device"]
+        )
+        
+        # Train the model
+        if X_val !== nothing && y_val !== nothing
+            # Train with validation set (avoiding early stopping due to EvoTrees bug)
+            model.model = EvoTrees.fit_evotree(config; 
+                                              x_train=X_train, 
+                                              y_train=y_train,
+                                              x_eval=X_val,
+                                              y_eval=y_val,
+                                              print_every_n=0)  # Avoid division error in EvoTrees
+        else
+            # Train without validation set
+            model.model = EvoTrees.fit_evotree(config; 
+                                              x_train=X_train, 
+                                              y_train=y_train,
+                                              print_every_n=0)  # Avoid division error in EvoTrees
+        end
+        
+        return model
     end
-    
-    return model
 end
 
 function train!(model::CatBoostModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
@@ -733,18 +806,42 @@ function predict(model::LightGBMModel, X::Matrix{Float64})::Union{Vector{Float64
     end
 end
 
-function predict(model::EvoTreesModel, X::Matrix{Float64})::Vector{Float64}
+function predict(model::EvoTreesModel, X::Matrix{Float64})::Union{Vector{Float64}, Matrix{Float64}}
     if model.model === nothing
         error("Model not trained yet")
     end
     
-    predictions = EvoTrees.predict(model.model, X)
+    # Check if this is a multi-target model
+    is_multitarget = haskey(model.params, "n_targets") && model.params["n_targets"] > 1
     
-    # Convert to Vector if it's a Matrix
-    if predictions isa Matrix
-        return vec(predictions)
+    if is_multitarget && model.model isa Vector{EvoTrees.EvoTree}
+        n_targets = model.params["n_targets"]
+        n_samples = size(X, 1)
+        predictions_matrix = Matrix{Float64}(undef, n_samples, n_targets)
+        
+        # Get predictions from each target model
+        for (target_idx, target_model) in enumerate(model.model)
+            target_predictions = EvoTrees.predict(target_model, X)
+            
+            # Convert to Vector if it's a Matrix and ensure Float64
+            if target_predictions isa Matrix
+                predictions_matrix[:, target_idx] = convert(Vector{Float64}, vec(target_predictions))
+            else
+                predictions_matrix[:, target_idx] = convert(Vector{Float64}, target_predictions)
+            end
+        end
+        
+        return predictions_matrix
     else
-        return predictions
+        # Single-target prediction
+        predictions = EvoTrees.predict(model.model, X)
+        
+        # Convert to Vector if it's a Matrix and ensure Float64
+        if predictions isa Matrix
+            return convert(Vector{Float64}, vec(predictions))
+        else
+            return convert(Vector{Float64}, predictions)
+        end
     end
 end
 
@@ -877,15 +974,56 @@ function feature_importance(model::EvoTreesModel)::Dict{String, Float64}
         error("Model not trained yet")
     end
     
-    importance = EvoTrees.importance(model.model)
+    # Check if this is a multi-target model
+    is_multitarget = haskey(model.params, "n_targets") && model.params["n_targets"] > 1
     
-    # Convert importance to dictionary with feature names
-    feature_dict = Dict{String, Float64}()
-    for i in 1:length(importance)
-        feature_dict["feature_$(i)"] = importance[i]
+    if is_multitarget && model.model isa Vector{EvoTrees.EvoTree}
+        # For multi-target, average feature importance across all target models
+        n_targets = length(model.model)
+        
+        # Get importance from first model to determine format and size
+        first_importance = EvoTrees.importance(model.model[1])
+        
+        # EvoTrees.importance returns a Vector{Pair{Symbol, Float64}}
+        # Convert to dictionary and sum across targets
+        feature_dict = Dict{String, Float64}()
+        
+        # Initialize feature dictionary with all features from first model
+        for (feature_name, importance_value) in first_importance
+            feature_dict[string(feature_name)] = importance_value
+        end
+        
+        # Add importance from other target models
+        for i in 2:n_targets
+            target_importance = EvoTrees.importance(model.model[i])
+            for (feature_name, importance_value) in target_importance
+                feature_key = string(feature_name)
+                if haskey(feature_dict, feature_key)
+                    feature_dict[feature_key] += importance_value
+                else
+                    feature_dict[feature_key] = importance_value
+                end
+            end
+        end
+        
+        # Average the importance
+        for (feature_key, total_importance) in feature_dict
+            feature_dict[feature_key] = total_importance / n_targets
+        end
+        
+        return feature_dict
+    else
+        # Single-target model
+        importance = EvoTrees.importance(model.model)
+        
+        # Convert importance to dictionary with feature names
+        feature_dict = Dict{String, Float64}()
+        for (feature_name, importance_value) in importance
+            feature_dict[string(feature_name)] = importance_value
+        end
+        
+        return feature_dict
     end
-    
-    return feature_dict
 end
 
 function feature_importance(model::CatBoostModel)::Dict{String, Float64}
@@ -956,7 +1094,20 @@ function save_model(model::NumeraiModel, filepath::String)
             LightGBM.savemodel(model.model, filepath)
         end
     elseif model isa EvoTreesModel
-        EvoTrees.save(model.model, filepath)
+        if model.model isa Vector{EvoTrees.EvoTree}
+            # Multi-target EvoTrees: save each model with suffix
+            for (i, target_model) in enumerate(model.model)
+                target_path = replace(filepath, r"(\.[^.]*$)" => "_target$(i)\\1")
+                EvoTrees.save(target_model, target_path)
+            end
+            # Save metadata about multi-target structure
+            metadata_path = replace(filepath, r"(\.[^.]*$)" => "_metadata.json")
+            open(metadata_path, "w") do f
+                write(f, JSON3.write(Dict("n_targets" => length(model.model), "type" => "EvoTrees")))
+            end
+        else
+            EvoTrees.save(model.model, filepath)
+        end
     elseif model isa CatBoostModel
         CatBoost.save_model(model.model, filepath)
     end
@@ -1017,7 +1168,26 @@ function load_model!(model::LightGBMModel, filepath::String)
 end
 
 function load_model!(model::EvoTreesModel, filepath::String)
-    model.model = EvoTrees.load(filepath)
+    # Check if this is a multi-target model by looking for metadata file
+    metadata_path = replace(filepath, r"(\.[^.]*$)" => "_metadata.json")
+    if isfile(metadata_path)
+        metadata = JSON3.read(read(metadata_path, String))
+        if haskey(metadata, "n_targets") && metadata["n_targets"] > 1
+            # Load multi-target models
+            n_targets = metadata["n_targets"]
+            models = EvoTrees.EvoTree[]
+            for i in 1:n_targets
+                target_path = replace(filepath, r"(\.[^.]*$)" => "_target$(i)\\1")
+                push!(models, EvoTrees.load(target_path))
+            end
+            model.model = models
+            model.params["n_targets"] = n_targets
+        else
+            model.model = EvoTrees.load(filepath)
+        end
+    else
+        model.model = EvoTrees.load(filepath)
+    end
     return model
 end
 

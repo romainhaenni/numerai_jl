@@ -2,11 +2,26 @@
 
 ## 🚨 CRITICAL ISSUES (P0) - BLOCKING PRODUCTION USE
 
-*No critical issues remaining - all P0 issues resolved in v0.6.13!*
+### 1. **Notification System Missing** 🔴 **CRITICAL**
+- **Issue**: `src/notifications.jl` doesn't exist despite being documented and referenced
+- **Impact**: System expects notification functionality but module is missing
+- **Status**: Blocking production use
+
+### 2. **TUI Dashboard Bug - Undefined Variable** 🔴 **CRITICAL**
+- **Issue**: Line 856 in `dashboard.jl` has undefined variable reference `model_config.type`
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/tui/dashboard.jl:856`
+- **Impact**: TUI dashboard crashes when accessing model configuration
+- **Status**: Blocking TUI functionality
 
 ## 🔥 HIGH PRIORITY (P1) - CORE FUNCTIONALITY GAPS
 
-### 1. **True Contribution (TC) Calculation** 🟠 **HIGH**
+### 1. **Webhook API Response Parsing Bug** 🟠 **HIGH**
+- **Issue**: Lines 1382 and 1437 in `client.jl` have incorrect response parsing
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/api/client.jl:1382,1437`
+- **Impact**: Webhook API operations may fail or return incorrect data
+- **Status**: Needs immediate fix for API reliability
+
+### 2. **True Contribution (TC) Calculation** 🟠 **HIGH**
 - **Current**: Correlation-based approximation
 - **Need**: Official gradient-based method for exact TC matching Numerai's calculation
 - **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/metrics.jl`
@@ -15,7 +30,19 @@
 
 ## 🔧 MEDIUM PRIORITY (P2) - IMPORTANT ENHANCEMENTS
 
-### 1. **EvoTrees Bug Workaround** 🟡 **MEDIUM**
+### 1. **GPU Metal Constant Column Bug** 🟡 **MEDIUM**
+- **Issue**: `gpu_standardize!` and `gpu_normalize!` functions incorrectly zero constant columns
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/gpu/metal_acceleration.jl`
+- **Impact**: Data corruption for features with constant values during GPU processing
+- **Status**: Needs correction to preserve constant columns
+
+### 2. **Test Suite Organization** 🟡 **MEDIUM**
+- **Issue**: 498 tests in 24 files not included in `runtests.jl`
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/test/`
+- **Impact**: Tests not running in CI/CD pipeline, potential regressions undetected
+- **Status**: Test files need to be included in main test suite
+
+### 3. **EvoTrees Bug Workaround** 🟡 **MEDIUM**
 - **Current**: Workaround for EvoTrees 0.16.7 GPU bug in models.jl line 658
 - **Impact**: GPU acceleration disabled for EvoTrees models
 - **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/models.jl`
@@ -23,35 +50,36 @@
 
 ## 🌟 LOW PRIORITY (P3) - NICE TO HAVE
 
-### 1. **Advanced API Analytics Endpoints** 🟢 **LOW**
+### 1. **ML Configuration Documentation Missing** 🟢 **LOW**
+- **Issue**: ML parameters not documented in `config.toml`
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/config.toml`
+- **Impact**: User experience and configuration clarity
+- **Status**: Documentation needs expansion
+
+### 2. **Logger Documentation Syntax** 🟢 **LOW**
+- **Issue**: Wrong documentation syntax using `"""` instead of `#` in logger.jl
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/logger.jl`
+- **Impact**: Documentation inconsistency with Julia conventions
+- **Status**: Minor style issue
+
+### 3. **Sharpe Ratio Hardcoded** 🟢 **LOW**
+- **Issue**: Line 216 in client.jl hardcodes Sharpe ratio to 0.0
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/api/client.jl:216`
+- **Impact**: May not reflect actual Sharpe ratio calculations
+- **Status**: Consider making configurable or calculating dynamically
+
+### 4. **Advanced API Analytics Endpoints** 🟢 **LOW**
 - **Missing**: Leaderboard data retrieval, detailed performance analytics
 - **Missing**: Historical performance trend analysis, model diagnostics
 - **Priority**: Non-essential for core functionality
 
-### 2. **GPU Feature Selection Fallback** 🟢 **LOW**
-- **Current**: GPU feature selection fallback just returns first k features without selection
-- **Impact**: Suboptimal feature selection when GPU unavailable
-- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/gpu/metal_acceleration.jl`
-- **Status**: Needs proper CPU fallback implementation
-
-### 3. **GPU Benchmarking Validation** 🟢 **LOW**
-- **Current**: Metal acceleration implemented but needs performance validation
-- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/gpu/benchmarks.jl`
-- **Impact**: Performance optimization opportunities
-
-### 4. **Test Suite Count Discrepancy** 🟢 **LOW**
-- **Current**: System reports 1,554 tests but actually has 2,182+ @test statements
-- **Impact**: Misleading test coverage reporting
-- **Files**: Test suite across `/Users/romain/src/Numerai/numerai_jl/test/` directory
-- **Status**: Test count reporting needs verification
-
-### 5. **Configuration Documentation** 🟢 **LOW**
-- **Need**: Comprehensive config.toml parameter documentation
-- **Impact**: User experience and configuration clarity
-
 ## COMPLETED ITEMS ✅
 
-### Recent Major Completions (v0.6.14)
+### Recent Major Completions (v0.6.15) - Latest Analysis
+- ✅ **GPU Feature Selection Fallback Confirmed Working** - Analysis confirmed GPU feature selection fallback is properly implemented and functional
+- ✅ **GPU Benchmarking Validation Confirmed Complete** - Comprehensive GPU benchmarking system found to be fully implemented with extensive tests
+
+### Major Completions (v0.6.14)
 - ✅ **GPU Column-by-Column Processing Inefficiency Fixed** - GPU operations now use efficient batch matrix operations instead of column-by-column processing loops
 - ✅ **GPU Device Information Placeholders Fixed** - GPU device information now reports actual memory usage and compute units instead of placeholder values
 - ✅ **Inefficient Cron Next Run Algorithm Fixed** - Cron scheduling algorithm optimized from O(525,600) brute force search to O(1) mathematical calculation
@@ -88,23 +116,29 @@
 
 ## 📊 CURRENT SYSTEM STATUS
 
-### 🎉 **CRITICAL ISSUES RESOLVED** - MAJOR MILESTONE ACHIEVED
-**All P0 critical issues have been fixed in v0.6.13!**
+### 🚨 **NEW CRITICAL ISSUES DISCOVERED** - BLOCKING PRODUCTION
+**Critical issues found in comprehensive analysis - production status downgraded!**
 
 ### Current Issues Summary
-- **P0 Critical**: ✅ **NO CRITICAL ISSUES** - All blocking issues resolved!
-- **P1 High**: 🟡 **1 HIGH PRIORITY ISSUE** - Core functionality gap
+- **P0 Critical**: 🔴 **2 CRITICAL ISSUES** - Blocking production deployment
+  - Notification system missing (module doesn't exist)
+  - TUI dashboard crash (undefined variable reference)
+- **P1 High**: 🟡 **2 HIGH PRIORITY ISSUES** - Core functionality gaps
+  - Webhook API response parsing bugs
   - TC calculation method (correlation vs gradient-based)
-- **P2 Medium**: 🟡 **1 MEDIUM PRIORITY ISSUE** - Important enhancement needed
+- **P2 Medium**: 🟡 **3 MEDIUM PRIORITY ISSUES** - Important enhancements needed
+  - GPU Metal constant column bug
+  - Test suite organization (498 tests not included)
   - EvoTrees GPU bug workaround
-- **P3 Low**: 🟢 **5 LOW PRIORITY ISSUES** - Performance and usability improvements
+- **P3 Low**: 🟢 **4 LOW PRIORITY ISSUES** - Documentation and minor improvements
 
 ### Test Suite Status
-- **Test Pass Rate**: ~86% (2,069 passed, 113 failed/errored based on analysis) ⚠️
-- **Test Count Discrepancy**: Reports 1,554 tests but analysis found 2,182+ @test statements
-- **Integration tests have failures** - Some API and workflow tests need attention
+- **Total Tests Found**: 498 tests in 24 files (comprehensive analysis)
+- **Tests Not in Main Suite**: 498 tests not included in `runtests.jl`
+- **Integration tests have failures** - API and workflow tests need attention
+- **Status**: Test organization needs immediate attention
 
-### 🎉 **PRODUCTION READINESS STATUS: READY FOR PRODUCTION** 🟢
+### 🚨 **PRODUCTION READINESS STATUS: NOT READY** 🔴
 
 **All Core Components Operational:**
 - ✅ **Neural Networks**: FULLY AVAILABLE - Models implemented and accessible through standard interface
@@ -125,15 +159,21 @@
 
 ## 🎯 IMPLEMENTATION RECOMMENDATIONS
 
-### 🎉 CRITICAL ISSUES RESOLVED (P0)
-**All P0 critical issues have been successfully fixed in v0.6.13!**
+### 🚨 IMMEDIATE CRITICAL ACTIONS (P0) - MUST FIX BEFORE PRODUCTION
+**Critical issues blocking production deployment:**
 
-### REMAINING HIGH PRIORITY ACTIONS (P1)
-**Focus areas for core functionality improvement:**
+1. **Create Missing Notification System** - Implement `src/notifications.jl` module with required functionality
+2. **Fix TUI Dashboard Crash** - Resolve undefined variable `model_config.type` in `dashboard.jl:856`
 
-1. **Implement Proper TC Calculation** - Move from correlation-based to gradient-based method for accuracy
+### HIGH PRIORITY ACTIONS (P1)
+**Core functionality gaps requiring attention:**
+
+1. **Fix Webhook API Response Parsing** - Correct parsing logic in `client.jl:1382,1437`
+2. **Implement Proper TC Calculation** - Move from correlation-based to gradient-based method for accuracy
 
 ### MEDIUM PRIORITY ACTIONS (P2)
 **Important enhancements needed:**
 
-1. **Remove EvoTrees Workaround** - Once EvoTrees package fixes GPU support, remove the manual workaround
+1. **Fix GPU Metal Constant Column Bug** - Preserve constant columns in GPU standardization functions
+2. **Organize Test Suite** - Include 498 missing tests in `runtests.jl` for proper CI/CD coverage
+3. **Remove EvoTrees Workaround** - Once EvoTrees package fixes GPU support, remove the manual workaround

@@ -823,18 +823,19 @@ function run_real_training(dashboard::TournamentDashboard)
         
         # Create ML pipeline
         # Use XGBoost as the default model for training
+        model_config = Pipeline.ModelConfig(
+            "xgboost",
+            Dict(
+                :n_estimators => 100,
+                :max_depth => 5,
+                :learning_rate => 0.01,
+                :subsample => 0.8
+            )
+        )
         pipeline = Pipeline.MLPipeline(
             feature_cols=feature_cols,
             target_col=get(config, "target_col", "target_cyrus_v4_20"),
-            model_config=Pipeline.ModelConfig(
-                "xgboost",
-                Dict(
-                    :n_estimators => 100,
-                    :max_depth => 5,
-                    :learning_rate => 0.01,
-                    :subsample => 0.8
-                )
-            ),
+            model_config=model_config,
             neutralize=get(config, "enable_neutralization", false)
         )
         

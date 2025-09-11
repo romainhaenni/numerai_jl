@@ -106,11 +106,19 @@ println("="^60)
     @testset "5️⃣ Database Operations" begin
         db_path = tempname() * ".db"
         try
-            conn = NumeraiTournament.Database.init_database(db_path)
+            conn = NumeraiTournament.Database.init_database(db_path=db_path)
             
             # Save performance data
             NumeraiTournament.Database.save_model_performance(
-                conn, "test_model", 580, 0.023, 0.011, 0.005, 0.002, 1.5
+                conn, Dict(
+                    :model_name => "test_model",
+                    :round_number => 580,
+                    :correlation => 0.023,
+                    :mmc => 0.011,
+                    :tc => 0.005,
+                    :fnc => 0.002,
+                    :sharpe => 1.5
+                )
             )
             
             # Retrieve performance
@@ -135,7 +143,7 @@ println("="^60)
         end
         df[!, "target_cyrus_v4_20"] = randn(n_samples)
         df[!, "id"] = string.(1:n_samples)
-        df[!, "era"] = fill("era1", n_samples)
+        df[!, "era"] = fill(1, n_samples)  # Era should be numeric
         
         # Create pipeline
         feature_cols = ["feature_$i" for i in 1:20]
@@ -163,9 +171,9 @@ println("="^60)
         returns = randn(n)
         
         # Test all metrics
-        mmc = NumeraiTournament.Metrics.calculate_mmc(preds, meta)
+        mmc = NumeraiTournament.Metrics.calculate_mmc(preds, meta, returns)
         tc = NumeraiTournament.Metrics.calculate_tc(preds, meta, returns)
-        sharpe = NumeraiTournament.Metrics.calculate_sharpe(preds, returns)
+        sharpe = NumeraiTournament.Metrics.calculate_sharpe(returns)  # Sharpe only takes returns
         
         @test !isnan(mmc) && -1 <= mmc <= 1
         @test !isnan(tc) && -1 <= tc <= 1

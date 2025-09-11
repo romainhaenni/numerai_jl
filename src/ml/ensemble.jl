@@ -177,31 +177,94 @@ end
 
 function stacking_ensemble(base_models::Vector{<:Models.NumeraiModel}, 
                           meta_model::Models.NumeraiModel,
-                          X_train::Matrix{Float64}, y_train::Vector{Float64},
-                          X_val::Matrix{Float64}, y_val::Vector{Float64})::Function
+                          X_train::Matrix{Float64}, y_train::Union{Vector{Float64}, Matrix{Float64}},
+                          X_val::Matrix{Float64}, y_val::Union{Vector{Float64}, Matrix{Float64}})::Function
     
     n_base = length(base_models)
-    meta_features_train = Matrix{Float64}(undef, size(X_train, 1), n_base)
-    meta_features_val = Matrix{Float64}(undef, size(X_val, 1), n_base)
+    is_multi_target = y_train isa Matrix
+    n_targets = is_multi_target ? size(y_train, 2) : 1
     
-    for (i, model) in enumerate(base_models)
-        Models.train!(model, X_train, y_train, verbose=false)
-        meta_features_train[:, i] = Models.predict(model, X_train)
-        meta_features_val[:, i] = Models.predict(model, X_val)
+    # Train base models
+    for model in base_models
+        Models.train!(model, X_train, y_train, X_val=X_val, y_val=y_val, verbose=false)
     end
     
-    Models.train!(meta_model, meta_features_train, y_train, 
-                 X_val=meta_features_val, y_val=y_val, verbose=false)
-    
-    function stacked_predict(X::Matrix{Float64})::Vector{Float64}
-        meta_features = Matrix{Float64}(undef, size(X, 1), n_base)
-        for (i, model) in enumerate(base_models)
-            meta_features[:, i] = Models.predict(model, X)
+    if is_multi_target
+        # Multi-target stacking: train separate meta-models for each target
+        meta_models = [deepcopy(meta_model) for _ in 1:n_targets]
+        
+        for target_idx in 1:n_targets
+            # Create meta features for this target
+            meta_features_train = Matrix{Float64}(undef, size(X_train, 1), n_base)
+            meta_features_val = Matrix{Float64}(undef, size(X_val, 1), n_base)
+            
+            for (i, model) in enumerate(base_models)
+                pred_train = Models.predict(model, X_train)
+                pred_val = Models.predict(model, X_val)
+                
+                if pred_train isa Matrix
+                    meta_features_train[:, i] = pred_train[:, target_idx]
+                    meta_features_val[:, i] = pred_val[:, target_idx]
+                else
+                    meta_features_train[:, i] = pred_train
+                    meta_features_val[:, i] = pred_val
+                end
+            end
+            
+            # Train meta model for this target
+            Models.train!(meta_models[target_idx], meta_features_train, y_train[:, target_idx], 
+                         X_val=meta_features_val, y_val=y_val[:, target_idx], verbose=false)
         end
-        return Models.predict(meta_model, meta_features)
+        
+        function stacked_predict_multi(X::Matrix{Float64})::Matrix{Float64}
+            result = Matrix{Float64}(undef, size(X, 1), n_targets)
+            
+            for target_idx in 1:n_targets
+                meta_features = Matrix{Float64}(undef, size(X, 1), n_base)
+                for (i, model) in enumerate(base_models)
+                    pred = Models.predict(model, X)
+                    if pred isa Matrix
+                        meta_features[:, i] = pred[:, target_idx]
+                    else
+                        meta_features[:, i] = pred
+                    end
+                end
+                
+                pred = Models.predict(meta_models[target_idx], meta_features)
+                result[:, target_idx] = pred isa Vector ? pred : vec(pred)
+            end
+            
+            return result
+        end
+        
+        return stacked_predict_multi
+    else
+        # Single target stacking - original implementation
+        meta_features_train = Matrix{Float64}(undef, size(X_train, 1), n_base)
+        meta_features_val = Matrix{Float64}(undef, size(X_val, 1), n_base)
+        
+        for (i, model) in enumerate(base_models)
+            pred_train = Models.predict(model, X_train)
+            pred_val = Models.predict(model, X_val)
+            meta_features_train[:, i] = pred_train isa Vector ? pred_train : vec(pred_train)
+            meta_features_val[:, i] = pred_val isa Vector ? pred_val : vec(pred_val)
+        end
+        
+        Models.train!(meta_model, meta_features_train, y_train, 
+                     X_val=meta_features_val, y_val=y_val, verbose=false)
+        
+        function stacked_predict(X::Matrix{Float64})::Vector{Float64}
+            meta_features = Matrix{Float64}(undef, size(X, 1), n_base)
+            for (i, model) in enumerate(base_models)
+                pred = Models.predict(model, X)
+                meta_features[:, i] = pred isa Vector ? pred : vec(pred)
+            end
+            pred = Models.predict(meta_model, meta_features)
+            return pred isa Vector ? pred : vec(pred)
+        end
+        
+        return stacked_predict
     end
-    
-    return stacked_predict
 end
 
 function diversity_score(predictions_matrix::Matrix{Float64})::Float64

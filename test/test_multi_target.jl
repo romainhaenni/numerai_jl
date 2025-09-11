@@ -97,7 +97,7 @@ try
     println("   ✅ Multi-target pipeline created successfully")
     println("      - is_multi_target: $(multi_pipeline.is_multi_target)")
     println("      - n_targets: $(multi_pipeline.n_targets)")
-    println("      - target_cols: $(multi_pipeline.target_col)")
+    println("      - target_cols: $(multi_pipeline.target_cols)")
     
     # Test data preparation
     X, y, eras = NumeraiTournament.Pipeline.prepare_data(multi_pipeline, df)

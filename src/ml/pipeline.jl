@@ -417,17 +417,21 @@ function prepare_data(pipeline::MLPipeline, df::DataFrame)
         eras = Int.(df.era)
         return X, y, eras
     else
-        # Multi-target mode: return dict of targets
-        y_dict = Dict{String, Vector{Float64}}()
-        for target_col in pipeline.target_cols
+        # Multi-target mode: collect targets into a matrix
+        n_samples = size(X, 1)
+        n_targets = length(pipeline.target_cols)
+        y_matrix = Matrix{Float64}(undef, n_samples, n_targets)
+        
+        for (i, target_col) in enumerate(pipeline.target_cols)
             if target_col in names(df)
-                y_dict[target_col] = Vector{Float64}(df[!, target_col])
+                y_matrix[:, i] = Vector{Float64}(df[!, target_col])
             else
-                @warn "Target column $target_col not found in dataframe"
+                @warn "Target column $target_col not found in dataframe, filling with zeros"
+                y_matrix[:, i] .= 0.0
             end
         end
         eras = Int.(df.era)
-        return X, y_dict, eras
+        return X, y_matrix, eras
     end
 end
 
@@ -480,7 +484,7 @@ function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
             println("\n🎯 Training models for $(length(pipeline.target_cols)) targets...")
         end
         
-        for target_col in pipeline.target_cols
+        for (target_idx, target_col) in enumerate(pipeline.target_cols)
             # Clone model for this target using model config
             target_model = create_model_from_config(pipeline.model_config)
             target_model.name = "$(target_model.name)_$(target_col)"
@@ -489,8 +493,12 @@ function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
                 println("Training $(target_model.name)")
             end
             
-            Models.train!(target_model, X_train, y_train[target_col], 
-                         X_val=X_val, y_val=y_val[target_col], 
+            # Extract the appropriate column from the target matrix
+            y_train_target = y_train[:, target_idx]
+            y_val_target = y_val[:, target_idx]
+            
+            Models.train!(target_model, X_train, y_train_target, 
+                         X_val=X_val, y_val=y_val_target, 
                          feature_names=pipeline.feature_cols,
                          feature_groups=feature_groups,
                          verbose=verbose)
@@ -505,7 +513,8 @@ function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
         if pipeline.is_multi_target
             # For multi-target, calculate average correlation across targets
             if val_predictions isa Dict
-                val_scores = [cor(val_predictions[target], y_val[target]) for target in pipeline.target_cols]
+                val_scores = [cor(val_predictions[target], y_val[:, target_idx]) 
+                             for (target_idx, target) in enumerate(pipeline.target_cols)]
                 val_score = mean(val_scores)
                 println("\nValidation correlations: $(round.(val_scores, digits=4))")
                 println("Average correlation: $(round(val_score, digits=4))")
@@ -630,15 +639,19 @@ function evaluate(pipeline::MLPipeline, df::DataFrame;
         # Multi-target mode
         if target !== nothing
             # Evaluate specific target
+            target_idx = findfirst(==(target), pipeline.target_cols)
+            if target_idx === nothing
+                error("Target $target not found in pipeline targets: $(pipeline.target_cols)")
+            end
             predictions = predict(pipeline, df, target=target)
-            y = y_data[target]
+            y = y_data[:, target_idx]
         else
             # Evaluate all targets and return aggregated results
             all_results = Dict{String, Dict{Symbol, Float64}}()
             
-            for target_col in pipeline.target_cols
+            for (target_idx, target_col) in enumerate(pipeline.target_cols)
                 target_predictions = predict(pipeline, df, target=target_col)
-                target_y = y_data[target_col]
+                target_y = y_data[:, target_idx]
                 
                 target_results = Dict{Symbol, Float64}()
                 
@@ -765,9 +778,12 @@ function optimize_hyperparameters(pipeline::MLPipeline, train_df::DataFrame;
     
     # Create data dict for HyperOpt
     data_dict = Dict{String,DataFrame}()
-    for target in pipeline.target_cols
+    for (target_idx, target) in enumerate(pipeline.target_cols)
+        # Extract the appropriate target column
+        target_y = pipeline.target_mode == :single ? y : y[:, target_idx]
+        
         target_df = DataFrame(
-            hcat(X, y),
+            hcat(X, target_y),
             vcat(pipeline.feature_cols, "target")
         )
         if era_col !== nothing

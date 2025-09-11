@@ -392,7 +392,6 @@ function render(dashboard::TournamentDashboard)
         println()
         println("Commands: q=quit, p=pause, s=start training, h=help")
         println()
-        println("Debug: Press 'd' to show detailed error information")
     end
 end
 

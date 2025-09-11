@@ -20,7 +20,7 @@ using BSON: @save, @load
 # Note: NumeraiModel is already defined in Models module
 import ..Models: NumeraiModel, train!, predict, feature_importance, save_model, load_model!
 # Import MetalAcceleration functions from main module
-import ...MetalAcceleration: has_metal_gpu
+import ..MetalAcceleration: has_metal_gpu
 
 # Export neural network models
 export NeuralNetworkModel, MLPModel, ResNetModel

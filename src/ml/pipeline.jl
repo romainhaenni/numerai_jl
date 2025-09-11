@@ -8,7 +8,7 @@ using ..DataLoader
 using ..Preprocessor
 using ..Models
 using ..Models: RidgeModel, LassoModel, ElasticNetModel
-using ..Models: MLPModel, ResNetModel
+using ..NeuralNetworks: MLPModel, ResNetModel
 using ..Ensemble
 using ..Neutralization
 using ..Metrics

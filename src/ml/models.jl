@@ -1690,14 +1690,11 @@ export RidgeModel, LassoModel, ElasticNetModel
 # Forward train! and predict for linear models
 train!(model::Union{RidgeModel, LassoModel, ElasticNetModel}, args...; kwargs...) = LinearModels.train!(model, args...; kwargs...)
 predict(model::Union{RidgeModel, LassoModel, ElasticNetModel}, args...; kwargs...) = LinearModels.predict(model, args...; kwargs...)
+feature_importance(model::Union{RidgeModel, LassoModel, ElasticNetModel}) = LinearModels.feature_importance(model)
+save_model(model::Union{RidgeModel, LassoModel, ElasticNetModel}, filepath::String) = LinearModels.save_model(model, filepath)
+load_model!(model::Union{RidgeModel, LassoModel, ElasticNetModel}, filepath::String) = LinearModels.load_model!(model, filepath)
 
-# Include neural networks
-include("neural_networks.jl")
-using .NeuralNetworks: MLPModel, ResNetModel, NeuralNetworkModel, 
-                       train_neural_network!, predict_neural_network,
-                       correlation_loss, mse_correlation_loss
-export MLPModel, ResNetModel, NeuralNetworkModel,
-       train_neural_network!, predict_neural_network,
-       correlation_loss, mse_correlation_loss
+# Neural networks will be included separately at main module level
+# Exports are handled there
 
 end

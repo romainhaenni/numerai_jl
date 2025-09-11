@@ -42,8 +42,11 @@ export run_tournament, TournamentConfig, TournamentDashboard, TournamentSchedule
 using .Logger: init_logger, @log_info, @log_warn, @log_error
 using .Models: XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel, 
                RidgeModel, LassoModel, ElasticNetModel,
-               MLPModel, ResNetModel, NeuralNetworkModel,
                get_models_gpu_status, create_model
+using .NeuralNetworks: MLPModel, ResNetModel, NeuralNetworkModel, 
+                       train! as nn_train!, predict as nn_predict,
+                       feature_importance as nn_feature_importance,
+                       save_model as nn_save_model, load_model! as nn_load_model!
 using .MetalAcceleration: has_metal_gpu, get_gpu_info, gpu_standardize!
 using .GPUBenchmarks: run_comprehensive_gpu_benchmark
 using .Performance: optimize_for_m4_max
@@ -52,6 +55,8 @@ using .Dashboard: TournamentDashboard, run_dashboard
 using .API: NumeraiClient, download_dataset, submit_predictions as api_submit_predictions, get_models, get_model_performance
 using .Pipeline: MLPipeline, train!, predict, save_pipeline, load_pipeline
 using .DataLoader: load_training_data, load_live_data
+
+# Neural network functions are accessed via NeuralNetworks module directly
 
 mutable struct TournamentConfig
     api_public_key::String

@@ -2,11 +2,21 @@
 
 ## 🚨 CRITICAL ISSUES (P0) - BLOCKING PRODUCTION USE
 
-**All P0 Critical issues have been resolved in v0.6.11!** ✅
+### 1. **Neural Network Models Missing from Models Module** 🔴 **CRITICAL**
+- **Current**: Neural network models implemented but not forwarded to Models module
+- **Impact**: Users cannot access MLPNet and ResNet models through the standard interface
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/models.jl`, `/Users/romain/src/Numerai/numerai_jl/src/ml/neural_networks.jl`
+- **Status**: Need to add forwarding functions for MLPNet and ResNet in Models module
 
 ## 🔥 HIGH PRIORITY (P1) - CORE FUNCTIONALITY GAPS
 
-### 1. **True Contribution (TC) Calculation** 🟠 **HIGH**
+### 1. **Import Syntax Error in Neural Networks** 🟡 **HIGH**
+- **Current**: Incorrect import statement `import ...MetalAcceleration`
+- **Need**: Fix to `import ..MetalAcceleration` (two dots, not three)
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/neural_networks.jl` line 5
+- **Impact**: Potential import errors when using neural networks with GPU acceleration
+
+### 2. **True Contribution (TC) Calculation** 🟠 **HIGH**
 - **Current**: Correlation-based approximation
 - **Need**: Official gradient-based method for exact TC matching Numerai's calculation
 - **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/metrics.jl`
@@ -15,7 +25,11 @@
 
 ## 🔧 MEDIUM PRIORITY (P2) - IMPORTANT ENHANCEMENTS
 
-**All P2 Medium priority issues have been resolved in v0.6.12!** ✅
+### 1. **EvoTrees Bug Workaround** 🟡 **MEDIUM**
+- **Current**: Workaround for EvoTrees 0.16.7 GPU bug in models.jl line 658
+- **Impact**: GPU acceleration disabled for EvoTrees models
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/models.jl`
+- **Status**: Remove workaround once EvoTrees package fixes GPU support
 
 ## 🌟 LOW PRIORITY (P3) - NICE TO HAVE
 
@@ -53,19 +67,27 @@
 - **Files**: `/Users/romain/src/Numerai/numerai_jl/src/gpu/benchmarks.jl`
 - **Impact**: Performance optimization opportunities
 
-### 7. **Configuration Documentation** 🟢 **LOW**
+### 7. **Test Suite Count Discrepancy** 🟢 **LOW**
+- **Current**: System reports 1,554 tests but actually has 2,182+ @test statements
+- **Impact**: Misleading test coverage reporting
+- **Files**: Test suite across `/Users/romain/src/Numerai/numerai_jl/test/` directory
+- **Status**: Test count reporting needs verification
+
+### 8. **Configuration Documentation** 🟢 **LOW**
 - **Need**: Comprehensive config.toml parameter documentation
 - **Impact**: User experience and configuration clarity
 
 ## COMPLETED ITEMS ✅
 
-### Recent Major Completions
-- ✅ **Silent Error Handling in Scheduler Monitoring Fixed** (v0.6.12) - Critical monitoring functions now have proper error handling and logging
-- ✅ **Database Transaction Management Fixed** (v0.6.12) - All database operations now wrapped in proper transactions
-- ✅ **Ensemble Prediction Memory Validation Fixed** (v0.6.12) - Validation for consistent prediction vector lengths implemented
-- ✅ **Database Schema Field Name Mismatches Fixed** (v0.6.12) - Model metadata storage now uses correct field names
-- ✅ **Scheduler Hardcoded Parameters Fixed** (v0.6.12) - Scheduler now uses config.toml parameters instead of hardcoded values
-- ✅ **CLI Config File Inconsistency Fixed** (v0.6.12) - Consistent fallback behavior implemented for missing config.toml
+### Recent Major Completions (v0.6.12)
+- ✅ **Silent Error Handling in Scheduler Monitoring Fixed** - Critical monitoring functions now have proper error handling and logging
+- ✅ **Database Transaction Management Fixed** - All database operations now wrapped in proper transactions
+- ✅ **Ensemble Prediction Memory Validation Fixed** - Validation for consistent prediction vector lengths implemented
+- ✅ **Database Schema Field Name Mismatches Fixed** - Model metadata storage now uses correct field names
+- ✅ **Scheduler Hardcoded Parameters Fixed** - Scheduler now uses config.toml parameters instead of hardcoded values
+- ✅ **CLI Config File Inconsistency Fixed** - Consistent fallback behavior implemented for missing config.toml
+
+### Previous Major Completions (v0.6.11)
 - ✅ **Missing Module Includes Fixed** (v0.6.11) - linear_models.jl and neural_networks.jl now included in main module
 - ✅ **Missing API Function Import Fixed** (v0.6.11) - get_model_performance now properly imported
 - ✅ **GPU Cross Validation Function Implemented** (v0.6.11) - gpu_cross_validation_scores function now fully implemented
@@ -85,26 +107,29 @@
 
 ## 📊 CURRENT SYSTEM STATUS
 
-### ✅ **MAJOR BREAKTHROUGH - v0.6.11 RELEASED** 🎉
-**All critical blocking issues have been resolved!**
+### 🚨 **NEW CRITICAL ISSUES DISCOVERED** - REQUIRES IMMEDIATE ATTENTION
+**Recent analysis revealed new blocking issues that need resolution!**
 
 ### Blocking Issues Summary
-- **P0 Critical**: ✅ **0 ISSUES REMAINING** - All core functionality now available!
-- **P1 High**: 🟠 **1 HIGH PRIORITY ISSUE** - Remaining functionality improvement
+- **P0 Critical**: 🔴 **1 CRITICAL ISSUE** - Neural network models inaccessible to users
+  - Neural network forwarding functions missing from Models module
+- **P1 High**: 🟡 **2 HIGH PRIORITY ISSUES** - Core functionality gaps
+  - Import syntax error in neural_networks.jl
   - TC calculation method (correlation vs gradient-based)
-- **P2 Medium**: ✅ **0 ISSUES REMAINING** - All important enhancements completed in v0.6.12!
-- **P3 Low**: 🟢 **7 LOW PRIORITY ISSUES** - Performance and usability improvements
+- **P2 Medium**: 🟡 **1 MEDIUM PRIORITY ISSUE** - Important enhancement needed
+  - EvoTrees GPU bug workaround
+- **P3 Low**: 🟢 **8 LOW PRIORITY ISSUES** - Performance and usability improvements
 
 ### Test Suite Status
-- **Test Pass Rate**: 100% (1,554/1,554 tests passing) ✅
-- **All critical imports and functions now working**
-- **Full test suite validation successful**
+- **Test Pass Rate**: ~86% (2,069 passed, 113 failed/errored based on analysis) ⚠️
+- **Test Count Discrepancy**: Reports 1,554 tests but analysis found 2,182+ @test statements
+- **Integration tests have failures** - Some API and workflow tests need attention
 
-### ✅ **PRODUCTION READINESS STATUS: ALL SYSTEMS OPERATIONAL** 🟢
+### ⚠️ **PRODUCTION READINESS STATUS: CRITICAL ISSUES DISCOVERED** 🟡
 
-**Now Working Components (Fixed in v0.6.11):**
+**Components with Issues:**
+- ⚠️ **Neural Networks**: PARTIALLY AVAILABLE - Models implemented but not accessible through standard interface
 - ✅ **Linear Models**: FULLY AVAILABLE - Module properly included and functional
-- ✅ **Neural Networks**: FULLY AVAILABLE - Module properly included with multi-target support
 - ✅ **Performance Commands**: WORKING - get_model_performance properly imported
 - ✅ **GPU Cross-Validation**: WORKING - Function fully implemented
 - ✅ **Webhook Operations**: WORKING - All webhook functions have correct parsing logic
@@ -120,14 +145,18 @@
 
 ## 🎯 IMPLEMENTATION RECOMMENDATIONS
 
-### ✅ CRITICAL ACTIONS COMPLETED (P0)
-**All critical blocking issues have been successfully resolved in v0.6.11!**
+### 🚨 IMMEDIATE CRITICAL ACTIONS REQUIRED (P0)
+**New blocking issues discovered that require immediate attention:**
 
-1. ✅ **Module Import Issues Fixed** - All core models now available
-2. ✅ **API Import Issues Fixed** - Performance monitoring fully functional  
-3. ✅ **Missing GPU Functions Implemented** - GPU features fully operational
+1. **Fix Neural Network Model Access** - Add forwarding functions for MLPNet and ResNet in Models module
 
 ### REMAINING HIGH PRIORITY ACTIONS (P1)
-**Focus area for continued improvement:**
+**Focus areas for core functionality improvement:**
 
-1. **Implement Proper TC Calculation** - Move from correlation-based to gradient-based method for accuracy
+1. **Fix Import Syntax Error** - Correct the import statement in neural_networks.jl
+2. **Implement Proper TC Calculation** - Move from correlation-based to gradient-based method for accuracy
+
+### MEDIUM PRIORITY ACTIONS (P2)
+**Important enhancements needed:**
+
+1. **Remove EvoTrees Workaround** - Once EvoTrees package fixes GPU support, remove the manual workaround

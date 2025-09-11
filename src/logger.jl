@@ -251,7 +251,7 @@ function log_model_performance(model_name::String, metrics::Dict)
     @info "Model performance update" model=model_name corr=get(metrics, :corr, NaN) mmc=get(metrics, :mmc, NaN) tc=get(metrics, :tc, NaN) sharpe=get(metrics, :sharpe, NaN)
 end
 
-function log_api_call(endpoint::String, method::String, status::Int, duration::Float64=0.0)
+function log_api_call(endpoint::String, method::String, status::Integer, duration::Float64=0.0)
     if status >= 200 && status < 300
         @debug "API call successful" endpoint=endpoint method=method status=status duration_ms=round(duration*1000, digits=2)
     elseif status >= 400 && status < 500

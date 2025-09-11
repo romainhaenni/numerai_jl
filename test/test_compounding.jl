@@ -8,8 +8,8 @@ using Test
 using Dates
 using TimeZones
 
-# Mock API client for testing - wrapper around the real client
-mutable struct MockNumeraiClient
+# Mock API client for testing compounding functionality - wrapper around the real client
+mutable struct MockCompoundingClient
     real_client::NumeraiTournament.API.NumeraiClient
     api_calls::Vector{Symbol}
     wallet_balance::Float64
@@ -19,7 +19,7 @@ mutable struct MockNumeraiClient
     user_models::Vector{String}
 end
 
-function MockNumeraiClient(;
+function MockCompoundingClient(;
     wallet_balance=100.0,
     model_stakes=Dict{String, Float64}(),
     stake_increase_results=Dict{String, Bool}(),
@@ -29,7 +29,7 @@ function MockNumeraiClient(;
     # Create a real client with dummy credentials
     real_client = NumeraiTournament.API.NumeraiClient("test_public_id", "test_secret_key")
     
-    MockNumeraiClient(
+    MockCompoundingClient(
         real_client,
         Symbol[],
         wallet_balance,
@@ -41,7 +41,7 @@ function MockNumeraiClient(;
 end
 
 # Helper function to create a CompoundingManager that works with mocked API calls
-function create_test_manager(mock_client::MockNumeraiClient, config::NumeraiTournament.Compounding.CompoundingConfig)
+function create_test_manager(mock_client::MockCompoundingClient, config::NumeraiTournament.Compounding.CompoundingConfig)
     # Create the manager with the real client
     manager = NumeraiTournament.Compounding.CompoundingManager(mock_client.real_client, config)
     
@@ -50,7 +50,7 @@ function create_test_manager(mock_client::MockNumeraiClient, config::NumeraiTour
 end
 
 # Custom compound function that uses the mock data
-function mock_check_and_compound_earnings(manager, mock_client::MockNumeraiClient, model_name::String)
+function mock_check_and_compound_earnings(manager, mock_client::MockCompoundingClient, model_name::String)
     if !manager.enabled || !manager.config.enabled
         return 0.0
     end
@@ -127,7 +127,7 @@ function mock_check_and_compound_earnings(manager, mock_client::MockNumeraiClien
 end
 
 # Mock process all compounding function
-function mock_process_all_compounding(manager, mock_client::MockNumeraiClient)
+function mock_process_all_compounding(manager, mock_client::MockCompoundingClient)
     if !manager.enabled || !manager.config.enabled
         return 0.0
     end
@@ -217,7 +217,7 @@ end
     end
     
     @testset "CompoundingManager Creation and State Management" begin
-        mock_client = MockNumeraiClient()
+        mock_client = MockCompoundingClient()
         config = NumeraiTournament.Compounding.CompoundingConfig(enabled=true)
         
         # Test manager creation
@@ -239,7 +239,7 @@ end
     end
     
     @testset "should_run_compounding Logic" begin
-        mock_client = MockNumeraiClient()
+        mock_client = MockCompoundingClient()
         config = NumeraiTournament.Compounding.CompoundingConfig(enabled=true)
         manager, _ = create_test_manager(mock_client, config)
         
@@ -288,7 +288,7 @@ end
     
     @testset "calculate_compound_amount with Different Percentages and Limits" begin
         # Test 100% compounding
-        mock_client = MockNumeraiClient(wallet_balance=100.0)
+        mock_client = MockCompoundingClient(wallet_balance=100.0)
         config = NumeraiTournament.Compounding.CompoundingConfig(
             enabled=true,
             compound_percentage=100.0,
@@ -345,7 +345,7 @@ end
     
     @testset "execute_compound Success and Failure Scenarios" begin
         # Test successful compound
-        mock_client = MockNumeraiClient(
+        mock_client = MockCompoundingClient(
             wallet_balance=100.0,
             stake_increase_results=Dict("test_model" => true)
         )
@@ -401,7 +401,7 @@ end
     end
     
     @testset "update_compounding_config Functionality" begin
-        mock_client = MockNumeraiClient()
+        mock_client = MockCompoundingClient()
         config = NumeraiTournament.Compounding.CompoundingConfig()
         manager, _ = create_test_manager(mock_client, config)
         
@@ -533,7 +533,7 @@ end
         @test state2.compound_history[1] == (DateTime(2023, 1, 2), 20.0)
         
         # Test updating history limit in manager affects existing states
-        mock_client = MockNumeraiClient()
+        mock_client = MockCompoundingClient()
         config = NumeraiTournament.Compounding.CompoundingConfig(history_limit=5)
         manager, _ = create_test_manager(mock_client, config)
         
@@ -559,7 +559,7 @@ end
     end
     
     @testset "Edge Cases" begin
-        mock_client = MockNumeraiClient()
+        mock_client = MockCompoundingClient()
         config = NumeraiTournament.Compounding.CompoundingConfig(enabled=true)
         manager, mock_client = create_test_manager(mock_client, config)
         
@@ -618,7 +618,7 @@ end
         @test result >= 0.0  # Should handle gracefully
         
         # Test empty states dictionary
-        empty_mock_client = MockNumeraiClient()
+        empty_mock_client = MockCompoundingClient()
         empty_manager, _ = create_test_manager(empty_mock_client, config)
         @test length(empty_manager.states) == 0
         
@@ -668,7 +668,7 @@ end
         end
         
         # Test concurrent config updates
-        mock_client = MockNumeraiClient()
+        mock_client = MockCompoundingClient()
         config = NumeraiTournament.Compounding.CompoundingConfig()
         manager, _ = create_test_manager(mock_client, config)
         
@@ -697,7 +697,7 @@ end
     
     @testset "process_all_compounding Functionality" begin
         # Test with specific models configured
-        mock_client = MockNumeraiClient(
+        mock_client = MockCompoundingClient(
             wallet_balance=100.0,
             user_models=["model1", "model2", "model3"]
         )
@@ -723,7 +723,7 @@ end
         config.models = String[]
         
         # Reset the mock client to fresh state
-        fresh_mock_client = MockNumeraiClient(
+        fresh_mock_client = MockCompoundingClient(
             wallet_balance=100.0,
             user_models=["model1", "model2", "model3"]
         )
@@ -753,7 +753,7 @@ end
     end
     
     @testset "get_compounding_stats Functionality" begin
-        mock_client = MockNumeraiClient()
+        mock_client = MockCompoundingClient()
         config = NumeraiTournament.Compounding.CompoundingConfig()
         manager, _ = create_test_manager(mock_client, config)
         
@@ -782,7 +782,7 @@ end
     end
     
     @testset "set_compounding_enabled Functionality" begin
-        mock_client = MockNumeraiClient()
+        mock_client = MockCompoundingClient()
         config = NumeraiTournament.Compounding.CompoundingConfig(enabled=false)
         manager, _ = create_test_manager(mock_client, config)
         
@@ -801,7 +801,7 @@ end
     end
     
     @testset "Financial Logic Validation" begin
-        mock_client = MockNumeraiClient()
+        mock_client = MockCompoundingClient()
         config = NumeraiTournament.Compounding.CompoundingConfig(
             enabled=true,
             min_compound_amount=1.0,
@@ -817,7 +817,7 @@ end
             compound_percentage=100.0,
             max_stake_amount=1000.0
         )
-        precision_mock_client = MockNumeraiClient(wallet_balance=1.001)
+        precision_mock_client = MockCompoundingClient(wallet_balance=1.001)
         precision_manager, precision_mock_client = create_test_manager(precision_mock_client, precision_config)
         state = NumeraiTournament.Compounding.CompoundingState("test_model")
         state.last_balance = 1.0
@@ -828,7 +828,7 @@ end
         @test abs(result - 0.001) < 1e-12  # Should compound the exact precision amount (allowing for tiny floating-point errors)
         
         # Test cumulative compounding accuracy
-        cumulative_mock_client = MockNumeraiClient(wallet_balance=100.0)
+        cumulative_mock_client = MockCompoundingClient(wallet_balance=100.0)
         cumulative_manager, cumulative_mock_client = create_test_manager(cumulative_mock_client, config)
         cumulative_state = NumeraiTournament.Compounding.CompoundingState("test_model")
         cumulative_state.last_balance = 0.0
@@ -855,7 +855,7 @@ end
         end
         
         # Test with fractional percentages
-        frac_mock_client = MockNumeraiClient(wallet_balance=103.0)
+        frac_mock_client = MockCompoundingClient(wallet_balance=103.0)
         frac_config = NumeraiTournament.Compounding.CompoundingConfig(
             enabled=true,
             compound_percentage=33.33,

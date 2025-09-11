@@ -1,7 +1,7 @@
 using Test
 using NumeraiTournament
 using NumeraiTournament.API: NumeraiClient, create_webhook, delete_webhook, list_webhooks, 
-                              update_webhook, test_webhook, get_webhook_logs
+                              update_webhook, test_webhook, get_webhook_logs, get_models_for_user
 using Dates
 
 @testset "Webhook Management Tests" begin

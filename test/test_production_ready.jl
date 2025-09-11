@@ -11,16 +11,18 @@ using Random
 using JSON3
 using CSV
 using Logging
+using NumeraiTournament.Metrics: calculate_correlation, calculate_sharpe
 
 # Access submodules properly
 const API = NumeraiTournament.API
-const Models = NumeraiTournament.Models  
-const DataProcessing = NumeraiTournament.DataProcessing
+const ML_Models = NumeraiTournament.Models  
+const DataProcessing = NumeraiTournament.Preprocessor
 const Database = NumeraiTournament.Database
-const Logger = NumeraiTournament.Logger
-const GPU = NumeraiTournament.GPU
-const TUI = NumeraiTournament.TUI
-const Scheduler = NumeraiTournament.Scheduler
+const TournamentLogger = NumeraiTournament.Logger
+const MetalGPU = NumeraiTournament.MetalAcceleration
+const GPUBenchmarks = NumeraiTournament.GPUBenchmarks
+const TUIDashboard = NumeraiTournament.Dashboard
+const TournamentSchedulerModule = NumeraiTournament.Scheduler
 
 println("="^80)
 println(" NumeraiTournament.jl Production Readiness Test Suite")
@@ -30,7 +32,7 @@ println("="^80)
 test_results = Dict{String, Bool}()
 critical_failures = String[]
 
-function test_component(name::String, test_fn::Function)
+function test_component(test_fn::Function, name::String)
     print("Testing $name... ")
     try
         result = test_fn()
@@ -71,10 +73,10 @@ end
 # 3. Logger Test
 test_component("Logger System") do
     temp_dir = mktempdir()
-    Logger.initialize_logger(temp_dir; console_level=Logging.Error, file_level=Logging.Debug)
-    Logger.log_info("Test message")
-    Logger.log_debug("Debug test")
-    Logger.log_error("Error test")
+    TournamentLogger.initialize_logger(temp_dir; console_level=Logging.Error, file_level=Logging.Debug)
+    TournamentLogger.log_info("Test message")
+    TournamentLogger.log_debug("Debug test")
+    TournamentLogger.log_error("Error test")
     log_file = joinpath(temp_dir, "logs", "numerai.log")
     @test isfile(log_file)
     true
@@ -123,25 +125,34 @@ end
 
 # 6. Data Processing Test
 test_component("Data Processing") do
-    # Create synthetic data
+    # Create synthetic data with missing values
     Random.seed!(42)
     n_samples = 100
     n_features = 10
     
     df = DataFrame()
     for i in 1:n_features
-        df[!, "feature_$i"] = randn(n_samples)
+        values = Vector{Union{Float64, Missing}}(randn(n_samples))
+        # Introduce some missing values
+        missing_indices = rand(1:n_samples, 5)
+        values[missing_indices] .= missing
+        df[!, "feature_$i"] = values
     end
     df[!, "target"] = rand(n_samples)
     df[!, "era"] = repeat(1:10, inner=10)
     
-    # Test preprocessing
-    preprocessor = DataProcessing.DataPreprocessor()
-    processed_df = DataProcessing.preprocess_data(preprocessor, df, 
-        ["feature_$i" for i in 1:n_features])
+    # Test preprocessing functions
+    # Test fillna function
+    clean_df = DataProcessing.fillna(df, 0.0)
+    @test size(clean_df) == size(df)
+    @test !any(ismissing.(clean_df[!, "feature_1"]))
     
-    @test size(processed_df) == size(df)
-    @test !any(ismissing, Matrix(processed_df))
+    # Test rank normalization
+    test_predictions = rand(100)
+    ranked = DataProcessing.rank_predictions(test_predictions)
+    @test minimum(ranked) >= 0.0
+    @test maximum(ranked) <= 1.0
+    
     true
 end
 
@@ -152,8 +163,8 @@ test_component("Model Creation") do
                    :ridge, :lasso, :elasticnet]
     
     for model_type in model_types
-        model = Models.create_model(model_type)
-        @test isa(model, Models.NumeraiModel)
+        model = ML_Models.create_model(model_type)
+        @test isa(model, ML_Models.NumeraiModel)
     end
     true
 end
@@ -178,15 +189,12 @@ end
 
 # 9. GPU Acceleration Test
 test_component("GPU Acceleration") do
-    gpu_available = GPU.is_gpu_available()
+    gpu_available = MetalGPU.has_metal_gpu()
     if gpu_available
         # Test basic GPU operations
-        test_array = randn(Float32, 100, 100)
-        gpu_array = GPU.to_gpu(test_array)
-        @test size(gpu_array) == size(test_array)
-        
-        cpu_array = GPU.to_cpu(gpu_array)
-        @test cpu_array ≈ test_array
+        gpu_info = MetalGPU.get_gpu_info()
+        @test !isempty(gpu_info.name)
+        @test gpu_info.memory_gb > 0
     else
         println(" (GPU not available - skipping)")
     end
@@ -229,8 +237,6 @@ end
 
 # 12. Metrics Calculation Test
 test_component("Metrics Calculation") do
-    using NumeraiTournament.Metrics: calculate_correlation, calculate_sharpe
-    
     predictions = rand(100)
     targets = rand(100)
     
@@ -248,18 +254,16 @@ end
 # 13. TUI Module Test
 test_component("TUI Dashboard Module") do
     @test isdefined(NumeraiTournament, :run_dashboard)
-    @test isdefined(NumeraiTournament.TUI, :Dashboard)
-    @test isdefined(NumeraiTournament.TUI, :create_dashboard_state)
+    @test isdefined(NumeraiTournament.Dashboard, :TournamentDashboard)
+    @test isdefined(NumeraiTournament.Dashboard, :run_dashboard)
     true
 end
 
 # 14. Scheduler Module Test
 test_component("Scheduler Module") do
-    using NumeraiTournament.Scheduler
-    
-    @test isdefined(Scheduler, :TournamentScheduler)
-    @test isdefined(Scheduler, :schedule_tournament_tasks)
-    @test isdefined(Scheduler, :is_submission_window_open)
+    @test isdefined(TournamentSchedulerModule, :TournamentScheduler)
+    @test isdefined(TournamentSchedulerModule, :start_scheduler)
+    @test isdefined(TournamentSchedulerModule, :stop_scheduler)
     true
 end
 

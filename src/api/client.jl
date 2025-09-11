@@ -8,6 +8,7 @@ using Downloads
 using ProgressMeter
 using ..Schemas
 using ..Logger: @log_debug, @log_info, @log_warn, @log_error, log_api_call, log_submission
+using ..Logger
 
 # Import retry functionality
 include("retry.jl")

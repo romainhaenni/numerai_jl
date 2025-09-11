@@ -152,18 +152,34 @@ end
 function get_feature_groups(metadata::Dict{String, Any})::Dict{String, Vector{String}}
     groups = Dict{String, Vector{String}}()
     
-    for (feature, info) in metadata["feature_stats"]
-        # Convert feature to String if it's a Symbol (JSON3 may parse keys as Symbols)
-        feature_str = string(feature)
-        
-        # Get group, converting to string if necessary
-        group_raw = get(info, "group", "default")
-        group = string(group_raw)
-        
-        if !haskey(groups, group)
-            groups[group] = String[]
+    # Check if we have the new format with feature_groups array
+    if haskey(metadata, "feature_groups") && isa(metadata["feature_groups"], Vector)
+        for group_info in metadata["feature_groups"]
+            group_name = string(get(group_info, "name", "default"))
+            features = get(group_info, "features", String[])
+            
+            # Convert features to strings if needed
+            string_features = String[string(f) for f in features]
+            groups[group_name] = string_features
         end
-        push!(groups[group], feature_str)
+    # Fallback to old format if it exists
+    elseif haskey(metadata, "feature_stats")
+        for (feature, info) in metadata["feature_stats"]
+            # Convert feature to String if it's a Symbol (JSON3 may parse keys as Symbols)
+            feature_str = string(feature)
+            
+            # Get group, converting to string if necessary
+            group_raw = get(info, "group", "default")
+            group = string(group_raw)
+            
+            if !haskey(groups, group)
+                groups[group] = String[]
+            end
+            push!(groups[group], feature_str)
+        end
+    else
+        @warn "No feature groups found in metadata. Using default group."
+        groups["default"] = String[]
     end
     
     return groups

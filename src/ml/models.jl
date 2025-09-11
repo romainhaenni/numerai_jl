@@ -43,7 +43,7 @@ mutable struct EvoTreesModel <: NumeraiModel
 end
 
 mutable struct CatBoostModel <: NumeraiModel
-    model::Any  # CatBoost uses PyObject internally
+    model::Union{Nothing, Any, Vector{Any}}  # Single model or vector of models for multi-target
     params::Dict{String, Any}
     name::String
     gpu_enabled::Bool
@@ -671,12 +671,29 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Union{V
     end
 end
 
-function train!(model::CatBoostModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
+function train!(model::CatBoostModel, X_train::Matrix{Float64}, y_train::Union{Vector{Float64}, Matrix{Float64}};
                X_val::Union{Nothing, Matrix{Float64}}=nothing,
-               y_val::Union{Nothing, Vector{Float64}}=nothing,
+               y_val::Union{Nothing, Vector{Float64}, Matrix{Float64}}=nothing,
                feature_names::Union{Nothing, Vector{String}}=nothing,
                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
                verbose::Bool=false)
+    
+    # Detect multi-target case and set up appropriate parameters
+    is_multitarget = y_train isa Matrix{Float64}
+    n_targets = is_multitarget ? size(y_train, 2) : 1
+    
+    if is_multitarget
+        @info "Training CatBoost with multi-target support (using multiple single-target models)" n_targets=n_targets model_name=model.name
+        # CatBoost doesn't natively support multi-target regression, so we'll train multiple models
+        # Store target information for later use in prediction
+        model.params["n_targets"] = n_targets
+    else
+        @info "Training CatBoost with single-target" model_name=model.name
+        # Remove multi-target parameters if they exist
+        if haskey(model.params, "n_targets")
+            delete!(model.params, "n_targets")
+        end
+    end
     
     # Process feature groups for CatBoost if provided
     cat_features = Int[]  # CatBoost can handle categorical features
@@ -700,41 +717,135 @@ function train!(model::CatBoostModel, X_train::Matrix{Float64}, y_train::Vector{
         end
     end
     
-    # Create CatBoost pool
-    train_pool = CatBoost.Pool(X_train, y_train; cat_features=cat_features)
-    
-    # Create validation pool if provided
-    eval_pool = nothing
-    if X_val !== nothing && y_val !== nothing
-        eval_pool = CatBoost.Pool(X_val, y_val; cat_features=cat_features)
-    end
-    
-    # Configure CatBoost parameters
-    catboost_params = Dict{String, Any}(
-        :loss_function => model.params["loss_function"],
-        :depth => model.params["depth"],
-        :learning_rate => model.params["learning_rate"],
-        :iterations => model.params["iterations"],
-        :l2_leaf_reg => model.params["l2_leaf_reg"],
-        :bagging_temperature => model.params["bagging_temperature"],
-        :subsample => model.params["subsample"],
-        :colsample_bylevel => model.params["colsample_bylevel"],
-        :random_strength => model.params["random_strength"],
-        :thread_count => model.params["thread_count"],
-        :verbose => verbose,
-        :random_seed => model.params["random_seed"]
-    )
-    
-    # Train the model
-    model.model = CatBoost.CatBoostRegressor(; catboost_params...)
-    
-    if eval_pool !== nothing
-        CatBoost.fit!(model.model, train_pool; eval_set=eval_pool, verbose=verbose)
+    if is_multitarget
+        # For multi-target, train separate models for each target
+        models = Any[]
+        
+        for target_idx in 1:n_targets
+            @info "Training CatBoost model for target $target_idx/$n_targets"
+            y_target = y_train[:, target_idx]
+            
+            # Create CatBoost pool for this target (convert to numpy arrays)
+            np = CatBoost.pyimport("numpy")
+            X_train_np = np.array(X_train)
+            y_target_np = np.array(y_target)
+            cat_features_np = np.array(cat_features)
+            train_pool = CatBoost.Pool(X_train_np; label=y_target_np, cat_features=cat_features_np)
+            
+            # Create validation pool for this target if provided
+            eval_pool = nothing
+            if X_val !== nothing && y_val isa Matrix{Float64}
+                y_val_target = y_val[:, target_idx]
+                X_val_np = np.array(X_val)
+                y_val_target_np = np.array(y_val_target)
+                eval_pool = CatBoost.Pool(X_val_np; label=y_val_target_np, cat_features=cat_features_np)
+            elseif X_val !== nothing && y_val isa Vector{Float64} && target_idx == 1
+                # Use single-target validation for first target only
+                X_val_np = np.array(X_val)
+                y_val_np = np.array(y_val)
+                eval_pool = CatBoost.Pool(X_val_np; label=y_val_np, cat_features=cat_features_np)
+            end
+            
+            # Configure CatBoost parameters for this target
+            catboost_params = Dict{String, Any}(
+                "loss_function" => model.params["loss_function"],
+                "depth" => model.params["depth"],
+                "learning_rate" => model.params["learning_rate"],
+                "iterations" => model.params["iterations"],
+                "l2_leaf_reg" => model.params["l2_leaf_reg"],
+                "bagging_temperature" => model.params["bagging_temperature"],
+                "subsample" => model.params["subsample"],
+                "colsample_bylevel" => model.params["colsample_bylevel"],
+                "random_strength" => model.params["random_strength"],
+                "thread_count" => model.params["thread_count"],
+                "verbose" => verbose,
+                "random_seed" => model.params["random_seed"]
+            )
+            
+            # Train model for this target
+            target_model = CatBoost.CatBoostRegressor(
+                loss_function=catboost_params["loss_function"],
+                depth=catboost_params["depth"],
+                learning_rate=catboost_params["learning_rate"],
+                iterations=catboost_params["iterations"],
+                l2_leaf_reg=catboost_params["l2_leaf_reg"],
+                bagging_temperature=catboost_params["bagging_temperature"],
+                subsample=catboost_params["subsample"],
+                colsample_bylevel=catboost_params["colsample_bylevel"],
+                random_strength=catboost_params["random_strength"],
+                thread_count=catboost_params["thread_count"],
+                verbose=catboost_params["verbose"],
+                random_seed=catboost_params["random_seed"]
+            )
+            
+            if eval_pool !== nothing
+                CatBoost.fit!(target_model, train_pool; eval_set=eval_pool, verbose=verbose)
+            else
+                CatBoost.fit!(target_model, train_pool; verbose=verbose)
+            end
+            
+            push!(models, target_model)
+        end
+        
+        model.model = models
+        return model
     else
-        CatBoost.fit!(model.model, train_pool; verbose=verbose)
+        # Single-target training
+        # Create CatBoost pool (convert to numpy arrays)
+        np = CatBoost.pyimport("numpy")
+        X_train_np = np.array(X_train)
+        y_train_np = np.array(y_train)
+        cat_features_np = np.array(cat_features)
+        train_pool = CatBoost.Pool(X_train_np; label=y_train_np, cat_features=cat_features_np)
+        
+        # Create validation pool if provided
+        eval_pool = nothing
+        if X_val !== nothing && y_val !== nothing
+            X_val_np = np.array(X_val)
+            y_val_np = np.array(y_val)
+            eval_pool = CatBoost.Pool(X_val_np; label=y_val_np, cat_features=cat_features_np)
+        end
+        
+        # Configure CatBoost parameters
+        catboost_params = Dict{String, Any}(
+            "loss_function" => model.params["loss_function"],
+            "depth" => model.params["depth"],
+            "learning_rate" => model.params["learning_rate"],
+            "iterations" => model.params["iterations"],
+            "l2_leaf_reg" => model.params["l2_leaf_reg"],
+            "bagging_temperature" => model.params["bagging_temperature"],
+            "subsample" => model.params["subsample"],
+            "colsample_bylevel" => model.params["colsample_bylevel"],
+            "random_strength" => model.params["random_strength"],
+            "thread_count" => model.params["thread_count"],
+            "verbose" => verbose,
+            "random_seed" => model.params["random_seed"]
+        )
+        
+        # Train the model
+        model.model = CatBoost.CatBoostRegressor(
+            loss_function=catboost_params["loss_function"],
+            depth=catboost_params["depth"],
+            learning_rate=catboost_params["learning_rate"],
+            iterations=catboost_params["iterations"],
+            l2_leaf_reg=catboost_params["l2_leaf_reg"],
+            bagging_temperature=catboost_params["bagging_temperature"],
+            subsample=catboost_params["subsample"],
+            colsample_bylevel=catboost_params["colsample_bylevel"],
+            random_strength=catboost_params["random_strength"],
+            thread_count=catboost_params["thread_count"],
+            verbose=catboost_params["verbose"],
+            random_seed=catboost_params["random_seed"]
+        )
+        
+        if eval_pool !== nothing
+            CatBoost.fit!(model.model, train_pool; eval_set=eval_pool, verbose=verbose)
+        else
+            CatBoost.fit!(model.model, train_pool; verbose=verbose)
+        end
+        
+        return model
     end
-    
-    return model
 end
 
 function predict(model::XGBoostModel, X::Matrix{Float64})::Union{Vector{Float64}, Matrix{Float64}}
@@ -845,22 +956,54 @@ function predict(model::EvoTreesModel, X::Matrix{Float64})::Union{Vector{Float64
     end
 end
 
-function predict(model::CatBoostModel, X::Matrix{Float64})::Vector{Float64}
+function predict(model::CatBoostModel, X::Matrix{Float64})::Union{Vector{Float64}, Matrix{Float64}}
     if model.model === nothing
         error("Model not trained yet")
     end
     
-    # Create a pool for prediction
-    test_pool = CatBoost.Pool(X)
+    # Check if this is a multi-target model
+    is_multitarget = haskey(model.params, "n_targets") && model.params["n_targets"] > 1
     
-    # Get predictions
-    predictions = CatBoost.predict(model.model, test_pool)
-    
-    # Ensure predictions are a Vector
-    if predictions isa Matrix
-        return vec(predictions)
+    if is_multitarget && model.model isa Vector{Any}
+        n_targets = model.params["n_targets"]
+        n_samples = size(X, 1)
+        predictions_matrix = Matrix{Float64}(undef, n_samples, n_targets)
+        
+        # Get predictions from each target model
+        for (target_idx, target_model) in enumerate(model.model)
+            # Create a pool for prediction (convert to numpy array)
+            np = CatBoost.pyimport("numpy")
+            X_np = np.array(X)
+            test_pool = CatBoost.Pool(X_np)
+            
+            # Get predictions from this target model
+            target_predictions = CatBoost.predict(target_model, test_pool)
+            
+            # Ensure predictions are a Vector and convert to Float64
+            if target_predictions isa Matrix
+                predictions_matrix[:, target_idx] = convert(Vector{Float64}, vec(target_predictions))
+            else
+                predictions_matrix[:, target_idx] = convert(Vector{Float64}, target_predictions)
+            end
+        end
+        
+        return predictions_matrix
     else
-        return predictions
+        # Single-target prediction
+        # Create a pool for prediction (convert to numpy array)
+        np = CatBoost.pyimport("numpy")
+        X_np = np.array(X)
+        test_pool = CatBoost.Pool(X_np)
+        
+        # Get predictions
+        predictions = CatBoost.predict(model.model, test_pool)
+        
+        # Ensure predictions are a Vector
+        if predictions isa Matrix
+            return convert(Vector{Float64}, vec(predictions))
+        else
+            return convert(Vector{Float64}, predictions)
+        end
     end
 end
 
@@ -1031,30 +1174,77 @@ function feature_importance(model::CatBoostModel)::Dict{String, Float64}
         error("Model not trained yet")
     end
     
-    try
-        # CatBoost.jl wraps Python's CatBoost, so we need to use Python methods
-        # Get feature importance using the Python method
-        py_importance = model.model.get_feature_importance()
-        
-        # Convert to Julia array if needed
-        importance_array = convert(Vector{Float64}, py_importance)
-        
-        # Create dictionary with feature names
+    # Check if this is a multi-target model
+    is_multitarget = haskey(model.params, "n_targets") && model.params["n_targets"] > 1
+    
+    if is_multitarget && model.model isa Vector{Any}
+        # For multi-target, average feature importance across all target models
+        n_targets = length(model.model)
         feature_dict = Dict{String, Float64}()
-        for i in 1:length(importance_array)
-            feature_dict["feature_$(i)"] = importance_array[i]
+        
+        for (target_idx, target_model) in enumerate(model.model)
+            try
+                # Get feature importance for this target model
+                py_importance = target_model.get_feature_importance()
+                importance_array = collect(py_importance)
+                
+                # Add to accumulated importance
+                for i in 1:length(importance_array)
+                    feature_key = "feature_$(i)"
+                    if haskey(feature_dict, feature_key)
+                        feature_dict[feature_key] += importance_array[i]
+                    else
+                        feature_dict[feature_key] = importance_array[i]
+                    end
+                end
+            catch e
+                @warn "Failed to get CatBoost feature importance for target $target_idx" error=e
+                # Use uniform importance for this target as fallback
+                n_features = 100  # Default assumption
+                for i in 1:n_features
+                    feature_key = "feature_$(i)"
+                    if haskey(feature_dict, feature_key)
+                        feature_dict[feature_key] += 1.0 / n_features
+                    else
+                        feature_dict[feature_key] = 1.0 / n_features
+                    end
+                end
+            end
+        end
+        
+        # Average the importance across all targets
+        for (feature_key, total_importance) in feature_dict
+            feature_dict[feature_key] = total_importance / n_targets
         end
         
         return feature_dict
-    catch e
-        @warn "Failed to get CatBoost feature importance, using uniform importance" error=e
-        # Fallback: return uniform importance if the method is not available
-        n_features = length(model.params["colsample_bylevel"] == 1.0 ? 100 : 100)  # Default assumption
-        feature_dict = Dict{String, Float64}()
-        for i in 1:n_features
-            feature_dict["feature_$(i)"] = 1.0 / n_features
+    else
+        # Single-target model
+        try
+            # CatBoost.jl wraps Python's CatBoost, so we need to use Python methods
+            # Get feature importance using the Python method
+            py_importance = model.model.get_feature_importance()
+            
+            # Convert to Julia array if needed
+            importance_array = collect(py_importance)
+            
+            # Create dictionary with feature names
+            feature_dict = Dict{String, Float64}()
+            for i in 1:length(importance_array)
+                feature_dict["feature_$(i)"] = importance_array[i]
+            end
+            
+            return feature_dict
+        catch e
+            @warn "Failed to get CatBoost feature importance, using uniform importance" error=e
+            # Fallback: return uniform importance if the method is not available
+            n_features = length(model.params["colsample_bylevel"] == 1.0 ? 100 : 100)  # Default assumption
+            feature_dict = Dict{String, Float64}()
+            for i in 1:n_features
+                feature_dict["feature_$(i)"] = 1.0 / n_features
+            end
+            return feature_dict
         end
-        return feature_dict
     end
 end
 
@@ -1109,7 +1299,20 @@ function save_model(model::NumeraiModel, filepath::String)
             EvoTrees.save(model.model, filepath)
         end
     elseif model isa CatBoostModel
-        CatBoost.save_model(model.model, filepath)
+        if model.model isa Vector{Any}
+            # Multi-target CatBoost: save each model with suffix
+            for (i, target_model) in enumerate(model.model)
+                target_path = replace(filepath, r"(\.[^.]*$)" => "_target$(i)\\1")
+                target_model.save_model(target_path)
+            end
+            # Save metadata about multi-target structure
+            metadata_path = replace(filepath, r"(\.[^.]*$)" => "_metadata.json")
+            open(metadata_path, "w") do f
+                write(f, JSON3.write(Dict("n_targets" => length(model.model), "type" => "CatBoost")))
+            end
+        else
+            model.model.save_model(filepath)
+        end
     end
     
     println("Model saved to $filepath")
@@ -1192,8 +1395,30 @@ function load_model!(model::EvoTreesModel, filepath::String)
 end
 
 function load_model!(model::CatBoostModel, filepath::String)
-    model.model = CatBoost.CatBoostRegressor()
-    CatBoost.load_model!(model.model, filepath)
+    # Check if this is a multi-target model by looking for metadata file
+    metadata_path = replace(filepath, r"(\.[^.]*$)" => "_metadata.json")
+    if isfile(metadata_path)
+        metadata = JSON3.read(read(metadata_path, String))
+        if haskey(metadata, "n_targets") && metadata["n_targets"] > 1
+            # Load multi-target models
+            n_targets = metadata["n_targets"]
+            models = Any[]
+            for i in 1:n_targets
+                target_path = replace(filepath, r"(\.[^.]*$)" => "_target$(i)\\1")
+                target_model = CatBoost.CatBoostRegressor()
+                target_model.load_model(target_path)
+                push!(models, target_model)
+            end
+            model.model = models
+            model.params["n_targets"] = n_targets
+        else
+            model.model = CatBoost.CatBoostRegressor()
+            model.model.load_model(filepath)
+        end
+    else
+        model.model = CatBoost.CatBoostRegressor()
+        model.model.load_model(filepath)
+    end
     return model
 end
 

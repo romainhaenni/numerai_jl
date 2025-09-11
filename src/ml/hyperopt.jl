@@ -90,6 +90,8 @@ struct HyperOptConfig
     verbose::Bool
     parallel::Bool  # Use parallel processing
     seed::Int
+    correlation_weight::Float64  # Weight for correlation in multi-objective
+    sharpe_weight::Float64  # Weight for sharpe in multi-objective
     
     function HyperOptConfig(;
         model_type::Symbol,
@@ -99,10 +101,13 @@ struct HyperOptConfig
         early_stopping_rounds::Int=10,
         verbose::Bool=true,
         parallel::Bool=true,
-        seed::Int=42
+        seed::Int=42,
+        correlation_weight::Float64=0.7,
+        sharpe_weight::Float64=0.3
     )
         new(model_type, objective, n_splits, validation_eras, 
-            early_stopping_rounds, verbose, parallel, seed)
+            early_stopping_rounds, verbose, parallel, seed,
+            correlation_weight, sharpe_weight)
     end
 end
 
@@ -322,7 +327,8 @@ function evaluate_params(
                 predictions,
                 val_data,
                 config.objective,
-                targets
+                targets,
+                config
             )
             
             push!(scores, score)
@@ -342,7 +348,8 @@ function calculate_objective_score(
     predictions::DataFrame,
     val_data::Dict{String,DataFrame},
     objective::Symbol,
-    targets::Vector{String}
+    targets::Vector{String},
+    config::Union{HyperOptConfig, Nothing}=nothing
 )
     if objective == :correlation
         # Average correlation across all targets
@@ -416,8 +423,11 @@ function calculate_objective_score(
         corr_score = calculate_objective_score(predictions, val_data, :correlation, targets)
         sharpe_score = calculate_objective_score(predictions, val_data, :sharpe, targets)
         
-        # Normalize and combine (can be adjusted)
-        return 0.7 * corr_score + 0.3 * sharpe_score
+        # Use weights from config if available, otherwise use defaults
+        corr_weight = config !== nothing ? config.correlation_weight : 0.7
+        sharpe_weight = config !== nothing ? config.sharpe_weight : 0.3
+        
+        return corr_weight * corr_score + sharpe_weight * sharpe_score
         
     else
         error("Unknown objective: $objective")

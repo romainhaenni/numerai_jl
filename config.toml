@@ -28,6 +28,13 @@ feature_set = "medium"
 # System configuration
 max_workers = 16  # Number of parallel workers (defaults to CPU threads)
 
+# Hyperparameter Optimization Configuration
+[hyperopt]
+# Scoring formula weights for hyperparameter optimization
+# The final score is: correlation_weight * correlation + sharpe_weight * sharpe
+correlation_weight = 0.7
+sharpe_weight = 0.3
+
 # TUI Dashboard Configuration
 [tui]
 refresh_rate = 1.0  # Dashboard refresh rate in seconds

@@ -69,7 +69,7 @@ The codebase follows a layered architecture with clear separation of concerns:
 3. **Machine Learning Pipeline** (`src/ml/`)
    - `pipeline.jl`: Orchestrates the entire ML workflow, supports both single and multi-target predictions
    - `models.jl`: Base model interface and implementations (XGBoost, LightGBM, EvoTrees, CatBoost)
-   - `neural_networks.jl`: Neural network models (MLP, ResNet, TabNet) using Flux.jl
+   - `neural_networks.jl`: Neural network models (MLP, ResNet) using Flux.jl
    - `linear_models.jl`: Linear models (Ridge, Lasso, ElasticNet)
    - `ensemble.jl`: Model ensemble management with weighted predictions
    - `metrics.jl`: Performance metrics including TC (True Contribution) and MMC calculations
@@ -147,9 +147,7 @@ NUMERAI_SECRET_KEY=your_secret_key
 - Example scripts in `examples/` directory
 
 ### Known Limitations
-1. **TabNet Implementation**: Simplified MLP version, not full TabNet architecture
-2. **TC Calculation**: Uses correlation-based approximation instead of gradient-based method
-3. **Traditional Models with Multi-Target**: Currently only use first target (neural networks support all targets)
+1. **TC Calculation**: Uses correlation-based approximation instead of gradient-based method
 
 ### Performance Optimizations
 - Configured for M4 Max with 16 CPU cores

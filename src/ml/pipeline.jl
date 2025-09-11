@@ -100,10 +100,6 @@ function MLPipeline(;
     neutralize_proportion::Float64=0.5,
     model::Union{Models.NumeraiModel, Nothing}=nothing,
     model_config::Union{ModelConfig, Nothing}=nothing,
-    # Backward compatibility parameters (deprecated)
-    models::Vector{Models.NumeraiModel}=Models.NumeraiModel[],
-    model_configs::Vector{ModelConfig}=ModelConfig[],
-    ensemble_type::Symbol=:weighted,
     # Feature groups parameters
     feature_groups::Union{Dict{String, Vector{String}}, Nothing}=nothing,
     features_metadata::Union{Dict{String, Any}, Nothing}=nothing,
@@ -144,22 +140,12 @@ function MLPipeline(;
         :n_targets => n_targets
     )
     
-    # Create model if not provided - handle backward compatibility
+    # Create model if not provided
     if model_config !== nothing
         model = create_model_from_config(model_config)
         final_config = model_config
     elseif model !== nothing
         # Use provided model and create default config
-        final_config = ModelConfig("xgboost", name=model.name)
-    elseif !isempty(model_configs)
-        # Backward compatibility: use first model_config if provided
-        @warn "model_configs parameter is deprecated. Use model_config instead."
-        model = create_model_from_config(model_configs[1])
-        final_config = model_configs[1]
-    elseif !isempty(models)
-        # Backward compatibility: use first model if provided
-        @warn "models parameter is deprecated. Use model instead."
-        model = models[1]
         final_config = ModelConfig("xgboost", name=model.name)
     else
         # Default XGBoost model with max_depth=8 as specified

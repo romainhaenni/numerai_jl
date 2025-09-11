@@ -893,8 +893,9 @@ function run_real_training(dashboard::TournamentDashboard)
             
             # Update model with real performance
             dashboard.model[:corr] = round(correlation, digits=4)
-            dashboard.model[:mmc] = round(correlation * 0.5, digits=4)  # Estimated MMC 
-            dashboard.model[:fnc] = round(correlation * 0.3, digits=4)  # Estimated FNC
+            # MMC and FNC require meta-model data from Numerai, not available locally
+            dashboard.model[:mmc] = 0.0  # Requires meta-model from Numerai API
+            dashboard.model[:fnc] = 0.0  # Requires feature-neutralized meta-model
             
             dashboard.training_info[:val_score] = correlation
             

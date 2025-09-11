@@ -193,7 +193,7 @@ using NumeraiTournament.MetalAcceleration
                 
                 @test result_gpu isa AbstractMatrix
                 @test size(result_gpu) == (m, n)
-                @test result_gpu ≈ result_cpu rtol=1e-10
+                @test result_gpu ≈ result_cpu rtol=1e-6
             end
             
             # Test error handling with mismatched dimensions
@@ -249,7 +249,7 @@ using NumeraiTournament.MetalAcceleration
                 
                 @test result_gpu isa AbstractArray
                 @test size(result_gpu) == size(test_data)
-                @test result_gpu ≈ result_cpu rtol=1e-10
+                @test result_gpu ≈ result_cpu rtol=1e-6
             end
             
             # Test with matrices
@@ -259,7 +259,7 @@ using NumeraiTournament.MetalAcceleration
             result_gpu = gpu_element_wise_ops(test_matrix, square_op)
             result_cpu = square_op(test_matrix)
             
-            @test result_gpu ≈ result_cpu rtol=1e-10
+            @test result_gpu ≈ result_cpu rtol=1e-6
         end
     end
     
@@ -297,7 +297,7 @@ using NumeraiTournament.MetalAcceleration
                     end
                 end
                 
-                @test X_gpu ≈ X_cpu rtol=1e-10
+                @test X_gpu ≈ X_cpu rtol=1e-6
                 
                 # Verify standardization properties
                 for j in 1:n_features
@@ -305,8 +305,8 @@ using NumeraiTournament.MetalAcceleration
                     col_mean = mean(X_gpu[:, j])
                     
                     if std(X_original[:, j]) > 0  # Skip constant columns
-                        @test abs(col_mean) < 1e-10  # Mean should be ~0
-                        @test abs(col_std - 1.0) < 1e-10  # Std should be ~1
+                        @test abs(col_mean) < 1e-6  # Mean should be ~0 (Float32 precision)
+                        @test abs(col_std - 1.0) < 1e-6  # Std should be ~1 (Float32 precision)
                     end
                 end
             end
@@ -351,13 +351,13 @@ using NumeraiTournament.MetalAcceleration
                     end
                 end
                 
-                @test X_gpu ≈ X_cpu rtol=1e-10
+                @test X_gpu ≈ X_cpu rtol=1e-6
                 
                 # Verify normalization properties
                 for j in 1:n_features
                     if maximum(X_original[:, j]) > minimum(X_original[:, j])
-                        @test minimum(X_gpu[:, j]) ≈ 0.0 atol=1e-10
-                        @test maximum(X_gpu[:, j]) ≈ 1.0 atol=1e-10
+                        @test minimum(X_gpu[:, j]) ≈ 0.0 atol=1e-6
+                        @test maximum(X_gpu[:, j]) ≈ 1.0 atol=1e-6
                     end
                 end
             end
@@ -405,13 +405,13 @@ using NumeraiTournament.MetalAcceleration
                     for op in ops
                         if op == :square
                             expected = X .^ 2
-                            @test result[:, col_idx+1:col_idx+size(X, 2)] ≈ expected rtol=1e-10
+                            @test result[:, col_idx+1:col_idx+size(X, 2)] ≈ expected rtol=1e-6
                         elseif op == :sqrt
                             expected = sqrt.(abs.(X))
-                            @test result[:, col_idx+1:col_idx+size(X, 2)] ≈ expected rtol=1e-10
+                            @test result[:, col_idx+1:col_idx+size(X, 2)] ≈ expected rtol=1e-6
                         elseif op == :log
                             expected = log.(abs.(X) .+ 1e-8)
-                            @test result[:, col_idx+1:col_idx+size(X, 2)] ≈ expected rtol=1e-10
+                            @test result[:, col_idx+1:col_idx+size(X, 2)] ≈ expected rtol=1e-6
                         end
                         col_idx += size(X, 2)
                     end
@@ -440,13 +440,13 @@ using NumeraiTournament.MetalAcceleration
             predictions1 = copy(base)
             targets1 = copy(base)
             corr1 = gpu_compute_correlations(predictions1, targets1)
-            @test corr1 ≈ 1.0 atol=1e-10
+            @test corr1 ≈ 1.0 atol=1e-6
             
             # Perfect anti-correlation
             predictions2 = copy(base)
             targets2 = -copy(base)
             corr2 = gpu_compute_correlations(predictions2, targets2)
-            @test corr2 ≈ -1.0 atol=1e-10
+            @test corr2 ≈ -1.0 atol=1e-6
             
             # No correlation
             predictions3 = randn(Float64, n)
@@ -460,7 +460,7 @@ using NumeraiTournament.MetalAcceleration
             targets4 = 0.5 * predictions4 + 0.5 * randn(Float64, n)
             corr_gpu = gpu_compute_correlations(predictions4, targets4)
             corr_cpu = cor(predictions4, targets4)
-            @test corr_gpu ≈ corr_cpu rtol=1e-10
+            @test corr_gpu ≈ corr_cpu rtol=1e-6
         end
         
         @testset "gpu_ensemble_predictions function" begin
@@ -636,7 +636,7 @@ using NumeraiTournament.MetalAcceleration
                 # This should complete without memory issues
                 result = gpu_matrix_multiply(A, B)
                 @test size(result) == (n, n)
-                @test result ≈ A * B rtol=1e-10
+                @test result ≈ A * B rtol=1e-6
                 
                 # Test large feature engineering
                 X_large = randn(Float64, 1000, 50)

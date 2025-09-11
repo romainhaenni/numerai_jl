@@ -66,7 +66,11 @@ using NumeraiTournament
                     "default_epochs" => 100,
                     "progress_bar_width" => 20
                 )
-            )
+            ),
+            0.1,    # sample_pct
+            "target_cyrus_v4_20", # target_col
+            false,  # enable_neutralization
+            0.5     # neutralization_proportion
         )
     end
     
@@ -307,8 +311,9 @@ using NumeraiTournament
         # Test with missing TUI settings
         minimal_config = NumeraiTournament.TournamentConfig(
             "test", "test", ["model"], "data", "models",
-            false, 0.0, 4, false, 8, "small", false, 0.0, 0.0, 0.0,
-            Dict{String, Any}()  # Empty TUI settings
+            false, 0.0, 4, 8, "small", false, 0.0, 0.0, 0.0,
+            Dict{String, Any}(),  # Empty TUI settings
+            0.1, "target_cyrus_v4_20", false, 0.5
         )
         
         dashboard = NumeraiTournament.Dashboard.TournamentDashboard(minimal_config)

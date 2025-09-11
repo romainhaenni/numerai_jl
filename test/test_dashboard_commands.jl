@@ -29,7 +29,11 @@ function create_mock_dashboard()
         1.0,    # min_compound_amount
         100.0,  # compound_percentage
         10000.0, # max_stake_amount
-        tui_config # tui_config
+        tui_config, # tui_config
+        0.1,    # sample_pct
+        "target_cyrus_v4_20", # target_col
+        false,  # enable_neutralization
+        0.5     # neutralization_proportion
     )
     
     # Create the actual dashboard

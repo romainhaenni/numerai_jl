@@ -625,7 +625,11 @@ end
             1.0,   # min_compound_amount
             100.0, # compound_percentage
             1000.0, # max_stake_amount
-            Dict{String, Any}("refresh_rate" => 1.0) # tui_config
+            Dict{String, Any}("refresh_rate" => 1.0), # tui_config
+            0.1,   # sample_pct
+            "target_cyrus_v4_20", # target_col
+            false, # enable_neutralization
+            0.5    # neutralization_proportion
         )
         
         @testset "Scheduler Setup and Configuration" begin
@@ -1091,7 +1095,11 @@ end
                 -1.0,                  # Invalid min_compound_amount
                 150.0,                 # compound_percentage
                 -100.0,                # Invalid max_stake_amount
-                Dict{String, Any}("refresh_rate" => 1.0) # tui_config
+                Dict{String, Any}("refresh_rate" => 1.0), # tui_config
+                0.1,                   # sample_pct
+                "target_cyrus_v4_20",  # target_col
+                false,                 # enable_neutralization
+                0.5                    # neutralization_proportion
             )
             
             # Config should be created but with potentially invalid values
@@ -1114,7 +1122,11 @@ end
                 5.0,    # min_compound_amount
                 80.0,   # compound_percentage
                 2000.0, # max_stake_amount
-                Dict{String, Any}("refresh_rate" => 1.0) # tui_config
+                Dict{String, Any}("refresh_rate" => 1.0), # tui_config
+                0.1,    # sample_pct
+                "target_cyrus_v4_20", # target_col
+                false,  # enable_neutralization
+                0.5     # neutralization_proportion
             )
             
             @test valid_config.stake_amount == 50.0
@@ -1144,7 +1156,11 @@ end
                 1.0,    # min_compound_amount
                 100.0,  # compound_percentage
                 1000.0, # max_stake_amount
-                Dict{String, Any}("refresh_rate" => 1.0) # tui_config
+                Dict{String, Any}("refresh_rate" => 1.0), # tui_config
+                0.1,    # sample_pct
+                "target_cyrus_v4_20", # target_col
+                false,  # enable_neutralization
+                0.5     # neutralization_proportion
             )
             
             dashboard = NumeraiTournament.Dashboard.TournamentDashboard(config)

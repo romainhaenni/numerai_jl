@@ -66,7 +66,11 @@ using Test
                     "default_epochs" => 100,
                     "progress_bar_width" => 20
                 )
-            )
+            ),
+            0.1,    # sample_pct
+            "target_cyrus_v4_20", # target_col
+            false,  # enable_neutralization
+            0.5     # neutralization_proportion
         )
         
         # Test dashboard creation
@@ -89,7 +93,7 @@ using Test
     @testset "Can render without crash" begin
         config = NumeraiTournament.TournamentConfig(
             "test", "test", ["test_model"], "data", "models",
-            false, 0.0, 4, false, 8, "small", false, 0.0, 0.0, 0.0,
+            false, 0.0, 4, 8, "small", false, 0.0, 0.0, 0.0,
             Dict{String, Any}(
                 "refresh_rate" => 1.0,
                 "panels" => Dict(
@@ -102,7 +106,8 @@ using Test
                     "training_panel_width" => 40,
                     "help_panel_width" => 40
                 )
-            )
+            ),
+            0.1, "target_cyrus_v4_20", false, 0.5
         )
         
         dashboard = NumeraiTournament.Dashboard.TournamentDashboard(config)

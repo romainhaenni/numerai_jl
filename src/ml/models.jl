@@ -21,7 +21,7 @@ using ..DataLoader
 abstract type NumeraiModel end
 
 mutable struct XGBoostModel <: NumeraiModel
-    model::Union{Nothing, Booster}
+    model::Union{Nothing, Booster, Vector{Booster}}  # Single model or vector of models for multi-target
     params::Dict{String, Any}
     num_rounds::Int
     name::String
@@ -183,13 +183,43 @@ function CatBoostModel(name::String="catboost_default";
     return CatBoostModel(nothing, params, name, use_gpu)
 end
 
-function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
+function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Union{Vector{Float64}, Matrix{Float64}};
                X_val::Union{Nothing, Matrix{Float64}}=nothing,
-               y_val::Union{Nothing, Vector{Float64}}=nothing,
+               y_val::Union{Nothing, Vector{Float64}, Matrix{Float64}}=nothing,
                feature_names::Union{Nothing, Vector{String}}=nothing,
                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
                verbose::Bool=false,
                preprocess_gpu::Bool=true)
+    
+    # Detect multi-target case and set up appropriate parameters
+    is_multitarget = y_train isa Matrix{Float64}
+    n_targets = is_multitarget ? size(y_train, 2) : 1
+    
+    if is_multitarget
+        @info "Training XGBoost with multi-target support (using multiple single-target models)" n_targets=n_targets model_name=model.name
+        # XGBoost doesn't natively support multi-target regression, so we'll train multiple models
+        # Keep single-target parameters
+        model.params["objective"] = "reg:squarederror"
+        model.params["eval_metric"] = "rmse"
+        # Store target information for later use in prediction
+        model.params["n_targets"] = n_targets
+        # Remove num_class if it exists
+        if haskey(model.params, "num_class")
+            delete!(model.params, "num_class")
+        end
+    else
+        @info "Training XGBoost with single-target" model_name=model.name
+        # Ensure single-target parameters are set correctly
+        model.params["objective"] = "reg:squarederror"
+        model.params["eval_metric"] = "rmse"
+        # Remove multi-target parameters if they exist
+        if haskey(model.params, "num_class")
+            delete!(model.params, "num_class")
+        end
+        if haskey(model.params, "n_targets")
+            delete!(model.params, "n_targets")
+        end
+    end
     
     # Process feature groups if provided
     interaction_constraints = nothing
@@ -210,18 +240,91 @@ function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Vector{F
         X_train_processed = X_train
     end
     
-    dtrain = DMatrix(X_train_processed, label=y_train)
-    
-    # Train model with individual parameters instead of params dict
-    if X_val !== nothing && y_val !== nothing
-        # Process validation data with same preprocessing
+    # Process validation data with same preprocessing if available
+    X_val_processed = nothing
+    if X_val !== nothing
         if model.gpu_enabled && preprocess_gpu
             X_val_processed = copy(X_val)
             (@isdefined(MetalAcceleration) && isdefined(MetalAcceleration, :gpu_standardize!)) ? MetalAcceleration.gpu_standardize!(X_val_processed) : nothing
         else
             X_val_processed = X_val
         end
+    end
+    
+    if is_multitarget
+        # For multi-target, train separate models for each target
+        models = Booster[]
         
+        for target_idx in 1:n_targets
+            @info "Training model for target $target_idx/$n_targets"
+            y_target = y_train[:, target_idx]
+            dtrain = DMatrix(X_train_processed, label=y_target)
+            
+            # Prepare validation data for this target if available
+            dval_target = nothing
+            if X_val !== nothing && y_val isa Matrix{Float64}
+                y_val_target = y_val[:, target_idx]
+                dval_target = DMatrix(X_val_processed, label=y_val_target)
+            elseif X_val !== nothing && y_val isa Vector{Float64} && target_idx == 1
+                # Use single-target validation for first target only
+                dval_target = DMatrix(X_val_processed, label=y_val)
+            end
+            
+            # Train model for this target
+            target_model = if dval_target !== nothing
+                watchlist = OrderedDict("train" => dtrain, "eval" => dval_target)
+                params = Dict{Symbol, Any}(
+                    :num_round => model.num_rounds,
+                    :max_depth => model.params["max_depth"],
+                    :eta => model.params["learning_rate"],
+                    :colsample_bytree => model.params["colsample_bytree"],
+                    :objective => model.params["objective"],
+                    :eval_metric => model.params["eval_metric"],
+                    :tree_method => model.params["tree_method"],
+                    :device => model.params["device"],
+                    :nthread => model.params["nthread"],
+                    :watchlist => watchlist
+                )
+                
+                # Add interaction constraints if available
+                if interaction_constraints !== nothing && !isempty(interaction_constraints)
+                    params[:interaction_constraints] = JSON3.write(interaction_constraints)
+                end
+                
+                xgboost(dtrain; params...)
+            else
+                params = Dict{Symbol, Any}(
+                    :num_round => model.num_rounds,
+                    :max_depth => model.params["max_depth"],
+                    :eta => model.params["learning_rate"],
+                    :colsample_bytree => model.params["colsample_bytree"],
+                    :objective => model.params["objective"],
+                    :eval_metric => model.params["eval_metric"],
+                    :tree_method => model.params["tree_method"],
+                    :device => model.params["device"],
+                    :nthread => model.params["nthread"]
+                )
+                
+                # Add interaction constraints if available
+                if interaction_constraints !== nothing && !isempty(interaction_constraints)
+                    params[:interaction_constraints] = JSON3.write(interaction_constraints)
+                end
+                
+                xgboost(dtrain; params...)
+            end
+            
+            push!(models, target_model)
+        end
+        
+        model.model = models
+        return model
+    else
+        # Single-target training
+        dtrain = DMatrix(X_train_processed, label=y_train)
+    end
+    
+    # Single-target training logic (only reached if not multi-target)
+    if X_val !== nothing && y_val !== nothing
         dval = DMatrix(X_val_processed, label=y_val)
         watchlist = OrderedDict("train" => dtrain, "eval" => dval)
         
@@ -474,15 +577,34 @@ function train!(model::CatBoostModel, X_train::Matrix{Float64}, y_train::Vector{
     return model
 end
 
-function predict(model::XGBoostModel, X::Matrix{Float64})::Vector{Float64}
+function predict(model::XGBoostModel, X::Matrix{Float64})::Union{Vector{Float64}, Matrix{Float64}}
     if model.model === nothing
         error("Model not trained yet")
     end
     
-    dtest = DMatrix(X)
-    predictions = XGBoost.predict(model.model, dtest)
+    # Check if this is a multi-target model
+    is_multitarget = haskey(model.params, "n_targets") && model.params["n_targets"] > 1
     
-    return predictions
+    if is_multitarget && model.model isa Vector{Booster}
+        n_targets = model.params["n_targets"]
+        n_samples = size(X, 1)
+        predictions_matrix = Matrix{Float64}(undef, n_samples, n_targets)
+        
+        dtest = DMatrix(X)
+        
+        # Get predictions from each target model
+        for (target_idx, target_model) in enumerate(model.model)
+            target_predictions = XGBoost.predict(target_model, dtest)
+            predictions_matrix[:, target_idx] = convert(Vector{Float64}, target_predictions)
+        end
+        
+        return predictions_matrix
+    else
+        # Single-target prediction
+        dtest = DMatrix(X)
+        predictions = XGBoost.predict(model.model, dtest)
+        return convert(Vector{Float64}, predictions)
+    end
 end
 
 function predict(model::LightGBMModel, X::Matrix{Float64})::Vector{Float64}
@@ -688,7 +810,7 @@ end
 GPU-accelerated ensemble prediction combining multiple models
 """
 function ensemble_predict(models::Vector{<:NumeraiModel}, X::Matrix{Float64}, 
-                         weights::Union{Nothing, Vector{Float64}}=nothing)::Vector{Float64}
+                         weights::Union{Nothing, Vector{Float64}}=nothing)::Union{Vector{Float64}, Matrix{Float64}}
     if isempty(models)
         error("No models provided for ensemble prediction")
     end
@@ -711,19 +833,54 @@ function ensemble_predict(models::Vector{<:NumeraiModel}, X::Matrix{Float64},
     
     @info "Computing ensemble predictions" n_models=n_models n_samples=n_samples
     
-    # Collect predictions from all models
-    predictions_matrix = Matrix{Float64}(undef, n_samples, n_models)
+    # First, get a sample prediction to determine output format
+    first_prediction = predict(models[1], X)
+    is_multitarget = first_prediction isa Matrix{Float64}
     
-    for (i, model) in enumerate(models)
-        predictions_matrix[:, i] = predict(model, X)
-    end
-    
-    # Use GPU-accelerated ensemble computation if available
-    ensemble_predictions = if any(model.gpu_enabled for model in models) && (@isdefined(MetalAcceleration) && isdefined(MetalAcceleration, :has_metal_gpu) ? MetalAcceleration.has_metal_gpu() : false)
-        @info "Using GPU for ensemble computation"
-        (@isdefined(MetalAcceleration) && isdefined(MetalAcceleration, :gpu_ensemble_predictions)) ? MetalAcceleration.gpu_ensemble_predictions(predictions_matrix, weights) : vec(sum(predictions_matrix .* weights', dims=2))
+    if is_multitarget
+        n_targets = size(first_prediction, 2)
+        @info "Computing multi-target ensemble predictions" n_targets=n_targets
+        
+        # For multi-target, collect predictions in 3D array: (samples, targets, models)
+        predictions_tensor = Array{Float64}(undef, n_samples, n_targets, n_models)
+        predictions_tensor[:, :, 1] = first_prediction
+        
+        for i in 2:n_models
+            model_pred = predict(models[i], X)
+            if model_pred isa Matrix{Float64}
+                predictions_tensor[:, :, i] = model_pred
+            else
+                # If a model returns single-target, use only the first target
+                @warn "Model $(i) returned single-target prediction in multi-target ensemble, using first target only"
+                predictions_tensor[:, 1, i] = model_pred
+                predictions_tensor[:, 2:end, i] .= 0.0  # Zero out other targets
+            end
+        end
+        
+        # Compute weighted average across models for each target
+        ensemble_predictions = zeros(Float64, n_samples, n_targets)
+        for t in 1:n_targets
+            ensemble_predictions[:, t] = predictions_tensor[:, t, :] * weights
+        end
     else
-        predictions_matrix * weights
+        @info "Computing single-target ensemble predictions"
+        
+        # For single-target, collect predictions in matrix: (samples, models)
+        predictions_matrix = Matrix{Float64}(undef, n_samples, n_models)
+        predictions_matrix[:, 1] = first_prediction
+        
+        for i in 2:n_models
+            model_pred = predict(models[i], X)
+            if model_pred isa Matrix{Float64}
+                # If a model returns multi-target, use only the first target
+                @warn "Model $(i) returned multi-target prediction in single-target ensemble, using first target only"
+                predictions_matrix[:, i] = model_pred[:, 1]
+            else
+                predictions_matrix[:, i] = model_pred
+            end
+        end
+        
+        ensemble_predictions = predictions_matrix * weights
     end
     
     return ensemble_predictions

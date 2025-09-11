@@ -592,11 +592,51 @@ function save_checkpoint!(checkpoint::ModelCheckpoint, model, score::Float64, ep
         filepath_with_epoch = replace(checkpoint.filepath, ".bson" => "_epoch_$(epoch).bson")
         
         try
-            # In a real implementation, you'd save using BSON.jl or similar
+            # Save model state and metadata using BSON
+            checkpoint_data = Dict(
+                :model_state => model_state,
+                :score => score,
+                :epoch => epoch,
+                :timestamp => now(),
+                :best_score => checkpoint.best_score
+            )
+            BSON.@save filepath_with_epoch checkpoint_data
             @info "Model checkpoint saved" filepath=filepath_with_epoch score=score epoch=epoch
+            
+            # Also save as 'best' checkpoint if this is the best
+            if checkpoint.save_best_only
+                best_filepath = replace(checkpoint.filepath, ".bson" => "_best.bson")
+                BSON.@save best_filepath checkpoint_data
+            end
         catch e
             @warn "Failed to save checkpoint" exception=e
         end
+    end
+end
+
+"""
+Load model from checkpoint file
+
+Restores model state from a checkpoint saved during training.
+"""
+function load_checkpoint!(model, checkpoint_filepath::String)
+    if !isfile(checkpoint_filepath)
+        error("Checkpoint file not found: $checkpoint_filepath")
+    end
+    
+    try
+        # Load checkpoint data
+        BSON.@load checkpoint_filepath checkpoint_data
+        
+        # Restore model state
+        Flux.loadmodel!(model, checkpoint_data[:model_state])
+        
+        @info "Model checkpoint loaded" filepath=checkpoint_filepath epoch=checkpoint_data[:epoch] score=checkpoint_data[:score]
+        
+        return checkpoint_data
+    catch e
+        @error "Failed to load checkpoint" exception=e filepath=checkpoint_filepath
+        throw(e)
     end
 end
 

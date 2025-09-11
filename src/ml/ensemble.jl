@@ -111,6 +111,13 @@ function predict_ensemble(ensemble::ModelEnsemble, X::Matrix{Float64};
                 X
             end
             model_pred = Models.predict(ensemble.models[i], X_i)
+            # Validate prediction dimensions
+            if size(model_pred, 1) != n_samples
+                error("Model $(i) returned $(size(model_pred, 1)) predictions, expected $(n_samples)")
+            end
+            if model_pred isa Matrix && size(model_pred, 2) != n_targets
+                error("Model $(i) returned $(size(model_pred, 2)) targets, expected $(n_targets)")
+            end
             predictions_array[:, :, i] = model_pred isa Matrix ? model_pred : reshape(model_pred, n_samples, 1)
         end
         
@@ -138,6 +145,10 @@ function predict_ensemble(ensemble::ModelEnsemble, X::Matrix{Float64};
                 X
             end
             model_pred = Models.predict(ensemble.models[i], X_i)
+            # Validate prediction dimensions
+            if length(model_pred) != n_samples
+                error("Model $(i) returned $(length(model_pred)) predictions, expected $(n_samples)")
+            end
             predictions_matrix[:, i] = model_pred isa Vector ? model_pred : vec(model_pred)
         end
         
@@ -160,7 +171,12 @@ function optimize_weights(ensemble::ModelEnsemble, X_val::Matrix{Float64}, y_val
     predictions_matrix = safe_matrix_allocation(n_samples, n_models)
     
     for (i, model) in enumerate(ensemble.models)
-        predictions_matrix[:, i] = Models.predict(model, X_val)
+        model_pred = Models.predict(model, X_val)
+        # Validate prediction dimensions
+        if length(model_pred) != n_samples
+            error("Model $(i) returned $(length(model_pred)) predictions, expected $(n_samples)")
+        end
+        predictions_matrix[:, i] = model_pred
     end
     
     best_weights = ensemble.weights
@@ -205,7 +221,14 @@ function optimize_weights(ensemble::ModelEnsemble, X_val::Matrix{Float64}, y_val
             predictions_matrix = safe_matrix_allocation(n_samples, n_models)
             for (i, model) in enumerate(ensemble.models)
                 model_pred = Models.predict(model, X_val)
+                # Validate prediction dimensions
+                if size(model_pred, 1) != n_samples
+                    error("Model $(i) returned $(size(model_pred, 1)) predictions, expected $(n_samples)")
+                end
                 if model_pred isa Matrix
+                    if size(model_pred, 2) < target_idx
+                        error("Model $(i) returned $(size(model_pred, 2)) targets, expected at least $(target_idx)")
+                    end
                     predictions_matrix[:, i] = model_pred[:, target_idx]
                 else
                     predictions_matrix[:, i] = model_pred
@@ -344,7 +367,18 @@ function stacking_ensemble(base_models::Vector{<:Models.NumeraiModel},
                 pred_train = Models.predict(model, X_train)
                 pred_val = Models.predict(model, X_val)
                 
+                # Validate prediction dimensions
+                if size(pred_train, 1) != size(X_train, 1)
+                    error("Base model $(i) returned $(size(pred_train, 1)) training predictions, expected $(size(X_train, 1))")
+                end
+                if size(pred_val, 1) != size(X_val, 1)
+                    error("Base model $(i) returned $(size(pred_val, 1)) validation predictions, expected $(size(X_val, 1))")
+                end
+                
                 if pred_train isa Matrix
+                    if size(pred_train, 2) < target_idx
+                        error("Base model $(i) returned $(size(pred_train, 2)) targets, expected at least $(target_idx)")
+                    end
                     meta_features_train[:, i] = pred_train[:, target_idx]
                     meta_features_val[:, i] = pred_val[:, target_idx]
                 else
@@ -388,6 +422,15 @@ function stacking_ensemble(base_models::Vector{<:Models.NumeraiModel},
         for (i, model) in enumerate(base_models)
             pred_train = Models.predict(model, X_train)
             pred_val = Models.predict(model, X_val)
+            
+            # Validate prediction dimensions
+            if length(pred_train) != size(X_train, 1)
+                error("Base model $(i) returned $(length(pred_train)) training predictions, expected $(size(X_train, 1))")
+            end
+            if length(pred_val) != size(X_val, 1)
+                error("Base model $(i) returned $(length(pred_val)) validation predictions, expected $(size(X_val, 1))")
+            end
+            
             meta_features_train[:, i] = pred_train isa Vector ? pred_train : vec(pred_train)
             meta_features_val[:, i] = pred_val isa Vector ? pred_val : vec(pred_val)
         end

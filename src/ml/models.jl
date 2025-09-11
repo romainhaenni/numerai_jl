@@ -824,22 +824,16 @@ function create_model(model_type::Symbol, params::Dict{Symbol,Any})
     elseif model_type == :CatBoost
         return CatBoostModel(name; model_params...)
     elseif model_type == :Ridge
-        include("linear_models.jl")
         return LinearModels.RidgeModel(name; model_params...)
     elseif model_type == :Lasso
-        include("linear_models.jl")
         return LinearModels.LassoModel(name; model_params...)
     elseif model_type == :ElasticNet
-        include("linear_models.jl")
         return LinearModels.ElasticNetModel(name; model_params...)
     elseif model_type == :NeuralNetwork || model_type == :MLP
-        include("neural_networks.jl")
         return NeuralNetworks.MLPModel(name; model_params...)
     elseif model_type == :ResNet
-        include("neural_networks.jl")
         return NeuralNetworks.ResNetModel(name; model_params...)
     elseif model_type == :TabNet
-        include("neural_networks.jl")
         return NeuralNetworks.TabNetModel(name; model_params...)
     else
         error("Unknown model type: $model_type")

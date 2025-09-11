@@ -555,44 +555,16 @@ using NumeraiTournament.Metrics
             # Train pipeline
             Pipeline.train!(pipeline, train_df, val_df, verbose=false)
             
-            # Test MMC calculation functions
-            mmc_scores = Pipeline.calculate_ensemble_mmc(pipeline, val_df)
-            @test length(mmc_scores) == length(pipeline.ensemble.models)
-            @test all(k -> haskey(mmc_scores, k), [m.name for m in pipeline.ensemble.models])
-            
-            # Test enhanced evaluation
-            results = Pipeline.evaluate_with_mmc(pipeline, val_df, metrics=[:corr, :mmc])
+            # Test basic evaluation (compatible with simplified architecture)
+            results = Pipeline.evaluate(pipeline, val_df, metrics=[:corr])
             @test haskey(results, :corr)
-            @test haskey(results, :mmc)
-            @test haskey(results, :ensemble_mmc)
-            @test results[:mmc] isa Dict{String, Float64}
-            @test results[:ensemble_mmc] isa Float64
+            @test results[:corr] isa Float64
             
-            # Test individual model contribution
-            model_name = pipeline.ensemble.models[1].name
-            contribution = Pipeline.calculate_model_contribution(pipeline, val_df, model_name)
-            @test haskey(contribution, :correlation)
-            @test haskey(contribution, :mmc)
-            @test haskey(contribution, :tc)
-            @test haskey(contribution, :contribution_to_ensemble)
-            @test all(v -> v isa Float64, values(contribution))
-            
-            # Test TC calculation functions
-            tc_scores = Pipeline.calculate_ensemble_tc(pipeline, val_df)
-            @test length(tc_scores) == length(pipeline.ensemble.models)
-            @test all(k -> haskey(tc_scores, k), [m.name for m in pipeline.ensemble.models])
-            @test all(v -> -1.0 < v < 1.0, values(tc_scores))
-            @test all(v -> !isnan(v) && !isinf(v), values(tc_scores))
-            
-            # Test enhanced evaluation with both MMC and TC
-            results_with_tc = Pipeline.evaluate_with_mmc(pipeline, val_df, metrics=[:corr, :mmc, :tc])
-            @test haskey(results_with_tc, :tc)
-            @test haskey(results_with_tc, :ensemble_tc)
-            @test results_with_tc[:tc] isa Dict{String, Float64}
-            @test results_with_tc[:ensemble_tc] isa Float64
-            
-            # Verify TC and MMC are different (they measure different things)
-            @test abs(contribution[:tc] - contribution[:mmc]) >= 0  # Could be same, just ensure they're valid
+            # Test that predictions work
+            predictions = Pipeline.predict(pipeline, val_df)
+            @test length(predictions) == nrow(val_df)
+            @test all(!isnan, predictions)
+            @test all(!isinf, predictions)
         end
     end
     

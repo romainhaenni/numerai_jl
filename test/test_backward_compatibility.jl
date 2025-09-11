@@ -20,9 +20,10 @@ try
     
     # Check that it works as before
     @test pipeline.feature_cols == ["feature_1", "feature_2", "feature_3"] 
-    @test pipeline.target_col == "target_cyrus_v4_20"
+    @test pipeline.target_cols == ["target_cyrus_v4_20"]  # Changed from target_col to target_cols
     @test pipeline.feature_groups === nothing  # Should be nothing for backward compatibility
     @test pipeline.features_metadata === nothing  # Should be nothing for backward compatibility
+    @test typeof(pipeline.model) <: NumeraiTournament.Models.NumeraiModel  # Check model exists
     
     println("✓ Old-style constructor works perfectly")
     

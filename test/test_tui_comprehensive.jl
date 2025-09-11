@@ -22,7 +22,6 @@ using NumeraiTournament
             false,  # auto_submit
             0.0,    # stake_amount
             4,      # max_workers
-            false,  # notification_enabled
             8,      # tournament_id
             "small", # feature_set
             false,  # compounding_enabled

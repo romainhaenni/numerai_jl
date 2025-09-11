@@ -22,7 +22,6 @@ using Test
             false,  # auto_submit
             0.1,    # stake_amount
             8,      # max_workers
-            false,  # notification_enabled
             8,      # tournament_id
             "medium", # feature_set
             false,  # compounding_enabled

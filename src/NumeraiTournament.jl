@@ -21,8 +21,6 @@ include("ml/ensemble.jl")
 include("ml/metrics.jl")
 include("ml/hyperopt.jl")
 include("ml/pipeline.jl")
-include("notifications.jl")
-include("notifications/macos.jl")
 include("performance/optimization.jl")
 include("compounding.jl")
 include("tui/charts.jl")
@@ -30,7 +28,7 @@ include("tui/panels.jl")
 include("tui/dashboard.jl")
 include("scheduler/cron.jl")
 
-export run_tournament, TournamentConfig, TournamentDashboard,
+export run_tournament, TournamentConfig, TournamentDashboard, TournamentScheduler, load_config,
        XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel,
        RidgeModel, LassoModel, ElasticNetModel,
        MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel,
@@ -43,6 +41,9 @@ using .Models: XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel,
                get_models_gpu_status, create_model
 using .MetalAcceleration: has_metal_gpu, get_gpu_info, gpu_standardize!
 using .GPUBenchmarks: run_comprehensive_gpu_benchmark
+using .Performance: optimize_for_m4_max
+using .Scheduler: TournamentScheduler, start_scheduler
+using .Dashboard: TournamentDashboard, run_dashboard
 
 mutable struct TournamentConfig
     api_public_key::String
@@ -53,7 +54,6 @@ mutable struct TournamentConfig
     auto_submit::Bool
     stake_amount::Float64
     max_workers::Int
-    notification_enabled::Bool
     # Tournament configuration
     tournament_id::Int  # 8 for Classic, 11 for Signals
     # Feature set configuration
@@ -130,7 +130,6 @@ function load_config(path::String="config.toml")::TournamentConfig
             true,
             0.0,
             Sys.CPU_THREADS,
-            true,
             8,       # tournament_id default (Classic)
             "medium",  # feature_set default
             false,  # compounding_enabled
@@ -172,7 +171,6 @@ function load_config(path::String="config.toml")::TournamentConfig
         get(config, "auto_submit", true),
         get(config, "stake_amount", 0.0),
         get(config, "max_workers", Sys.CPU_THREADS),
-        get(config, "notification_enabled", true),
         get(config, "tournament_id", 8),  # Classic by default
         get(config, "feature_set", "medium"),
         get(config, "compounding_enabled", false),
@@ -190,18 +188,18 @@ function run_tournament(; config_path::String="config.toml", headless::Bool=fals
     config = load_config(config_path)
     
     # Optimize for M4 Max performance
-    perf_info = Performance.optimize_for_m4_max()
+    perf_info = optimize_for_m4_max()
     @log_info "Optimized for M4 Max" threads=perf_info[:threads] memory_gb=perf_info[:memory_gb]
     
     mkpath(config.data_dir)
     mkpath(config.model_dir)
     
     if headless
-        scheduler = Scheduler.TournamentScheduler(config)
-        Scheduler.start_scheduler(scheduler)
+        scheduler = TournamentScheduler(config)
+        start_scheduler(scheduler)
     else
-        dashboard = Dashboard.TournamentDashboard(config)
-        Dashboard.run_dashboard(dashboard)
+        dashboard = TournamentDashboard(config)
+        run_dashboard(dashboard)
     end
 end
 

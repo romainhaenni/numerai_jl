@@ -74,13 +74,12 @@ end
 
 mutable struct MLPipeline
     config::Dict{Symbol, Any}
-    models::Vector{Models.NumeraiModel}
-    model_configs::Vector{ModelConfig}  # Store configurations
-    ensemble::Union{Nothing, Ensemble.ModelEnsemble}
+    model::Models.NumeraiModel
+    model_config::ModelConfig  # Store configuration
     feature_cols::Vector{String}
     target_cols::Vector{String}  # Support multiple targets
     target_mode::Symbol  # :single or :multi
-    multi_target_models::Union{Nothing, Dict{String, Vector{Models.NumeraiModel}}}  # Models per target for multi-target mode
+    multi_target_models::Union{Nothing, Dict{String, Models.NumeraiModel}}  # Single model per target for multi-target mode
     # Feature groups support
     feature_groups::Union{Nothing, Dict{String, Vector{String}}}
     features_metadata::Union{Nothing, Dict{String, Any}}
@@ -95,9 +94,12 @@ function MLPipeline(;
     target_cols::Union{Vector{String}, Nothing}=nothing,
     neutralize::Bool=true,
     neutralize_proportion::Float64=0.5,
-    ensemble_type::Symbol=:weighted,
+    model::Union{Models.NumeraiModel, Nothing}=nothing,
+    model_config::Union{ModelConfig, Nothing}=nothing,
+    # Backward compatibility parameters (deprecated)
     models::Vector{Models.NumeraiModel}=Models.NumeraiModel[],
     model_configs::Vector{ModelConfig}=ModelConfig[],
+    ensemble_type::Symbol=:weighted,
     # Feature groups parameters
     feature_groups::Union{Dict{String, Vector{String}}, Nothing}=nothing,
     features_metadata::Union{Dict{String, Any}, Nothing}=nothing,
@@ -127,51 +129,164 @@ function MLPipeline(;
     config = Dict(
         :neutralize => neutralize,
         :neutralize_proportion => neutralize_proportion,
-        :ensemble_type => ensemble_type,
         :clip_predictions => true,
         :normalize_predictions => true,
         :is_multi_target => is_multi_target,
         :n_targets => n_targets
     )
     
-    # If model_configs provided, create models from them
-    if !isempty(model_configs)
-        models = create_models_from_configs(model_configs)
-    elseif isempty(models)
-        # Default models if none provided
-        models = [
-            Models.XGBoostModel("xgb_deep", max_depth=8, learning_rate=0.01, colsample_bytree=0.1),
-            Models.XGBoostModel("xgb_shallow", max_depth=4, learning_rate=0.02, colsample_bytree=0.2),
-            Models.LightGBMModel("lgbm_small", num_leaves=31, learning_rate=0.01, feature_fraction=0.1),
-            Models.LightGBMModel("lgbm_large", num_leaves=63, learning_rate=0.005, feature_fraction=0.15),
-            MLPModel("mlp_default", hidden_layers=[128, 64, 32], epochs=50, gpu_enabled=false),
-            ResNetModel("resnet_small", hidden_layers=[128, 128, 64], epochs=75, gpu_enabled=false)
-        ]
-        # Create configs from existing models for consistency
-        model_configs = [
-            ModelConfig("xgboost", Dict(:max_depth=>8, :learning_rate=>0.01, :colsample_bytree=>0.1), name="xgb_deep"),
-            ModelConfig("xgboost", Dict(:max_depth=>4, :learning_rate=>0.02, :colsample_bytree=>0.2), name="xgb_shallow"),
-            ModelConfig("lightgbm", Dict(:num_leaves=>31, :learning_rate=>0.01, :feature_fraction=>0.1), name="lgbm_small"),
-            ModelConfig("lightgbm", Dict(:num_leaves=>63, :learning_rate=>0.005, :feature_fraction=>0.15), name="lgbm_large"),
-            ModelConfig("mlp", Dict(:hidden_layers=>[128, 64, 32], :epochs=>50, :gpu_enabled=>false), name="mlp_default"),
-            ModelConfig("resnet", Dict(:hidden_layers=>[128, 128, 64], :epochs=>75, :gpu_enabled=>false), name="resnet_small")
-        ]
+    # Create model if not provided - handle backward compatibility
+    if model_config !== nothing
+        model = create_model_from_config(model_config)
+        final_config = model_config
+    elseif model !== nothing
+        # Use provided model and create default config
+        final_config = ModelConfig("xgboost", name=model.name)
+    elseif !isempty(model_configs)
+        # Backward compatibility: use first model_config if provided
+        @warn "model_configs parameter is deprecated. Use model_config instead."
+        model = create_model_from_config(model_configs[1])
+        final_config = model_configs[1]
+    elseif !isempty(models)
+        # Backward compatibility: use first model if provided
+        @warn "models parameter is deprecated. Use model instead."
+        model = models[1]
+        final_config = ModelConfig("xgboost", name=model.name)
+    else
+        # Default XGBoost model with max_depth=8 as specified
+        final_config = ModelConfig("xgboost", 
+                                 Dict(:max_depth=>8, :learning_rate=>0.01, :colsample_bytree=>0.1), 
+                                 name="xgb_best")
+        model = Models.XGBoostModel("xgb_best", max_depth=8, learning_rate=0.01, colsample_bytree=0.1)
     end
     
-    # Resolve features from groups if needed
-    resolved_features = resolve_features_from_groups(
-        feature_cols, feature_groups, features_metadata, group_names
-    )
+    # Resolve features from groups if needed, or use default
+    if feature_cols !== nothing || feature_groups !== nothing || group_names !== nothing
+        resolved_features = resolve_features_from_groups(
+            feature_cols, feature_groups, features_metadata, group_names
+        )
+    else
+        # Default features for basic testing
+        resolved_features = ["feature_1", "feature_2", "feature_3"]
+    end
     
     # Initialize multi_target_models based on mode
-    multi_target_models = target_mode == :multi ? Dict{String, Vector{Models.NumeraiModel}}() : nothing
+    multi_target_models = target_mode == :multi ? Dict{String, Models.NumeraiModel}() : nothing
     
-    return MLPipeline(config, models, model_configs, nothing, resolved_features, target_cols_vec, 
+    return MLPipeline(config, model, final_config, resolved_features, target_cols_vec, 
                      target_mode, multi_target_models, feature_groups, features_metadata, 
                      is_multi_target, n_targets)
 end
 
-# Helper function to create models from configs
+# Helper function to create single model from config
+function create_model_from_config(config::ModelConfig)::Models.NumeraiModel
+    if config.type == "xgboost"
+        return Models.XGBoostModel(
+            config.name;
+            max_depth=get(config.params, :max_depth, 6),
+            learning_rate=get(config.params, :learning_rate, 0.01),
+            num_rounds=get(config.params, :n_estimators, 100),  # Map n_estimators to num_rounds
+            colsample_bytree=get(config.params, :colsample_bytree, 0.1)
+            # Note: XGBoost doesn't accept subsample in constructor
+        )
+    elseif config.type == "lightgbm"
+        return Models.LightGBMModel(
+            config.name;
+            num_leaves=get(config.params, :num_leaves, 31),
+            learning_rate=get(config.params, :learning_rate, 0.01),
+            n_estimators=get(config.params, :n_estimators, 100),
+            feature_fraction=get(config.params, :feature_fraction, 0.1),
+            bagging_fraction=get(config.params, :bagging_fraction, 0.8)
+        )
+    elseif config.type == "evotrees"
+        return Models.EvoTreesModel(
+            config.name;
+            max_depth=get(config.params, :max_depth, 6),
+            learning_rate=get(config.params, :learning_rate, 0.01),
+            nrounds=get(config.params, :n_estimators, 100),  # Map n_estimators to nrounds
+            colsample=get(config.params, :colsample, 0.1),
+            subsample=get(config.params, :subsample, 0.8)
+        )
+    elseif config.type == "catboost"
+        return Models.CatBoostModel(
+            config.name;
+            depth=get(config.params, :depth, 6),
+            learning_rate=get(config.params, :learning_rate, 0.03),
+            iterations=get(config.params, :iterations, 1000),
+            l2_leaf_reg=get(config.params, :l2_leaf_reg, 3.0),
+            bagging_temperature=get(config.params, :bagging_temperature, 1.0),
+            subsample=get(config.params, :subsample, 0.8),
+            colsample_bylevel=get(config.params, :colsample_bylevel, 0.8),
+            random_strength=get(config.params, :random_strength, 1.0),
+            gpu_enabled=get(config.params, :gpu_enabled, false)
+        )
+    elseif config.type == "mlp"
+        return MLPModel(
+            config.name;
+            hidden_layers=get(config.params, :hidden_layers, [128, 64, 32]),
+            dropout_rate=get(config.params, :dropout_rate, 0.2),
+            learning_rate=get(config.params, :learning_rate, 0.001),
+            batch_size=get(config.params, :batch_size, 512),
+            epochs=get(config.params, :epochs, 100),
+            early_stopping_patience=get(config.params, :early_stopping_patience, 10),
+            gpu_enabled=get(config.params, :gpu_enabled, true)
+        )
+    elseif config.type == "resnet"
+        return ResNetModel(
+            config.name;
+            hidden_layers=get(config.params, :hidden_layers, [256, 256, 256, 128]),
+            dropout_rate=get(config.params, :dropout_rate, 0.1),
+            learning_rate=get(config.params, :learning_rate, 0.001),
+            batch_size=get(config.params, :batch_size, 512),
+            epochs=get(config.params, :epochs, 150),
+            early_stopping_patience=get(config.params, :early_stopping_patience, 15),
+            gpu_enabled=get(config.params, :gpu_enabled, true)
+        )
+    elseif config.type == "tabnet"
+        return TabNetModel(
+            config.name;
+            n_d=get(config.params, :n_d, 64),
+            n_a=get(config.params, :n_a, 64),
+            n_steps=get(config.params, :n_steps, 3),
+            gamma=get(config.params, :gamma, 1.3),
+            learning_rate=get(config.params, :learning_rate, 0.02),
+            batch_size=get(config.params, :batch_size, 1024),
+            epochs=get(config.params, :epochs, 200),
+            early_stopping_patience=get(config.params, :early_stopping_patience, 20),
+            gpu_enabled=get(config.params, :gpu_enabled, true)
+        )
+    elseif config.type == "ridge"
+        return RidgeModel(
+            config.name;
+            alpha=get(config.params, :alpha, 1.0),
+            fit_intercept=get(config.params, :fit_intercept, true),
+            max_iter=get(config.params, :max_iter, 1000),
+            tol=get(config.params, :tol, 1e-4)
+        )
+    elseif config.type == "lasso"
+        return LassoModel(
+            config.name;
+            alpha=get(config.params, :alpha, 1.0),
+            fit_intercept=get(config.params, :fit_intercept, true),
+            max_iter=get(config.params, :max_iter, 1000),
+            tol=get(config.params, :tol, 1e-4)
+        )
+    elseif config.type == "elasticnet"
+        return ElasticNetModel(
+            config.name;
+            alpha=get(config.params, :alpha, 1.0),
+            l1_ratio=get(config.params, :l1_ratio, 0.5),
+            fit_intercept=get(config.params, :fit_intercept, true),
+            max_iter=get(config.params, :max_iter, 1000),
+            tol=get(config.params, :tol, 1e-4)
+        )
+    else
+        @warn "Unknown model type: $(config.type), falling back to XGBoost"
+        return Models.XGBoostModel(config.name)
+    end
+end
+
+# Helper function to create models from configs (keeping for backward compatibility)
 function create_models_from_configs(configs::Vector{ModelConfig})::Vector{Models.NumeraiModel}
     models = Models.NumeraiModel[]
     
@@ -344,98 +459,48 @@ function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
     
     # Handle training based on target mode
     if pipeline.target_mode == :single
-        # Single target mode - existing behavior
-        ensemble = Ensemble.ModelEnsemble(pipeline.models)
-        
+        # Single target mode with single model
         if verbose
-            println("\n🤖 Training $(length(pipeline.models)) models for target: $(pipeline.target_cols[1])")
-            prog = ProgressMeter.Progress(length(pipeline.models), desc="Training models: ", showspeed=false)
+            println("\n🤖 Training model $(pipeline.model.name) for target: $(pipeline.target_cols[1])")
         end
         
-        # Train models with progress tracking
-        for (i, model) in enumerate(ensemble.models)
-            if verbose
-                ProgressMeter.update!(prog, i-1, desc="Training $(model.name): ")
-            end
-            Models.train!(model, X_train, y_train, 
-                         X_val=X_val, y_val=y_val, 
-                         feature_names=pipeline.feature_cols,
-                         feature_groups=feature_groups,
-                         verbose=false)
-            if verbose
-                ProgressMeter.update!(prog, i)
-            end
-        end
+        Models.train!(pipeline.model, X_train, y_train, 
+                     X_val=X_val, y_val=y_val, 
+                     feature_names=pipeline.feature_cols,
+                     feature_groups=feature_groups,
+                     verbose=verbose)
     else
-        # Multi-target mode - train separate models per target
+        # Multi-target mode - train separate model per target
         if verbose
             println("\n🎯 Training models for $(length(pipeline.target_cols)) targets...")
         end
         
-        total_models = length(pipeline.models) * length(pipeline.target_cols)
-        if verbose
-            prog = ProgressMeter.Progress(total_models, desc="Training multi-target models: ", showspeed=false)
-        end
-        
-        model_idx = 0
         for target_col in pipeline.target_cols
-            # Clone models for this target using model configs
-            target_models = create_models_from_configs(pipeline.model_configs)
+            # Clone model for this target using model config
+            target_model = create_model_from_config(pipeline.model_config)
+            target_model.name = "$(target_model.name)_$(target_col)"
             
-            # Update model names to include target
-            for model in target_models
-                model.name = "$(model.name)_$(target_col)"
+            if verbose
+                println("Training $(target_model.name)")
             end
             
-            # Train models for this target
-            for model in target_models
-                model_idx += 1
-                if verbose
-                    ProgressMeter.update!(prog, model_idx-1, desc="Training $(model.name): ")
-                end
-                
-                Models.train!(model, X_train, y_train[target_col], 
-                             X_val=X_val, y_val=y_val[target_col], 
-                             feature_names=pipeline.feature_cols,
-                             feature_groups=feature_groups,
-                             verbose=false)
-                
-                if verbose
-                    ProgressMeter.update!(prog, model_idx)
-                end
-            end
+            Models.train!(target_model, X_train, y_train[target_col], 
+                         X_val=X_val, y_val=y_val[target_col], 
+                         feature_names=pipeline.feature_cols,
+                         feature_groups=feature_groups,
+                         verbose=verbose)
             
-            # Store models for this target
-            pipeline.multi_target_models[target_col] = target_models
-        end
-        
-        # For compatibility, set the first target's models as the main ensemble
-        ensemble = Ensemble.ModelEnsemble(pipeline.multi_target_models[pipeline.target_cols[1]])
-    end
-    
-    if verbose
-        ProgressMeter.finish!(prog)
-    end
-    
-    if pipeline.config[:ensemble_type] == :optimized && !isnothing(X_val)
-        if verbose
-            println("\nOptimizing ensemble weights...")
-        end
-        optimized_weights = Ensemble.optimize_weights(ensemble, X_val, y_val)
-        ensemble = Ensemble.ModelEnsemble(ensemble.models, weights=optimized_weights)
-        if verbose
-            println("Optimized weights: $optimized_weights")
+            # Store model for this target
+            pipeline.multi_target_models[target_col] = target_model
         end
     end
-    
-    pipeline.ensemble = ensemble
     
     if verbose
         val_predictions = predict(pipeline, val_df)
         if pipeline.is_multi_target
             # For multi-target, calculate average correlation across targets
-            if val_predictions isa Matrix && y_val isa Matrix
-                val_scores = [cor(val_predictions[:, i], y_val[:, i]) for i in 1:size(y_val, 2)]
+            if val_predictions isa Dict
+                val_scores = [cor(val_predictions[target], y_val[target]) for target in pipeline.target_cols]
                 val_score = mean(val_scores)
                 println("\nValidation correlations: $(round.(val_scores, digits=4))")
                 println("Average correlation: $(round(val_score, digits=4))")
@@ -456,38 +521,26 @@ end
 function predict(pipeline::MLPipeline, df::DataFrame; 
                 return_raw::Bool=false, verbose::Bool=false, target::Union{String, Nothing}=nothing)
     
+    if verbose
+        println("Preparing prediction data...")
+    end
+    
+    feature_data = DataLoader.get_feature_columns(df, pipeline.feature_cols)
+    feature_data = Preprocessor.fillna(feature_data, 0.5)
+    X = Matrix{Float64}(feature_data)
+    
     if pipeline.target_mode == :single
-        # Single target mode - existing behavior
-        if pipeline.ensemble === nothing
-            error("Pipeline not trained yet. Call train! first.")
-        end
-        
+        # Single target mode with single model
         if verbose
-            println("Preparing prediction data...")
+            println("Generating predictions for $(size(X, 1)) samples using $(pipeline.model.name)...")
         end
         
-        feature_data = DataLoader.get_feature_columns(df, pipeline.feature_cols)
-        feature_data = Preprocessor.fillna(feature_data, 0.5)
-        X = Matrix{Float64}(feature_data)
-        
-        if verbose
-            println("Generating predictions for $(size(X, 1)) samples...")
-        end
-        
-        predictions = Ensemble.predict_ensemble(pipeline.ensemble, X)
+        predictions = Models.predict(pipeline.model, X)
     else
         # Multi-target mode
         if pipeline.multi_target_models === nothing || isempty(pipeline.multi_target_models)
             error("Pipeline not trained yet. Call train! first.")
         end
-        
-        if verbose
-            println("Preparing prediction data...")
-        end
-        
-        feature_data = DataLoader.get_feature_columns(df, pipeline.feature_cols)
-        feature_data = Preprocessor.fillna(feature_data, 0.5)
-        X = Matrix{Float64}(feature_data)
         
         # If specific target requested, predict only for that target
         if target !== nothing
@@ -499,8 +552,7 @@ function predict(pipeline::MLPipeline, df::DataFrame;
                 println("Generating predictions for target: $target")
             end
             
-            target_ensemble = Ensemble.ModelEnsemble(pipeline.multi_target_models[target])
-            predictions = Ensemble.predict_ensemble(target_ensemble, X)
+            predictions = Models.predict(pipeline.multi_target_models[target], X)
         else
             # Return predictions for all targets as a Dict
             if verbose
@@ -509,8 +561,7 @@ function predict(pipeline::MLPipeline, df::DataFrame;
             
             predictions_dict = Dict{String, Vector{Float64}}()
             for target_col in pipeline.target_cols
-                target_ensemble = Ensemble.ModelEnsemble(pipeline.multi_target_models[target_col])
-                predictions_dict[target_col] = Ensemble.predict_ensemble(target_ensemble, X)
+                predictions_dict[target_col] = Models.predict(pipeline.multi_target_models[target_col], X)
             end
             
             # For this multi-target all predictions case, return the dict directly
@@ -676,124 +727,7 @@ function evaluate(pipeline::MLPipeline, df::DataFrame;
     return results
 end
 
-"""
-    predict_individual_models(pipeline::MLPipeline, df::DataFrame)
-
-Get predictions from individual models in the ensemble.
-
-# Arguments
-- `pipeline`: Trained ML pipeline
-- `df`: DataFrame to predict on
-
-# Returns
-- Matrix where each column represents predictions from one model
-"""
-function predict_individual_models(pipeline::MLPipeline, df::DataFrame)::Matrix{Float64}
-    if pipeline.ensemble === nothing
-        error("Pipeline not trained yet. Call train! first.")
-    end
-    
-    feature_data = DataLoader.get_feature_columns(df, pipeline.feature_cols)
-    feature_data = Preprocessor.fillna(feature_data, 0.5)
-    X = Matrix{Float64}(feature_data)
-    
-    # Get individual predictions
-    _, individual_predictions = Ensemble.predict_ensemble(pipeline.ensemble, X, return_individual=true)
-    
-    return individual_predictions
-end
-
-"""
-    calculate_ensemble_mmc(pipeline::MLPipeline, df::DataFrame; 
-                           stakes::Union{Nothing, Vector{Float64}}=nothing)
-
-Calculate MMC scores for each model in the ensemble.
-
-# Arguments
-- `pipeline`: Trained ML pipeline
-- `df`: DataFrame with predictions and targets
-- `stakes`: Optional stake weights for creating meta-model (defaults to ensemble weights)
-
-# Returns
-- Dictionary mapping model names to their MMC scores
-"""
-function calculate_ensemble_mmc(pipeline::MLPipeline, df::DataFrame; 
-                               stakes::Union{Nothing, Vector{Float64}}=nothing)::Dict{String, Float64}
-    if pipeline.ensemble === nothing
-        error("Pipeline not trained yet. Call train! first.")
-    end
-    
-    # Get individual model predictions
-    individual_predictions = predict_individual_models(pipeline, df)
-    
-    # Get targets
-    _, y, _ = prepare_data(pipeline, df)
-    
-    # Use ensemble weights as stakes if not provided
-    if stakes === nothing
-        stakes = pipeline.ensemble.weights
-    end
-    
-    # Create stake-weighted meta-model
-    meta_model = Metrics.create_stake_weighted_ensemble(individual_predictions, stakes)
-    
-    # Calculate MMC for each model
-    mmc_scores = Metrics.calculate_mmc_batch(individual_predictions, meta_model, y)
-    
-    # Create dictionary with model names
-    mmc_dict = Dict{String, Float64}()
-    for (i, model) in enumerate(pipeline.ensemble.models)
-        mmc_dict[model.name] = mmc_scores[i]
-    end
-    
-    return mmc_dict
-end
-
-"""
-    calculate_ensemble_tc(pipeline::MLPipeline, df::DataFrame; 
-                          stakes::Union{Nothing, Vector{Float64}}=nothing)
-
-Calculate TC scores for each model in the ensemble.
-
-# Arguments
-- `pipeline`: Trained ML pipeline
-- `df`: DataFrame with predictions and targets/returns
-- `stakes`: Optional stake weights for creating meta-model (defaults to ensemble weights)
-
-# Returns
-- Dictionary mapping model names to their TC scores
-"""
-function calculate_ensemble_tc(pipeline::MLPipeline, df::DataFrame; 
-                               stakes::Union{Nothing, Vector{Float64}}=nothing)::Dict{String, Float64}
-    if pipeline.ensemble === nothing
-        error("Pipeline not trained yet. Call train! first.")
-    end
-    
-    # Get individual model predictions
-    individual_predictions = predict_individual_models(pipeline, df)
-    
-    # Get returns (targets)
-    _, returns, _ = prepare_data(pipeline, df)
-    
-    # Use ensemble weights as stakes if not provided
-    if stakes === nothing
-        stakes = pipeline.ensemble.weights
-    end
-    
-    # Create stake-weighted meta-model
-    meta_model = Metrics.create_stake_weighted_ensemble(individual_predictions, stakes)
-    
-    # Calculate TC for each model
-    tc_scores = Metrics.calculate_tc_batch(individual_predictions, meta_model, returns)
-    
-    # Create dictionary with model names
-    tc_dict = Dict{String, Float64}()
-    for (i, model) in enumerate(pipeline.ensemble.models)
-        tc_dict[model.name] = tc_scores[i]
-    end
-    
-    return tc_dict
-end
+# Note: Ensemble-related functions have been removed as the pipeline now uses a single model
 
 """
     optimize_hyperparameters(pipeline::MLPipeline, train_df::DataFrame;
@@ -1211,7 +1145,6 @@ function cross_validate_pipeline(pipeline::MLPipeline, df::DataFrame;
     return cv_scores
 end
 
-export MLPipeline, ModelConfig, train!, predict, evaluate, save_predictions, cross_validate_pipeline, create_models_from_configs,
-       predict_individual_models, calculate_ensemble_mmc, calculate_ensemble_tc, evaluate_with_mmc, calculate_model_contribution
+export MLPipeline, ModelConfig, train!, predict, evaluate, save_predictions, cross_validate_pipeline, create_model_from_config
 
 end

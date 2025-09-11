@@ -46,7 +46,6 @@ model_dir = "models"
 auto_submit = false
 stake_amount = 0.0
 max_workers = 16
-notification_enabled = true
 ```
 
 ## Usage

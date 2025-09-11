@@ -23,7 +23,6 @@ function create_mock_dashboard()
         true,
         0.0,
         1,
-        false,
         8,      # tournament_id
         "v4.2", # feature_set
         false,  # compounding_enabled
@@ -95,7 +94,7 @@ end
 # Mock command implementations for testing
 function mock_start_training(dashboard)
     dashboard.training_info[:is_training] = true
-    dashboard.training_info[:current_model] = dashboard.models[dashboard.selected_model][:name]
+    dashboard.training_info[:current_model] = dashboard.model[:name]
     dashboard.training_info[:progress] = 0
     NumeraiTournament.Dashboard.add_event!(dashboard, :info, "Training started")
 end

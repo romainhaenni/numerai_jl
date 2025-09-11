@@ -8,33 +8,27 @@ using DataFrames
 using ..Charts
 using Statistics: mean, std
 
-function create_model_performance_panel(performances::Vector{Dict{Symbol, Any}}, config=nothing)::Panel
-    if isempty(performances)
-        content = "No models running"
-    else
-        rows = []
-        push!(rows, ["Model", "CORR", "MMC", "FNC", "Sharpe", "Status"])
-        
-        for perf in performances
-            status_icon = perf[:is_active] ? "🟢" : "🔴"
-            push!(rows, [
-                perf[:name],
-                round(perf[:corr], digits=4),
-                round(perf[:mmc], digits=4),
-                round(perf[:fnc], digits=4),
-                round(perf[:sharpe], digits=3),
-                status_icon
-            ])
-        end
-        
-        content = TermTables.Table(rows, box=:ROUNDED)
-    end
+function create_model_performance_panel(model::Dict{Symbol, Any}, config=nothing)::Panel
+    status_icon = model[:is_active] ? "🟢 Active" : "🔴 Inactive"
+    
+    content = """
+    Model: $(model[:name])
+    Status: $status_icon
+    
+    Performance Metrics:
+    ─────────────────────
+    CORR:   $(round(model[:corr], digits=4))
+    MMC:    $(round(model[:mmc], digits=4))
+    FNC:    $(round(model[:fnc], digits=4))
+    TC:     $(round(get(model, :tc, 0.0), digits=4))
+    Sharpe: $(round(get(model, :sharpe, 0.0), digits=3))
+    """
     
     # Get panel width from config
     panel_width = if config !== nothing && haskey(config.tui_config, "panels") && haskey(config.tui_config["panels"], "model_panel_width")
         config.tui_config["panels"]["model_panel_width"]
     else
-        60  # default fallback
+        40  # default fallback, smaller for single model
     end
     
     return Panel(
@@ -263,7 +257,7 @@ function create_system_panel(system_info::Dict{Symbol, Any}, network_status::Uni
     CPU Usage: $cpu_bar $(system_info[:cpu_usage])%
     Memory: $mem_bar $(round(system_info[:memory_used], digits=1))/$(system_info[:memory_total]) GB
     
-    Active Models: $(system_info[:active_models])/$(system_info[:total_models])
+    Model Status: $(system_info[:model_active] ? "🟢 Active" : "🔴 Inactive")
     Threads: $(system_info[:threads])
     Uptime: $(format_uptime(system_info[:uptime]))
     
@@ -360,15 +354,13 @@ function create_help_panel(config=nothing)::Panel
     p - Pause/Resume training
     s - Start training
     r - Refresh data
-    n - New model wizard
     h - Toggle help
-    ↑/↓ - Navigate models
     Enter - View model details
     
     Commands:
     ─────────────────
-    /train [model] - Train specific model
-    /submit [model] - Submit predictions
+    /train - Train current model
+    /submit - Submit predictions
     /stake [amount] - Update stake
     /download - Download latest data
     """

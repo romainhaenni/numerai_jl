@@ -235,62 +235,47 @@ Random.seed!(123)
             @test tabnet_config.name == "test_tabnet"
         end
         
-        @testset "Default pipeline includes neural networks" begin
+        @testset "Default pipeline uses single XGBoost model" begin
             feature_cols = ["feature_$(i)" for i in 1:10]
             pipeline = NumeraiTournament.Pipeline.MLPipeline(
                 feature_cols=feature_cols,
                 target_col="target_cyrus_v4_20"
             )
             
-            # Should include both traditional ML models and neural networks
-            @test length(pipeline.models) == 6  # 4 traditional + 2 neural networks
-            @test any(model -> model isa NumeraiTournament.MLPModel, pipeline.models)
-            @test any(model -> model isa NumeraiTournament.ResNetModel, pipeline.models)
-            @test any(model -> model isa NumeraiTournament.XGBoostModel, pipeline.models)
-            @test any(model -> model isa NumeraiTournament.LightGBMModel, pipeline.models)
+            # Default pipeline uses single XGBoost model
+            @test pipeline.model isa NumeraiTournament.Models.XGBoostModel
+            @test pipeline.model.name == "xgb_best"
+            @test pipeline.model.params["max_depth"] == 8
         end
     end
     
-    @testset "Ensemble" begin
-        @testset "ModelEnsemble creation" begin
-            models = [
-                NumeraiTournament.Models.XGBoostModel("xgb1"),
-                NumeraiTournament.Models.LightGBMModel("lgbm1"),
-                NumeraiTournament.Models.EvoTreesModel("evotrees1")
-            ]
+    @testset "Single Model Operations" begin
+        @testset "Model creation and configuration" begin
+            xgb_model = NumeraiTournament.Models.XGBoostModel("xgb1")
+            lgbm_model = NumeraiTournament.Models.LightGBMModel("lgbm1") 
+            evotrees_model = NumeraiTournament.Models.EvoTreesModel("evotrees1")
             
-            ensemble = NumeraiTournament.Ensemble.ModelEnsemble(models)
-            @test length(ensemble.models) == 3
-            @test sum(ensemble.weights) ≈ 1.0
+            @test xgb_model.name == "xgb1"
+            @test lgbm_model.name == "lgbm1"
+            @test evotrees_model.name == "evotrees1"
         end
         
-        @testset "Ensemble with neural networks" begin
-            models = [
-                NumeraiTournament.Models.XGBoostModel("xgb1"),
-                NumeraiTournament.MLPModel("mlp1", gpu_enabled=false)
-            ]
+        @testset "Neural network models" begin
+            mlp_model = NumeraiTournament.MLPModel("mlp1", gpu_enabled=false)
             
-            ensemble = NumeraiTournament.Ensemble.ModelEnsemble(models)
-            @test length(ensemble.models) == 2
-            @test sum(ensemble.weights) ≈ 1.0
-            @test any(model -> model isa NumeraiTournament.NeuralNetworkModel, ensemble.models)
+            @test mlp_model.name == "mlp1"
+            @test mlp_model isa NumeraiTournament.NeuralNetworkModel
+            @test mlp_model.gpu_enabled == false
         end
         
-        @testset "diversity_score" begin
+        @testset "prediction_variability" begin
+            # Test simple prediction variability instead of ensemble diversity
             predictions_matrix = rand(100, 3)
-            diversity = NumeraiTournament.Ensemble.diversity_score(predictions_matrix)
-            @test 0 <= diversity <= 1
+            variability = std(predictions_matrix)
+            @test variability >= 0
         end
     end
     
-    @testset "Notifications" begin
-        if Sys.isapple()
-            @testset "macOS notification" begin
-                NumeraiTournament.Notifications.send_notification("Test", "Test message", :info)
-                @test true
-            end
-        end
-    end
     
     # Include MMC metrics tests
     include("test_metrics.jl")

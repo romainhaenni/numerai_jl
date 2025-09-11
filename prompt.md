@@ -10,6 +10,8 @@ Use @scratchpad.md as a scratchpad for your work. Store long term plans and todo
 
 You will need to write and run end to end and unit tests for the project. After implementing functionality or resolving problems, run the tests for that unit of code that was improved. If functionality is missing then it's your job to add it as per the application specifications. Think hard. Important: When authoring documentation capture why the tests and the backing implementation is important.
 
+Update @README.md so that the user knows how to use and configure the program.
+
 Make a commit and push your changes after every single file edit. After the commit do a "git push" to push the changes to the remote repository. If you create new branches, make sure to merge them into main and delete them afterwards. Do not leave feature branches open without merging them. Resolve any merge issues.
 
 Do not assume ready for production. We improve the program iteratively, to be production ready is not a goal. The goal is to have a model for the tournament that has maximal return.

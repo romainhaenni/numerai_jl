@@ -2,7 +2,7 @@
 #
 # Copy this file to config.toml and update with your settings
 
-# API Credentials (can also be set via environment variables)
+# API Credentials (can also be set via environment variables NUMERAI_PUBLIC_ID and NUMERAI_SECRET_KEY)
 api_public_key = "YOUR_PUBLIC_KEY_HERE"
 api_secret_key = "YOUR_SECRET_KEY_HERE"
 
@@ -11,29 +11,17 @@ api_secret_key = "YOUR_SECRET_KEY_HERE"
 # 11 = Signals Tournament
 tournament_id = 8
 
-# Model names to manage
-models = ["model1", "model2"]
+# Model names to manage (leave empty to auto-discover from your Numerai account)
+models = ["my_model_1", "my_model_2"]
 
-# Data and model directories
+# Data storage directories
 data_dir = "data"
 model_dir = "models"
 
-# Automatically submit predictions
+# Automation settings
 auto_submit = true
-
-# Stake management
-stake_amount = 0.0
-
-# System configuration
-max_workers = 4
-notification_enabled = true
+stake_amount = 10.0
 
 # Feature set configuration
-# Options: "small", "medium", "all"
+# Options: "small" (~300 features), "medium" (~1000 features), "all" (~5000 features)
 feature_set = "medium"
-
-# Compounding configuration
-compounding_enabled = false
-min_compound_amount = 1.0
-compound_percentage = 100.0
-max_stake_amount = 10000.0

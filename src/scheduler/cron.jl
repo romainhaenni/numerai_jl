@@ -6,8 +6,8 @@ using ..API
 using ..DataLoader
 using ..Pipeline
 using ..Dashboard
-using ..Notifications
 using ..Compounding
+using ..Logger: @log_info, @log_warn, @log_error
 
 # Import UTC utility function
 include("../utils.jl")
@@ -323,11 +323,7 @@ function weekend_round_job(scheduler::TournamentScheduler)
         
     catch e
         log_event(scheduler, :error, "Weekend round failed: $e")
-        Notifications.send_notification(
-            "Numerai Tournament Error",
-            "Weekend round processing failed: $e",
-            :error
-        )
+        @log_error "Weekend round processing failed" error=e
     end
 end
 
@@ -376,11 +372,7 @@ function hourly_monitoring(scheduler::TournamentScheduler)
             perf = API.get_model_performance(scheduler.api_client, model)
             
             if perf.corr < -0.05
-                Notifications.send_notification(
-                    "Numerai Alert",
-                    "Model $model has negative correlation: $(perf.corr)",
-                    :warning
-                )
+                @log_warn "Model performance alert" model=model correlation=perf.corr
             end
         end
     catch e
@@ -412,25 +404,15 @@ function compounding_job(scheduler::TournamentScheduler)
         if total_compounded > 0
             log_event(scheduler, :success, "Compounded $(total_compounded) NMR total across all models")
             
-            # Send notification if enabled
-            if scheduler.config.notification_enabled
-                Notifications.send_notification(
-                    "Compounding Complete",
-                    "Successfully compounded $(total_compounded) NMR into stake"
-                )
-            end
+            # Log compounding success
+            @log_info "Compounding completed successfully" amount_compounded=total_compounded
         else
             log_event(scheduler, :info, "No earnings to compound at this time")
         end
         
     catch e
         log_event(scheduler, :error, "Compounding failed: $e")
-        if scheduler.config.notification_enabled
-            Notifications.send_notification(
-                "Compounding Failed",
-                "Error during automatic compounding: $e"
-            )
-        end
+        @log_error "Automatic compounding failed" error=e
     end
 end
 
@@ -508,11 +490,7 @@ function generate_and_submit_predictions(scheduler::TournamentScheduler, round_n
             time_closed = abs(window_status.time_remaining)
             log_event(scheduler, :warning, "Submission window is closed for $(window_status.round_type) round $(window_status.round_number). Window closed $(round(time_closed, digits=1)) hours ago")
             
-            Notifications.send_notification(
-                "Numerai Schedule Warning",
-                "Submission window closed $(round(time_closed, digits=1)) hours ago for round $(window_status.round_number)",
-                :warning
-            )
+            @log_warn "Submission window closed" hours_ago=round(time_closed, digits=1) round_number=window_status.round_number
             return
         end
         
@@ -548,11 +526,7 @@ function generate_and_submit_predictions(scheduler::TournamentScheduler, round_n
                 API.submit_predictions(scheduler.api_client, model_name, predictions_path)
                 log_event(scheduler, :success, "Submitted predictions for $model_name")
                 
-                Notifications.send_notification(
-                    "Numerai Submission",
-                    "Successfully submitted predictions for $model_name",
-                    :success
-                )
+                @log_info "Predictions submitted successfully" model=model_name round=round_number
             else
                 log_event(scheduler, :info, "Predictions saved for $model_name (auto-submit disabled)")
             end
@@ -560,11 +534,7 @@ function generate_and_submit_predictions(scheduler::TournamentScheduler, round_n
         catch e
             log_event(scheduler, :error, "Failed to process $model_name: $e")
             
-            Notifications.send_notification(
-                "Numerai Submission Error",
-                "Failed to submit $model_name: $e",
-                :error
-            )
+            @log_error "Failed to submit predictions" model=model_name error=e
         end
     end
 end

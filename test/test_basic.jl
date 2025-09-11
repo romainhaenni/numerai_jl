@@ -9,7 +9,7 @@ using Statistics
 using LinearAlgebra
 
 println("Loading NumeraiTournament...")
-include("src/NumeraiTournament.jl")
+include("../src/NumeraiTournament.jl")
 using .NumeraiTournament
 
 Random.seed!(123)
@@ -213,14 +213,6 @@ Random.seed!(123)
         end
     end
     
-    @testset "Notifications" begin
-        if Sys.isapple()
-            @testset "macOS notification" begin
-                NumeraiTournament.Notifications.send_notification("Test", "Test message", :info)
-                @test true
-            end
-        end
-    end
 end
 
 println("\n✅ All basic tests passed!")

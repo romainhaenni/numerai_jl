@@ -12,7 +12,7 @@ using ..API
 using ..Pipeline
 using ..DataLoader
 using ..Panels
-using ..Notifications
+using ..Logger: @log_info, @log_warn, @log_error
 
 # Import UTC utility function
 include("../utils.jl")
@@ -61,24 +61,19 @@ end
 mutable struct TournamentDashboard
     config::Any
     api_client::API.NumeraiClient
-    models::Vector{Dict{Symbol, Any}}
+    model::Dict{Symbol, Any}  # Single model instead of vector
     events::Vector{Dict{Symbol, Any}}
     system_info::Dict{Symbol, Any}
     training_info::Dict{Symbol, Any}
     predictions_history::Vector{Float64}
-    performance_history::Dict{String, Vector{Dict{Symbol, Any}}}  # Historical performance tracking
+    performance_history::Vector{Dict{Symbol, Any}}  # Historical performance tracking for single model
     running::Bool
     paused::Bool
     show_help::Bool
-    selected_model::Int
     refresh_rate::Float64  # Changed to Float64 for more precise timing
-    wizard_active::Bool
-    wizard_state::Union{Nothing, ModelWizardState}
     command_buffer::String  # For slash commands
     command_mode::Bool  # Track if we're in command mode
     show_model_details::Bool  # Track if model details panel should be shown
-    selected_model_details::Union{Nothing, Dict{Symbol, Any}}  # Selected model for details view
-    selected_model_stats::Union{Nothing, Dict{Symbol, Any}}  # Statistics for selected model
     # Error tracking and network status
     error_counts::Dict{ErrorCategory, Int}  # Track error counts by category
     network_status::Dict{Symbol, Any}  # Network connectivity status
@@ -88,26 +83,24 @@ end
 function TournamentDashboard(config)
     api_client = API.NumeraiClient(config.api_public_key, config.api_secret_key, config.tournament_id)
     
-    # Ensure there's at least one model for display
-    model_names = isempty(config.models) ? ["default_model"] : config.models
+    # Use single model - get first model or default
+    model_name = isempty(config.models) ? "default_model" : config.models[1]
     
-    models = [Dict(:name => model, :is_active => false, :corr => 0.0, 
-                  :mmc => 0.0, :fnc => 0.0, :sharpe => 0.0) 
-             for model in model_names]
+    model = Dict(:name => model_name, :is_active => false, :corr => 0.0, 
+                 :mmc => 0.0, :fnc => 0.0, :sharpe => 0.0, :tc => 0.0)
     
     system_info = Dict(
         :cpu_usage => 0,
         :memory_used => 0.0,
         :memory_total => round(Sys.total_memory() / (1024^3), digits=1),  # Get actual system memory in GB
-        :active_models => 0,
-        :total_models => length(model_names),
+        :model_active => false,
         :threads => Threads.nthreads(),
         :uptime => 0
     )
     
     training_info = Dict(
         :is_training => false,
-        :current_model => "",
+        :model_name => model_name,
         :progress => 0,
         :current_epoch => 0,
         :total_epochs => 0,
@@ -116,11 +109,8 @@ function TournamentDashboard(config)
         :eta => "N/A"
     )
     
-    # Initialize performance history for each model
-    performance_history = Dict{String, Vector{Dict{Symbol, Any}}}()
-    for model in model_names
-        performance_history[model] = Vector{Dict{Symbol, Any}}()
-    end
+    # Initialize performance history for single model
+    performance_history = Vector{Dict{Symbol, Any}}()
     
     # Initialize error tracking
     error_counts = Dict{ErrorCategory, Int}(
@@ -145,12 +135,11 @@ function TournamentDashboard(config)
     refresh_rate = get(config.tui_config, "refresh_rate", 1.0)
     
     return TournamentDashboard(
-        config, api_client, models, Vector{Dict{Symbol, Any}}(),
+        config, api_client, model, Vector{Dict{Symbol, Any}}(),
         system_info, training_info, Float64[], performance_history,
-        false, false, false, 1, refresh_rate,  # Use configured refresh rate
-        false, nothing,  # wizard_active and wizard_state
+        false, false, false, refresh_rate,  # Use configured refresh rate
         "", false,  # command_buffer and command_mode
-        false, nothing, nothing,  # show_model_details, selected_model_details, selected_model_stats
+        false,  # show_model_details
         error_counts, network_status, Vector{CategorizedError}()  # error tracking fields
     )
 end
@@ -306,14 +295,6 @@ function input_loop(dashboard::TournamentDashboard)
                 dashboard.selected_model_stats = nothing
                 add_event!(dashboard, :info, "Model details closed")
             end
-        elseif dashboard.wizard_active
-            # Handle wizard-specific input
-            if length(key) == 1
-                handle_wizard_input(dashboard, key[1])
-            elseif startswith(key, "\e[")
-                # Pass arrow key sequences to wizard
-                handle_wizard_input(dashboard, key)
-            end
         elseif dashboard.command_mode
             # Handle command mode input
             if key == "\r" || key == "\n"  # Enter - execute command
@@ -347,14 +328,8 @@ function input_loop(dashboard::TournamentDashboard)
             add_event!(dashboard, :info, "Data refreshed")
         elseif key == "h"
             dashboard.show_help = !dashboard.show_help
-        elseif key == "n"
-            create_new_model_wizard(dashboard)
-        elseif key == "\e[A"  # Up arrow
-            dashboard.selected_model = max(1, dashboard.selected_model - 1)
-        elseif key == "\e[B"  # Down arrow
-            dashboard.selected_model = min(length(dashboard.models), dashboard.selected_model + 1)
         elseif key == "\r" || key == "\n"  # Enter key
-            show_model_details(dashboard, dashboard.selected_model)
+            show_model_details(dashboard)
         elseif key == "\e"  # ESC key (standalone)
             # Do nothing for now, could be used to exit help or modal dialogs
             continue
@@ -374,16 +349,10 @@ function render(dashboard::TournamentDashboard)
             panel2 = Panels.create_events_panel(dashboard.events, dashboard.config)
             println(panel1)
             println(panel2)
-        elseif dashboard.wizard_active
-            # Show wizard interface
-            panel1 = render_wizard_panel(dashboard)
-            panel2 = Panels.create_events_panel(dashboard.events, dashboard.config)
-            println(panel1)
-            println(panel2)
         else
             # Normal dashboard - display panels in sequence
             panels = [
-                Panels.create_model_performance_panel(dashboard.models, dashboard.config),
+                Panels.create_model_performance_panel(dashboard.model, dashboard.config),
                 Panels.create_staking_panel(get_staking_info(dashboard), dashboard.config),
                 Panels.create_predictions_panel(dashboard.predictions_history, dashboard.config),
                 Panels.create_events_panel(dashboard.events, dashboard.config),
@@ -411,7 +380,7 @@ function render(dashboard::TournamentDashboard)
         println()
         println("⚠️  Error rendering dashboard: ", e)
         println()
-        println("📊 Models configured: ", join(dashboard.config.models, ", "))
+        println("📊 Model: $(dashboard.model[:name])")
         println("🔧 System: $(dashboard.system_info[:threads]) threads, $(dashboard.system_info[:memory_total]) GB RAM")
         println("🌐 Network: ", dashboard.network_status[:is_connected] ? "Connected ✅" : "Disconnected ❌")
         println()
@@ -433,15 +402,9 @@ function create_status_line(dashboard::TournamentDashboard)::String
         return "Command: /$(dashboard.command_buffer)_"
     else
         status = dashboard.paused ? "PAUSED" : "RUNNING"
+        model_name = dashboard.model[:name]
         
-        # Safely get selected model name
-        selected = if !isempty(dashboard.models) && 1 <= dashboard.selected_model <= length(dashboard.models)
-            dashboard.models[dashboard.selected_model][:name]
-        else
-            "None"
-        end
-        
-        return "Status: $status | Selected: $selected | Press '/' for commands | 'h' for help | 'q' to quit"
+        return "Status: $status | Model: $model_name | Press '/' for commands | 'h' for help | 'q' to quit"
     end
 end
 
@@ -456,93 +419,70 @@ function update_system_info!(dashboard::TournamentDashboard)
     free_memory = Sys.free_memory() / (1024^3)    # Convert to GB
     dashboard.system_info[:memory_used] = round(total_memory - free_memory, digits=1)
     
-    dashboard.system_info[:active_models] = count(m -> m[:is_active], dashboard.models)
+    dashboard.system_info[:model_active] = dashboard.model[:is_active]
 end
 
 function update_model_performances!(dashboard::TournamentDashboard)
     # Check network connectivity first
     if !check_network_connectivity(dashboard)
-        add_event!(dashboard, :error, "Network connectivity check failed - unable to update model performances", 
+        add_event!(dashboard, :error, "Network connectivity check failed - unable to update model performance", 
                   Base.IOError("Network unreachable"))
         return
     end
     
-    successful_updates = 0
-    total_models = length(dashboard.models)
-    
-    for model in dashboard.models
-        model_name = model[:name]
-        try
-            start_time = time()
-            perf = API.get_model_performance(dashboard.api_client, model_name)
-            api_duration = time() - start_time
-            
-            model[:corr] = perf.corr
-            model[:mmc] = perf.mmc
-            model[:fnc] = perf.fnc
-            model[:sharpe] = perf.sharpe
-            model[:is_active] = true
-            
-            # Update API latency tracking
-            dashboard.network_status[:api_latency] = api_duration * 1000  # Convert to ms
-            
-            # Track historical performance
-            if !haskey(dashboard.performance_history, model_name)
-                dashboard.performance_history[model_name] = Vector{Dict{Symbol, Any}}()
-            end
-            
-            # Add to history with timestamp
-            push!(dashboard.performance_history[model_name], Dict(
-                :timestamp => utc_now_datetime(),
-                :corr => perf.corr,
-                :mmc => perf.mmc,
-                :fnc => perf.fnc,
-                :sharpe => perf.sharpe,
-                :stake => get(model, :stake, 0.0)
-            ))
-            
-            # Keep only configured number of entries per model to manage memory
-            max_history = get(dashboard.config.tui_config["limits"], "performance_history_max", 100)
-            if length(dashboard.performance_history[model_name]) > max_history
-                popfirst!(dashboard.performance_history[model_name])
-            end
-            
-            successful_updates += 1
-            
-        catch e
-            model[:is_active] = false
-            
-            # Categorize and log the specific error for this model
-            add_event!(dashboard, :error, "Failed to update performance for model '$model_name'", e)
-            
-            # Log additional context for debugging
-            @error "Model performance update failed" model=model_name exception=e
+    model_name = dashboard.model[:name]
+    try
+        start_time = time()
+        perf = API.get_model_performance(dashboard.api_client, model_name)
+        api_duration = time() - start_time
+        
+        dashboard.model[:corr] = perf.corr
+        dashboard.model[:mmc] = perf.mmc
+        dashboard.model[:fnc] = perf.fnc
+        dashboard.model[:sharpe] = perf.sharpe
+        dashboard.model[:is_active] = true
+        
+        # Update API latency tracking
+        dashboard.network_status[:api_latency] = api_duration * 1000  # Convert to ms
+        
+        # Add to history with timestamp
+        push!(dashboard.performance_history, Dict(
+            :timestamp => utc_now_datetime(),
+            :corr => perf.corr,
+            :mmc => perf.mmc,
+            :fnc => perf.fnc,
+            :sharpe => perf.sharpe,
+            :stake => get(dashboard.model, :stake, 0.0)
+        ))
+        
+        # Keep only configured number of entries to manage memory
+        max_history = get(dashboard.config.tui_config["limits"], "performance_history_max", 100)
+        if length(dashboard.performance_history) > max_history
+            popfirst!(dashboard.performance_history)
         end
-    end
-    
-    # Summary event about the update operation
-    if successful_updates == total_models
-        add_event!(dashboard, :success, "Updated performance for all $total_models models")
-    elseif successful_updates > 0
-        failed_count = total_models - successful_updates
-        add_event!(dashboard, :warning, "Updated $successful_updates/$total_models models ($failed_count failed)")
-    else
-        add_event!(dashboard, :error, "Failed to update any model performances - check network and API credentials")
+        
+        add_event!(dashboard, :success, "Updated performance for model '$model_name'")
+            
+    catch e
+        dashboard.model[:is_active] = false
+        
+        # Categorize and log the specific error for this model
+        add_event!(dashboard, :error, "Failed to update performance for model '$model_name'", e)
+        
+        # Log additional context for debugging
+        @error "Model performance update failed" model=model_name exception=e
     end
 end
 
-# Function for test compatibility - updates a single model's performance directly
+# Function for test compatibility - updates the model's performance directly
 function update_model_performance!(dashboard::TournamentDashboard, model_name::String, 
                                    corr::Float64, mmc::Float64, fnc::Float64, stake::Float64)
-    for model in dashboard.models
-        if model[:name] == model_name
-            model[:corr] = corr
-            model[:mmc] = mmc
-            model[:fnc] = fnc
-            model[:stake] = stake
-            model[:is_active] = true
-            break
-        end
+    if dashboard.model[:name] == model_name
+        dashboard.model[:corr] = corr
+        dashboard.model[:mmc] = mmc
+        dashboard.model[:fnc] = fnc
+        dashboard.model[:stake] = stake
+        dashboard.model[:is_active] = true
     end
 end
 
@@ -554,11 +494,11 @@ function get_staking_info(dashboard::TournamentDashboard)::Dict{Symbol, Any}
     catch e
         add_event!(dashboard, :error, "Failed to fetch current round information", e)
         # Return fallback data
-        total_stake = sum(m -> get(m, :stake, 0.0), dashboard.models)
+        model_stake = get(dashboard.model, :stake, 0.0)
         return Dict(
-            :total_stake => round(total_stake, digits=2),
-            :at_risk => round(total_stake * 0.25, digits=2),
-            :expected_payout => round(sum(m -> get(m, :stake, 0.0) * m[:corr] * 0.5, dashboard.models), digits=2),
+            :total_stake => round(model_stake, digits=2),
+            :at_risk => round(model_stake * 0.25, digits=2),
+            :expected_payout => round(model_stake * dashboard.model[:corr] * 0.5, digits=2),
             :current_round => 0,
             :submission_status => "Error - Check API connection",
             :time_remaining => "N/A"
@@ -567,56 +507,46 @@ function get_staking_info(dashboard::TournamentDashboard)::Dict{Symbol, Any}
     
     time_remaining = round_info.close_time - utc_now_datetime()
     
-    # Get actual staking data from API for each model
+    # Get actual staking data from API for the model
+    model_name = dashboard.model[:name]
     total_stake = 0.0
     total_at_risk = 0.0
     total_expected_payout = 0.0
-    failed_stake_fetches = 0
     
-    for model in dashboard.models
-        if model[:is_active]
-            model_name = model[:name]
-            try
-                # Get actual staking information from API
-                stake_info = API.get_model_stakes(dashboard.api_client, model_name)
-                model_stake = stake_info.total_stake
-                
-                total_stake += model_stake
-                
-                # Calculate at-risk amount based on actual burn rate from API
-                burn_rate = get(stake_info, :burn_rate, 0.25)  # Default to 25% if not available
-                total_at_risk += model_stake * burn_rate
-                
-                # Calculate expected payout using real performance metrics
-                corr_multiplier = get(stake_info, :corr_multiplier, 0.5)
-                mmc_multiplier = get(stake_info, :mmc_multiplier, 2.0)
-                expected_payout = model_stake * (
-                    corr_multiplier * model[:corr] + 
-                    mmc_multiplier * model[:mmc]
-                )
-                total_expected_payout += expected_payout
-                
-                # Update model with actual stake
-                model[:stake] = model_stake
-                
-            catch e
-                failed_stake_fetches += 1
-                # Log specific error for this model
-                add_event!(dashboard, :error, "Failed to fetch stake info for model '$model_name'", e)
-                
-                # Fallback to model's stored stake if API call fails
-                model_stake = get(model, :stake, 0.0)
-                total_stake += model_stake
-                total_at_risk += model_stake * 0.25
-                total_expected_payout += model_stake * model[:corr] * 0.5
-            end
+    if dashboard.model[:is_active]
+        try
+            # Get actual staking information from API
+            stake_info = API.get_model_stakes(dashboard.api_client, model_name)
+            model_stake = stake_info.total_stake
+            
+            total_stake = model_stake
+            
+            # Calculate at-risk amount based on actual burn rate from API
+            burn_rate = get(stake_info, :burn_rate, 0.25)  # Default to 25% if not available
+            total_at_risk = model_stake * burn_rate
+            
+            # Calculate expected payout using real performance metrics
+            corr_multiplier = get(stake_info, :corr_multiplier, 0.5)
+            mmc_multiplier = get(stake_info, :mmc_multiplier, 2.0)
+            expected_payout = model_stake * (
+                corr_multiplier * dashboard.model[:corr] + 
+                mmc_multiplier * dashboard.model[:mmc]
+            )
+            total_expected_payout = expected_payout
+            
+            # Update model with actual stake
+            dashboard.model[:stake] = model_stake
+            
+        catch e
+            # Log specific error for this model
+            add_event!(dashboard, :error, "Failed to fetch stake info for model '$model_name'", e)
+            
+            # Fallback to model's stored stake if API call fails
+            model_stake = get(dashboard.model, :stake, 0.0)
+            total_stake = model_stake
+            total_at_risk = model_stake * 0.25
+            total_expected_payout = model_stake * dashboard.model[:corr] * 0.5
         end
-    end
-    
-    # Warn if some stake fetches failed
-    if failed_stake_fetches > 0
-        active_models = count(m -> m[:is_active], dashboard.models)
-        add_event!(dashboard, :warning, "Could not fetch stake info for $failed_stake_fetches/$active_models active models")
     end
     
     # Determine submission status by checking latest submissions
@@ -818,8 +748,10 @@ function add_event!(dashboard::TournamentDashboard, type::Symbol, message::Strin
         popfirst!(dashboard.events)
     end
     
-    if dashboard.config.notification_enabled && type in [:error, :success]
-        Notifications.send_notification("Numerai Tournament", message, type)
+    if type == :error
+        @log_error "Dashboard event" message=message
+    elseif type == :success
+        @log_info "Dashboard success" message=message
     end
 end
 
@@ -830,13 +762,13 @@ function start_training(dashboard::TournamentDashboard)
     end
     
     dashboard.training_info[:is_training] = true
-    dashboard.training_info[:current_model] = dashboard.models[dashboard.selected_model][:name]
+    dashboard.training_info[:model_name] = dashboard.model[:name]
     dashboard.training_info[:progress] = 0
     # Get default epochs from config
     default_epochs = get(dashboard.config.tui_config["training"], "default_epochs", 100)
     dashboard.training_info[:total_epochs] = default_epochs
     
-    add_event!(dashboard, :info, "Starting training for $(dashboard.training_info[:current_model])")
+    add_event!(dashboard, :info, "Starting training for $(dashboard.training_info[:model_name])")
     
     @async simulate_training(dashboard)
 end
@@ -950,10 +882,9 @@ function run_real_training(dashboard::TournamentDashboard)
             correlation = cor(predictions, target)
             
             # Update model with real performance
-            model = dashboard.models[dashboard.selected_model]
-            model[:corr] = round(correlation, digits=4)
-            model[:mmc] = round(correlation * 0.5, digits=4)  # Estimated MMC 
-            model[:fnc] = round(correlation * 0.3, digits=4)  # Estimated FNC
+            dashboard.model[:corr] = round(correlation, digits=4)
+            dashboard.model[:mmc] = round(correlation * 0.5, digits=4)  # Estimated MMC 
+            dashboard.model[:fnc] = round(correlation * 0.3, digits=4)  # Estimated FNC
             
             dashboard.training_info[:val_score] = correlation
             
@@ -1289,22 +1220,16 @@ function finalize_model_creation(dashboard::TournamentDashboard)
     dashboard.wizard_state = nothing
 end
 
-function show_model_details(dashboard::TournamentDashboard, model_idx::Int)
-    if model_idx < 1 || model_idx > length(dashboard.models)
-        add_event!(dashboard, :error, "Invalid model index")
-        return
-    end
-    
-    model = dashboard.models[model_idx]
-    model_name = model[:name]
+function show_model_details(dashboard::TournamentDashboard)
+    model_name = dashboard.model[:name]
     
     # Set the model details to be shown
     dashboard.show_model_details = true
-    dashboard.selected_model_details = model
+    dashboard.selected_model_details = dashboard.model
     
     # Display historical performance if available
-    if haskey(dashboard.performance_history, model_name) && !isempty(dashboard.performance_history[model_name])
-        history = dashboard.performance_history[model_name]
+    if !isempty(dashboard.performance_history)
+        history = dashboard.performance_history
         
         # Calculate statistics
         corr_values = [h[:corr] for h in history]
@@ -1333,16 +1258,15 @@ function save_performance_history(dashboard::TournamentDashboard, filepath::Stri
     try
         # Convert history to a format suitable for JSON serialization
         history_data = Dict{String, Any}()
-        for (model_name, history) in dashboard.performance_history
-            history_data[model_name] = [Dict(
-                "timestamp" => string(h[:timestamp]),
-                "corr" => h[:corr],
-                "mmc" => h[:mmc],
-                "fnc" => h[:fnc],
-                "sharpe" => h[:sharpe],
-                "stake" => h[:stake]
-            ) for h in history]
-        end
+        model_name = dashboard.model[:name]
+        history_data[model_name] = [Dict(
+            "timestamp" => string(h[:timestamp]),
+            "corr" => h[:corr],
+            "mmc" => h[:mmc],
+            "fnc" => h[:fnc],
+            "sharpe" => h[:sharpe],
+            "stake" => h[:stake]
+        ) for h in dashboard.performance_history]
         
         open(filepath, "w") do io
             JSON3.write(io, history_data)
@@ -1361,9 +1285,12 @@ function load_performance_history!(dashboard::TournamentDashboard, filepath::Str
     
     try
         history_data = JSON3.read(read(filepath, String))
+        model_name = dashboard.model[:name]
         
-        for (model_name, history) in history_data
-            dashboard.performance_history[String(model_name)] = [Dict{Symbol, Any}(
+        # Load history for the current model if it exists in the file
+        if haskey(history_data, model_name)
+            history = history_data[model_name]
+            dashboard.performance_history = [Dict{Symbol, Any}(
                 :timestamp => DateTime(h["timestamp"]),
                 :corr => Float64(h["corr"]),
                 :mmc => Float64(h["mmc"]),
@@ -1380,11 +1307,11 @@ function load_performance_history!(dashboard::TournamentDashboard, filepath::Str
 end
 
 function get_performance_summary(dashboard::TournamentDashboard, model_name::String)
-    if !haskey(dashboard.performance_history, model_name) || isempty(dashboard.performance_history[model_name])
+    if dashboard.model[:name] != model_name || isempty(dashboard.performance_history)
         return nothing
     end
     
-    history = dashboard.performance_history[model_name]
+    history = dashboard.performance_history
     corr_values = [h[:corr] for h in history]
     mmc_values = [h[:mmc] for h in history]
     fnc_values = [h[:fnc] for h in history]

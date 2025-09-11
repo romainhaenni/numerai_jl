@@ -840,7 +840,7 @@ performance when a single feature is randomly shuffled. This is a model-agnostic
 approach that works well for neural networks.
 """
 function feature_importance(model::NeuralNetworkModel; 
-                          validation_data::Union{Nothing, Tuple{Matrix{Float32}, Vector{Float32}}} = nothing,
+                          validation_data::Union{Nothing, Tuple{Matrix{Float64}, Vector{Float64}}} = nothing,
                           n_permutations::Int = 5,
                           metric::Function = (y_true, y_pred) -> cor(y_true, y_pred))::Dict{String, Float64}
     if model.model === nothing
@@ -971,7 +971,7 @@ function load_model!(model::NeuralNetworkModel, filepath::String)
         
         # Restore model components
         model.model = model_state[:model]
-        model.params = get(model_state, :params, model_state[:config])  # Support old :config key
+        model.params = get(model_state, :params, get(model_state, :config, Dict{String, Any}()))  # Support old :config key
         model.feature_means = model_state[:feature_means]
         model.feature_stds = model_state[:feature_stds]
         model.training_history = model_state[:training_history]
@@ -983,8 +983,8 @@ function load_model!(model::NeuralNetworkModel, filepath::String)
             model.gpu_enabled = model_state[:gpu_enabled]
         end
         
-        # Move model to GPU if available
-        if has_metal_gpu()
+        # Move model to GPU if available and enabled for this model
+        if model.gpu_enabled && has_metal_gpu()
             model.model = Flux.gpu(model.model)
             @info "Model moved to Metal GPU"
         end

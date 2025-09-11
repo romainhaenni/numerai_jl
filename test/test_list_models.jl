@@ -46,7 +46,6 @@ try
         auto_submit = false
         stake_amount = 0.0
         max_workers = $(Sys.CPU_THREADS)
-        notification_enabled = true
         """
         
         write(joinpath(@__DIR__, "..", "config.toml"), config)

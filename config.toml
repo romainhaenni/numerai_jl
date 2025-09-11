@@ -1,7 +1,7 @@
 # Numerai Tournament Configuration
 
-# API Credentials (can also be set via environment variables)
-# Set these values or use NUMERAI_PUBLIC_KEY and NUMERAI_SECRET_KEY environment variables
+# API Credentials (can also be set via environment variables NUMERAI_PUBLIC_ID and NUMERAI_SECRET_KEY)
+# Uncomment and set these values if not using environment variables
 # api_public_key = "YOUR_PUBLIC_KEY_HERE"
 # api_secret_key = "YOUR_SECRET_KEY_HERE"
 
@@ -10,8 +10,8 @@
 # 11 = Signals Tournament
 tournament_id = 8
 
-# Model names to manage
-models = ["numeraijl"]
+# Model names to manage (leave empty to auto-discover from your Numerai account)
+models = []
 
 # Data storage directories
 data_dir = "data"
@@ -19,58 +19,8 @@ model_dir = "models"
 
 # Automation settings
 auto_submit = true
-stake_amount = 0.1
-
-# System resources
-max_workers = 8
-notification_enabled = true
+stake_amount = 0.0
 
 # Feature set configuration
-# Options: "small", "medium", "all"
+# Options: "small" (~300 features), "medium" (~1000 features), "all" (~5000 features)
 feature_set = "medium"
-
-# TUI Dashboard Configuration
-[tui]
-# Refresh and update intervals (in seconds)
-refresh_rate = 1.0
-model_update_interval = 30.0
-network_check_interval = 60.0
-network_timeout = 5
-
-# History and display limits
-[tui.limits]
-performance_history_max = 100
-api_error_history_max = 50
-events_history_max = 100
-max_events_display = 20
-
-# Panel dimensions
-[tui.panels]
-model_panel_width = 60
-staking_panel_width = 40
-predictions_panel_width = 40
-events_panel_width = 60
-events_panel_height = 22
-system_panel_width = 40
-training_panel_width = 40
-help_panel_width = 40
-
-# Chart configuration
-[tui.charts]
-sparkline_width = 40
-sparkline_height = 8
-bar_chart_width = 40
-histogram_bins = 20
-histogram_width = 40
-performance_sparkline_width = 30
-performance_sparkline_height = 4
-correlation_bar_width = 20
-mini_chart_width = 10
-# Correlation thresholds for color coding
-correlation_positive_threshold = 0.02
-correlation_negative_threshold = -0.02
-
-# Training defaults
-[tui.training]
-default_epochs = 100
-progress_bar_width = 20

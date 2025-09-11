@@ -307,7 +307,9 @@ function gpu_standardize!(X::AbstractMatrix{Float64})
     end
     
     try
-        X_gpu = gpu(X)
+        # Convert to Float32 for GPU operations
+        X_f32 = Float32.(X)
+        X_gpu = gpu(X_f32)
         
         # Compute mean and std for each column
         for j in 1:size(X_gpu, 2)
@@ -319,8 +321,8 @@ function gpu_standardize!(X::AbstractMatrix{Float64})
             end
         end
         
-        # Copy back to original array
-        X .= cpu(X_gpu)
+        # Convert back to Float64 and copy to original array
+        X .= Float64.(cpu(X_gpu))
         return X
     catch e
         @warn "GPU standardization failed, falling back to CPU" exception=e
@@ -355,7 +357,9 @@ function gpu_normalize!(X::AbstractMatrix{Float64})
     end
     
     try
-        X_gpu = gpu(X)
+        # Convert to Float32 for GPU operations
+        X_f32 = Float32.(X)
+        X_gpu = gpu(X_f32)
         
         # Compute min and max for each column
         for j in 1:size(X_gpu, 2)
@@ -367,8 +371,8 @@ function gpu_normalize!(X::AbstractMatrix{Float64})
             end
         end
         
-        # Copy back to original array
-        X .= cpu(X_gpu)
+        # Convert back to Float64 and copy to original array
+        X .= Float64.(cpu(X_gpu))
         return X
     catch e
         @warn "GPU normalization failed, falling back to CPU" exception=e
@@ -396,8 +400,9 @@ function gpu_feature_engineering(X::AbstractMatrix{Float64}, operations::Vector{
         if op == :square
             if has_metal_gpu()
                 try
-                    X_gpu = gpu(X)
-                    X_squared = cpu(X_gpu .^ 2)
+                    X_f32 = Float32.(X)
+                    X_gpu = gpu(X_f32)
+                    X_squared = Float64.(cpu(X_gpu .^ 2))
                     push!(result_matrices, X_squared)
                     continue
                 catch e
@@ -410,8 +415,9 @@ function gpu_feature_engineering(X::AbstractMatrix{Float64}, operations::Vector{
         elseif op == :sqrt
             if has_metal_gpu()
                 try
-                    X_gpu = gpu(abs.(X))  # Ensure non-negative values
-                    X_sqrt = cpu(sqrt.(X_gpu))
+                    X_f32 = Float32.(abs.(X))  # Ensure non-negative values
+                    X_gpu = gpu(X_f32)
+                    X_sqrt = Float64.(cpu(sqrt.(X_gpu)))
                     push!(result_matrices, X_sqrt)
                     continue
                 catch e
@@ -424,8 +430,9 @@ function gpu_feature_engineering(X::AbstractMatrix{Float64}, operations::Vector{
         elseif op == :log
             if has_metal_gpu()
                 try
-                    X_gpu = gpu(abs.(X) .+ 1e-8)  # Avoid log(0)
-                    X_log = cpu(log.(X_gpu))
+                    X_f32 = Float32.(abs.(X) .+ 1e-8)  # Avoid log(0)
+                    X_gpu = gpu(X_f32)
+                    X_log = Float64.(cpu(log.(X_gpu)))
                     push!(result_matrices, X_log)
                     continue
                 catch e
@@ -449,12 +456,15 @@ function gpu_compute_correlations(predictions::AbstractVector{Float64}, targets:
     end
     
     try
-        pred_gpu = gpu(predictions)
-        targ_gpu = gpu(targets)
+        # Convert to Float32 for GPU operations
+        pred_f32 = Float32.(predictions)
+        targ_f32 = Float32.(targets)
+        pred_gpu = gpu(pred_f32)
+        targ_gpu = gpu(targ_f32)
         
         # Compute correlation on GPU
         correlation = cor(pred_gpu, targ_gpu)
-        return correlation
+        return Float64(correlation)
     catch e
         @warn "GPU correlation computation failed, falling back to CPU" exception=e
         return cor(predictions, targets)
@@ -470,11 +480,14 @@ function gpu_ensemble_predictions(predictions_matrix::AbstractMatrix{Float64}, w
     end
     
     try
-        pred_gpu = gpu(predictions_matrix)
-        weights_gpu = gpu(weights)
+        # Convert to Float32 for GPU operations
+        pred_f32 = Float32.(predictions_matrix)
+        weights_f32 = Float32.(weights)
+        pred_gpu = gpu(pred_f32)
+        weights_gpu = gpu(weights_f32)
         
         ensemble_pred = pred_gpu * weights_gpu
-        return cpu(ensemble_pred)
+        return Float64.(cpu(ensemble_pred))
     catch e
         @warn "GPU ensemble prediction failed, falling back to CPU" exception=e
         return predictions_matrix * weights
@@ -640,11 +653,14 @@ function gpu_feature_selection(X::AbstractMatrix{Float64}, y::AbstractVector{Flo
     
     if has_metal_gpu()
         try
-            y_gpu = gpu(y)
+            # Convert to Float32 for GPU operations
+            y_f32 = Float32.(y)
+            y_gpu = gpu(y_f32)
             
             for i in 1:n_features
-                feature_gpu = gpu(X[:, i])
-                correlations[i] = abs(cor(feature_gpu, y_gpu))
+                feature_f32 = Float32.(X[:, i])
+                feature_gpu = gpu(feature_f32)
+                correlations[i] = abs(Float64(cor(feature_gpu, y_gpu)))
             end
         catch e
             @warn "GPU feature selection failed, falling back to CPU" exception=e

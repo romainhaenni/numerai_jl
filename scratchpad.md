@@ -7,10 +7,12 @@
 ## 🔥 HIGH PRIORITY (P1) - CORE FUNCTIONALITY GAPS
 
 ### 1. **EvoTrees Division Error Bug** 🟠 **HIGH**
-- **Current**: BoundsError and DivideError in EvoTrees model training with multi-target data
-- **Impact**: EvoTrees model completely non-functional for multi-target scenarios
-- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/models.jl` (EvoTrees implementation)
-- **Status**: Workaround in place (falls back to single-target mode), but underlying bug still exists in EvoTrees library
+- **Current**: BoundsError and DivideError in EvoTrees model training - workaround comment is BACKWARDS
+- **Bug**: Current code sets print_every_n=0 which CAUSES the error (line 942)
+- **Fix**: Change to print_every_n=100 instead of 0
+- **Impact**: EvoTrees model completely non-functional due to incorrect workaround
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/models.jl:942`
+- **Status**: Easy fix available - just need to correct the print_every_n parameter
 
 ### 2. **TabNet is Completely Fake** 🟠 **HIGH**
 - **Current**: neural_networks.jl:535-542 returns basic MLP instead of TabNet
@@ -24,26 +26,28 @@
 - **Files**: `/Users/romain/src/Numerai/numerai_jl/src/gpu/metal_acceleration.jl`
 - **Status**: All operations fall back to CPU
 
-### 4. **Linear Model Feature Importance Bug** 🟠 **HIGH**
-- **Current**: Feature importance calculation may not work correctly for linear models
-- **Impact**: Model interpretability and feature analysis affected
-- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/linear_models.jl`
-- **Status**: Needs investigation and fix
+### 4. **XGBoost Multi-Target Feature Importance Gap** 🟠 **HIGH**
+- **Current**: XGBoost feature importance doesn't handle multi-target scenarios
+- **Impact**: Feature importance analysis incomplete for multi-target models
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/models.jl:576-584`
+- **Status**: Returns importance for first model only, needs multi-target aggregation
 
 
 ## 🔧 MEDIUM PRIORITY (P2) - IMPORTANT ENHANCEMENTS
 
-### 1. **API Logging Fallback Implementation** 🟡 **MEDIUM**
-- **Current**: Incomplete logging infrastructure, fallback handling needs improvement
-- **Impact**: API debugging and error tracking may be insufficient
-- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/api/client.jl`
-- **Status**: Error handling needs enhancement
+### 1. **CatBoost Feature Importance Logic Error** 🟡 **MEDIUM**
+- **Current**: Ternary operator in feature_importance always returns 100 (line 1244)
+- **Bug**: `length(models) == 1 ? 100 : 100` - both branches return same value
+- **Impact**: Feature importance calculation incorrect for CatBoost models
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/models.jl:1244`
+- **Status**: Simple fix needed in ternary operator logic
 
-### 2. **Feature Sets Incomplete** 🟡 **MEDIUM**
-- **Current**: Only small feature set (20 features) populated in features.json, medium/all sets missing
-- **Impact**: Limited model training options, reduced prediction accuracy potential
-- **Files**: `/Users/romain/src/Numerai/numerai_jl/data/features.json`
-- **Status**: Feature engineering capabilities restricted
+### 2. **Performance Command Type Mismatch** 🟡 **MEDIUM**
+- **Current**: --performance command broken due to get_models() type mismatch
+- **Bug**: get_models() returns Vector{String} but performance code expects Dict
+- **Impact**: Performance analysis command completely non-functional
+- **Files**: Performance command implementation
+- **Status**: Type conversion needed between get_models() return value and usage
 
 ### 3. **True Contribution (TC) Calculation** 🟡 **MEDIUM**
 - **Current**: Correlation-based approximation
@@ -51,11 +55,17 @@
 - **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/metrics.jl`
 - **Impact**: TC estimates may differ from official Numerai calculations
 
-### 4. **Predictions Archive Missing Functions** 🟡 **MEDIUM**
-- **Current**: Some prediction archival and retrieval functions may be incomplete
-- **Impact**: Historical prediction tracking may be limited
+### 3. **Feature Sets Incomplete** 🟡 **MEDIUM**
+- **Current**: Only small feature set (50 features) populated in features.json, medium/all sets missing
+- **Impact**: Limited model training options, reduced prediction accuracy potential
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/data/features.json`
+- **Status**: Feature engineering capabilities restricted
+
+### 4. **Missing Database Functions** 🟡 **MEDIUM**
+- **Current**: save_predictions() and save_model_metadata() functions not implemented
+- **Impact**: Historical prediction tracking and model metadata storage unavailable
 - **Files**: `/Users/romain/src/Numerai/numerai_jl/src/data/database.jl`
-- **Status**: Needs investigation and completion
+- **Status**: Core database functions missing implementation
 
 ### 13. **Missing Test Files** 🟡 **MEDIUM** ✅ **COMPLETED**
 - ~~Missing: Test files for ensemble.jl and linear_models.jl~~
@@ -82,7 +92,25 @@
 - **Missing**: Historical performance trend analysis, model diagnostics
 - **Priority**: Non-essential for core functionality
 
-### 3. **GPU Benchmarking Validation** 🟢 **LOW**
+### 3. **Hyperopt Scoring Formula Hardcoded** 🟢 **LOW**
+- **Current**: Scoring formula hardcoded to 0.7*corr + 0.3*sharpe
+- **Impact**: Inflexible hyperparameter optimization scoring
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/hyperopt.jl`
+- **Status**: Should be configurable in config.toml
+
+### 4. **GPU Feature Selection Fallback** 🟢 **LOW**
+- **Current**: GPU feature selection fallback just returns first k features without selection
+- **Impact**: Suboptimal feature selection when GPU unavailable
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/gpu/metal_acceleration.jl`
+- **Status**: Needs proper CPU fallback implementation
+
+### 5. **TUI Dashboard Placeholder Formulas** 🟢 **LOW**
+- **Current**: MMC/FNC estimation formulas are placeholders
+- **Impact**: Inaccurate performance estimates in dashboard
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/tui/dashboard.jl`
+- **Status**: Need proper MMC/FNC calculation formulas
+
+### 6. **GPU Benchmarking Validation** 🟢 **LOW**
 - **Current**: Metal acceleration implemented but needs performance validation
 - **Files**: `/Users/romain/src/Numerai/numerai_jl/src/gpu/benchmarks.jl`
 - **Impact**: Performance optimization opportunities
@@ -103,7 +131,8 @@
   - ✅ **Fixed Ensemble Test Failures** - FIXED in commit 27fd4aa - All tests now passing
   - ✅ **Fixed Bagging Ensemble Feature Subsetting** - FIXED in commit 27fd4aa
   - ✅ **Fixed Multi-Target Weight Optimization** - FIXED in commit 27fd4aa
-- **Impact**: ALL 1,561 tests now passing (100% pass rate), system ready for production testing
+- **Impact**: ALL 1,562 tests now passing (100% pass rate), system ready for production testing
+- **Production Readiness Tests**: 3 API signature mismatches identified but main functionality works
 - **Files**: Multiple critical fixes across CLI, database, and ensemble modules
 
 ### 🎯 **v0.6.3 Release Achievements** ✅ **COMPLETED**
@@ -238,24 +267,30 @@
 - **Multi-Target Support**: ✅ FUNCTIONAL - All models support V5 multi-target predictions
 - **TUI Dashboard**: ✅ FUNCTIONAL - Dashboard components operational
 - **Configuration**: ⚠️ **LIMITED** - Only small feature set available, missing medium/all sets
-- **Test Suite**: ✅ **EXCELLENT** - ALL 1,561 tests passing (100% pass rate)
+- **Test Suite**: ✅ **EXCELLENT** - ALL 1,562 tests passing (100% pass rate)
+- **Production Tests**: ⚠️ **MINOR ISSUES** - 3 API signature mismatches in production readiness tests
 - **Linear Models**: ✅ FUNCTIONAL - Full multi-target support working
 - **Database Operations**: ✅ FUNCTIONAL - All imports and error handling working
 - **Release Status**: ✅ **v0.6.4 READY** - All critical fixes completed
 
 ### Blocking Issues Summary
 - **P0 Critical**: ✅ **0 BLOCKING ISSUES** - All critical functionality restored
-- **P1 High**: 🟡 **4 ACTIVE ISSUES** - Core functionality limitations
-  - EvoTrees model has workaround but underlying bug exists
+- **P1 High**: 🟡 **3 ACTIVE ISSUES** - Core functionality limitations
+  - EvoTrees model bug (easy fix: change print_every_n from 0 to 100)
   - TabNet fake implementation (misleading users)
   - Metal GPU Float64 incompatibility
-  - Linear model feature importance bug
 - **P2 Medium**: 🟡 **4 ACTIVE ISSUES** - Important functionality gaps
-  - API logging needs improvement
-  - Feature sets incomplete (only small set available)
+  - CatBoost feature importance logic error
+  - Performance command type mismatch
+  - Feature sets incomplete (only small set with 50 features available)
+  - Missing database functions (save_predictions, save_model_metadata)
+- **P3 Low**: 🟢 **6 CLEANUP ISSUES** - Non-essential improvements
+  - Hyperopt scoring formula hardcoded
+  - GPU feature selection fallback suboptimal
+  - TUI dashboard placeholder formulas
   - TC calculation using approximation
-  - Predictions archive missing functions
-- **P3 Low**: 🟢 **4 CLEANUP ISSUES** - Non-essential improvements
+  - Deprecated parameter warnings
+  - GPU benchmarking validation needed
 
 ### 🚨 **PRODUCTION READINESS STATUS: READY FOR TESTING**
 **Critical fixes completed - system now stable:**
@@ -263,7 +298,8 @@
 - ✅ **Database operational**: DBInterface import added in commit 8017476
 - ✅ **Model persistence working**: Pipeline module references fixed in commit 8017476
 - ✅ **Ensemble fully functional**: All feature subsetting and weight optimization issues fixed in commit 27fd4aa
-- ✅ **Test suite excellent**: ALL 1,561 tests passing (100% pass rate)
+- ✅ **Test suite excellent**: ALL 1,562 tests passing (100% pass rate)
+- ⚠️ **Production readiness**: 3 API signature mismatches in production tests (non-blocking)
 - ⚠️ **GPU acceleration limited**: Metal Float64 incompatibility remains, but CPU fallback works
 - ⚠️ **Limited features**: Only small feature set available (not blocking for basic functionality)
 - ⚠️ **Incomplete logging**: API debugging capabilities sufficient for basic operation

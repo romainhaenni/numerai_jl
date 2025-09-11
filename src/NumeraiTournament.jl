@@ -383,37 +383,18 @@ function show_model_performance(model_name::String, config_file::String="config.
     
     try
         # Get model performance from API
-        models = get_models(api_client)
+        performance = get_model_performance(api_client, model_name)
         
-        for model in models
-            if model["name"] == model_name
-                println("\nModel: $(model["name"])")
-                println("Tournament: $(model["tournament"])")
-                println("Stake: $(get(model, "totalStake", 0.0)) NMR")
-                println("\nLatest Performance:")
-                
-                if haskey(model, "latestRanks") && model["latestRanks"] !== nothing
-                    ranks = model["latestRanks"]
-                    println("  CORR: $(get(ranks, "corr", "N/A"))")
-                    println("  MMC: $(get(ranks, "mmc", "N/A"))")
-                    println("  FNC: $(get(ranks, "fnc", "N/A"))")
-                    println("  TC: $(get(ranks, "tc", "N/A"))")
-                end
-                
-                if haskey(model, "latestReturns") && model["latestReturns"] !== nothing
-                    returns = model["latestReturns"]
-                    println("\nLatest Returns:")
-                    println("  1 Day: $(get(returns, "oneDay", "N/A"))")
-                    println("  3 Months: $(get(returns, "threeMonths", "N/A"))")
-                    println("  1 Year: $(get(returns, "oneYear", "N/A"))")
-                end
-                
-                return true
-            end
-        end
+        println("\nModel: $(performance.model_name)")
+        println("Stake: $(performance.stake) NMR")
+        println("\nLatest Performance:")
+        println("  CORR: $(round(performance.corr, digits=4))")
+        println("  MMC: $(round(performance.mmc, digits=4))")
+        println("  FNC: $(round(performance.fnc, digits=4))")
+        println("  TC: $(round(performance.tc, digits=4))")
+        println("  Sharpe: $(round(performance.sharpe, digits=4))")
         
-        @log_warn "Model $model_name not found"
-        return false
+        return true
     catch e
         @log_error "Failed to get performance for $model_name" error=e
         return false
@@ -428,35 +409,31 @@ function show_all_performance(config_file::String="config.toml")
     api_client = NumeraiClient(config.api_public_key, config.api_secret_key)
     
     try
-        # Get all models performance from API
-        models = get_models(api_client)
+        # Get all model names from API
+        model_names = get_models(api_client)
         
-        if isempty(models)
+        if isempty(model_names)
             println("No models found")
             return false
         end
         
-        for model in models
+        for model_name in model_names
             println("\n" * "="^50)
-            println("Model: $(model["name"])")
-            println("Tournament: $(model["tournament"])")
-            println("Stake: $(get(model, "totalStake", 0.0)) NMR")
-            
-            if haskey(model, "latestRanks") && model["latestRanks"] !== nothing
-                ranks = model["latestRanks"]
+            try
+                performance = get_model_performance(api_client, model_name)
+                
+                println("Model: $(performance.model_name)")
+                println("Stake: $(performance.stake) NMR")
                 println("\nLatest Performance:")
-                println("  CORR: $(get(ranks, "corr", "N/A"))")
-                println("  MMC: $(get(ranks, "mmc", "N/A"))")
-                println("  FNC: $(get(ranks, "fnc", "N/A"))")
-                println("  TC: $(get(ranks, "tc", "N/A"))")
-            end
-            
-            if haskey(model, "latestReturns") && model["latestReturns"] !== nothing
-                returns = model["latestReturns"]
-                println("\nLatest Returns:")
-                println("  1 Day: $(get(returns, "oneDay", "N/A"))")
-                println("  3 Months: $(get(returns, "threeMonths", "N/A"))")
-                println("  1 Year: $(get(returns, "oneYear", "N/A"))")
+                println("  CORR: $(round(performance.corr, digits=4))")
+                println("  MMC: $(round(performance.mmc, digits=4))")
+                println("  FNC: $(round(performance.fnc, digits=4))")
+                println("  TC: $(round(performance.tc, digits=4))")
+                println("  Sharpe: $(round(performance.sharpe, digits=4))")
+            catch e
+                println("Model: $model_name")
+                println("Latest Performance: Error retrieving data")
+                @log_warn "Failed to get performance for $model_name" error=e
             end
         end
         println("\n" * "="^50)

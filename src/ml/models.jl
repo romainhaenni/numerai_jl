@@ -616,7 +616,7 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Union{V
                                     y_train=y_target,
                                     x_eval=X_val,
                                     y_eval=y_val_target,
-                                    print_every_n=0)  # Avoid division error in EvoTrees
+                                    print_every_n=100)  # Print progress every 100 iterations
             elseif X_val !== nothing && y_val isa Vector{Float64} && target_idx == 1
                 # Use single-target validation for first target only
                 EvoTrees.fit_evotree(config; 
@@ -624,12 +624,12 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Union{V
                                     y_train=y_target,
                                     x_eval=X_val,
                                     y_eval=y_val,
-                                    print_every_n=0)  # Avoid division error in EvoTrees
+                                    print_every_n=100)  # Print progress every 100 iterations
             else
                 EvoTrees.fit_evotree(config; 
                                     x_train=X_train, 
                                     y_train=y_target,
-                                    print_every_n=0)  # Avoid division error in EvoTrees
+                                    print_every_n=100)  # Print progress every 100 iterations
             end
             
             push!(models, target_model)
@@ -661,13 +661,13 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Union{V
                                               y_train=y_train,
                                               x_eval=X_val,
                                               y_eval=y_val,
-                                              print_every_n=0)  # Avoid division error in EvoTrees
+                                              print_every_n=100)  # Print progress every 100 iterations
         else
             # Train without validation set
             model.model = EvoTrees.fit_evotree(config; 
                                               x_train=X_train, 
                                               y_train=y_train,
-                                              print_every_n=0)  # Avoid division error in EvoTrees
+                                              print_every_n=100)  # Print progress every 100 iterations
         end
         
         return model
@@ -684,6 +684,9 @@ function train!(model::CatBoostModel, X_train::Matrix{Float64}, y_train::Union{V
     # Detect multi-target case and set up appropriate parameters
     is_multitarget = y_train isa Matrix{Float64}
     n_targets = is_multitarget ? size(y_train, 2) : 1
+    
+    # Store number of features for later use in feature importance
+    model.params["n_features"] = size(X_train, 2)
     
     if is_multitarget
         @info "Training CatBoost with multi-target support (using multiple single-target models)" n_targets=n_targets model_name=model.name
@@ -1241,7 +1244,8 @@ function feature_importance(model::CatBoostModel)::Dict{String, Float64}
         catch e
             @warn "Failed to get CatBoost feature importance, using uniform importance" error=e
             # Fallback: return uniform importance if the method is not available
-            n_features = length(model.params["colsample_bylevel"] == 1.0 ? 100 : 100)  # Default assumption
+            # Get number of features from model parameters if available, otherwise use default
+            n_features = get(model.params, "n_features", 100)  # Use stored feature count or default to 100
             feature_dict = Dict{String, Float64}()
             for i in 1:n_features
                 feature_dict["feature_$(i)"] = 1.0 / n_features

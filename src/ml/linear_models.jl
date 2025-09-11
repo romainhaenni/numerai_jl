@@ -503,8 +503,15 @@ function feature_importance(model::Union{RidgeModel, LassoModel, ElasticNetModel
     # Get coefficients
     coef = model.model["coef"]
     
-    # Use absolute values of coefficients as importance scores
-    abs_coef = abs.(coef)
+    # Handle multi-target models
+    if coef isa Matrix
+        # For multi-target, average the absolute coefficients across targets
+        # coef is (n_features, n_targets)
+        abs_coef = mean(abs.(coef), dims=2)[:,1]  # Average across targets
+    else
+        # Single target case
+        abs_coef = abs.(coef)
+    end
     
     # Normalize to sum to 1 (if there are any non-zero coefficients)
     total = sum(abs_coef)

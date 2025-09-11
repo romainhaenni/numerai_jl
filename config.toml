@@ -24,3 +24,57 @@ stake_amount = 0.0
 # Feature set configuration
 # Options: "small" (~300 features), "medium" (~1000 features), "all" (~5000 features)
 feature_set = "medium"
+
+# System configuration
+max_workers = 16  # Number of parallel workers (defaults to CPU threads)
+
+# TUI Dashboard Configuration
+[tui]
+refresh_rate = 1.0  # Dashboard refresh rate in seconds
+model_update_interval = 30.0  # Model data update interval in seconds
+network_check_interval = 60.0  # Network connectivity check interval
+network_timeout = 5  # Network check timeout in seconds
+
+# TUI Limits
+[tui.limits]
+performance_history_max = 100  # Maximum performance history entries
+api_error_history_max = 50  # Maximum API error history entries
+events_history_max = 100  # Maximum event history entries
+max_events_display = 20  # Maximum events to display at once
+
+# TUI Panel Dimensions
+[tui.panels]
+model_panel_width = 60
+staking_panel_width = 40
+predictions_panel_width = 40
+events_panel_width = 60
+events_panel_height = 22
+system_panel_width = 40
+training_panel_width = 40
+help_panel_width = 40
+
+# TUI Chart Configuration
+[tui.charts]
+sparkline_width = 40
+sparkline_height = 8
+bar_chart_width = 40
+histogram_bins = 20
+histogram_width = 40
+performance_sparkline_width = 30
+performance_sparkline_height = 4
+correlation_bar_width = 20
+mini_chart_width = 10
+correlation_positive_threshold = 0.02
+correlation_negative_threshold = -0.02
+
+# TUI Training Configuration
+[tui.training]
+default_epochs = 100
+progress_bar_width = 20
+
+# Compounding Configuration
+[compounding]
+enabled = false  # Enable automatic stake compounding
+min_compound_amount = 1.0  # Minimum amount to compound
+compound_percentage = 100.0  # Percentage of earnings to compound
+max_stake_amount = 10000.0  # Maximum stake amount per model

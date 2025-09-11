@@ -7,6 +7,7 @@ using Logging
 using LoggingExtras
 using Printf
 using Dates
+using CSV
 
 # Import Metal acceleration module
 include("metal_acceleration.jl")

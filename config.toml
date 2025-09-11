@@ -28,6 +28,29 @@ feature_set = "medium"
 # System configuration
 max_workers = 16  # Number of parallel workers (defaults to CPU threads)
 
+# ML Pipeline Configuration
+[ml]
+# Training data sampling percentage (0.0-1.0)
+# Use smaller values for faster training during development
+# Default: 0.1 (10% of training data)
+sample_pct = 0.1
+
+# Target column for predictions
+# This is the target to optimize for in the tournament
+# Default: "target_cyrus_v4_20" (standard Numerai target)
+target_col = "target_cyrus_v4_20"
+
+# Feature neutralization settings
+# Neutralization reduces feature exposure to improve consistency
+# Default: false (disabled)
+enable_neutralization = false
+
+# Neutralization proportion (0.0-1.0)
+# Higher values apply stronger neutralization
+# Only used when enable_neutralization = true
+# Default: 0.5 (50% neutralization)
+neutralization_proportion = 0.5
+
 # Hyperparameter Optimization Configuration
 [hyperopt]
 # Scoring formula weights for hyperparameter optimization

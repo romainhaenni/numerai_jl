@@ -183,17 +183,14 @@ using Statistics
         val_df[!, "target_cyrus_v4_20"] = rand(100)
         val_df[!, "era"] = repeat(5:6, inner=50)
         
-        # Test complete pipeline with CPU-only models to avoid Metal GPU issues
-        models = [
-            NumeraiTournament.Models.XGBoostModel("xgb_test", max_depth=3, num_rounds=5, gpu_enabled=false),
-            NumeraiTournament.Models.LightGBMModel("lgbm_test", num_leaves=15, n_estimators=5, gpu_enabled=false),
-            NumeraiTournament.MLPModel("mlp_test", gpu_enabled=false, epochs=2, hidden_layers=[16, 8])
-        ]
+        # Test complete pipeline with CPU-only model to avoid Metal GPU issues
+        # Use single model with current API
+        model = NumeraiTournament.Models.XGBoostModel("xgb_test", max_depth=3, num_rounds=5, gpu_enabled=false)
         
         pipeline = NumeraiTournament.Pipeline.MLPipeline(
             feature_cols=["feature_$i" for i in 1:n_features],
             target_col="target_cyrus_v4_20",
-            models=models,
+            model=model,
             neutralize=true,
             neutralize_proportion=0.3
         )

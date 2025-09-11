@@ -822,29 +822,19 @@ function run_real_training(dashboard::TournamentDashboard)
         dashboard.training_info[:eta] = "Initializing pipeline..."
         
         # Create ML pipeline
+        # Use XGBoost as the default model for training
         pipeline = Pipeline.MLPipeline(
             feature_cols=feature_cols,
             target_col=get(config, "target_col", "target_cyrus_v4_20"),
-            model_configs=[
-                Pipeline.ModelConfig(
-                    "xgboost",
-                    Dict(
-                        :n_estimators => 100,
-                        :max_depth => 5,
-                        :learning_rate => 0.01,
-                        :subsample => 0.8
-                    )
-                ),
-                Pipeline.ModelConfig(
-                    "lightgbm",
-                    Dict(
-                        :n_estimators => 100,
-                        :max_depth => 5,
-                        :learning_rate => 0.01,
-                        :subsample => 0.8
-                    )
+            model_config=Pipeline.ModelConfig(
+                "xgboost",
+                Dict(
+                    :n_estimators => 100,
+                    :max_depth => 5,
+                    :learning_rate => 0.01,
+                    :subsample => 0.8
                 )
-            ],
+            ),
             neutralize=get(config, "enable_neutralization", false)
         )
         
@@ -855,8 +845,8 @@ function run_real_training(dashboard::TournamentDashboard)
         add_event!(dashboard, :info, "Training ensemble models...")
         
         # Simulate epochs for progress tracking during actual training
-        n_models = length(pipeline.model_configs)
-        for (i, model_config) in enumerate(pipeline.model_configs)
+        n_models = 1  # Now using single model
+        for i in 1:n_models
             if !dashboard.training_info[:is_training]
                 break
             end

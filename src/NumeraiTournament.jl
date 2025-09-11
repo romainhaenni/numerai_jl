@@ -17,6 +17,8 @@ include("ml/neutralization.jl")
 include("gpu/metal_acceleration.jl")
 include("gpu/benchmarks.jl")
 include("ml/models.jl")
+include("ml/linear_models.jl")
+include("ml/neural_networks.jl")
 include("ml/ensemble.jl")
 include("ml/metrics.jl")
 include("ml/hyperopt.jl")
@@ -47,7 +49,7 @@ using .GPUBenchmarks: run_comprehensive_gpu_benchmark
 using .Performance: optimize_for_m4_max
 using .Scheduler: TournamentScheduler, start_scheduler, download_latest_data, train_models
 using .Dashboard: TournamentDashboard, run_dashboard
-using .API: NumeraiClient, download_dataset, submit_predictions as api_submit_predictions, get_models
+using .API: NumeraiClient, download_dataset, submit_predictions as api_submit_predictions, get_models, get_model_performance
 using .Pipeline: MLPipeline, train!, predict, save_pipeline, load_pipeline
 using .DataLoader: load_training_data, load_live_data
 

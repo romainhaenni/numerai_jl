@@ -19,7 +19,7 @@ export gpu_matrix_multiply, gpu_vector_add, gpu_element_wise_ops
 export gpu_standardize!, gpu_normalize!, gpu_feature_engineering
 
 # ML-specific acceleration
-export gpu_compute_correlations, gpu_cross_validation_scores
+export gpu_compute_correlations
 export gpu_feature_selection, gpu_ensemble_predictions
 
 # Benchmarking utilities

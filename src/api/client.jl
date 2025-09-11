@@ -1192,8 +1192,8 @@ function create_webhook(client::NumeraiClient, model_id::String, webhook_url::St
     
     try
         response = graphql_query(client, mutation, variables)
-        if haskey(response["data"], "createWebhook") && !isnothing(response["data"]["createWebhook"])
-            webhook = response["data"]["createWebhook"]
+        if haskey(response, "createWebhook") && !isnothing(response["createWebhook"])
+            webhook = response["createWebhook"]
             @log_info "Webhook created successfully" webhook_id=webhook["id"] url=webhook["url"]
             return webhook["id"]
         else
@@ -1231,7 +1231,7 @@ function delete_webhook(client::NumeraiClient, webhook_id::String)::Bool
     
     try
         response = graphql_query(client, mutation, variables)
-        if haskey(response["data"], "deleteWebhook") && response["data"]["deleteWebhook"]["success"]
+        if haskey(response, "deleteWebhook") && response["deleteWebhook"]["success"]
             @log_info "Webhook deleted successfully" webhook_id=webhook_id
             return true
         else
@@ -1277,8 +1277,8 @@ function list_webhooks(client::NumeraiClient, model_id::String)::Vector{Dict{Str
     
     try
         response = graphql_query(client, query, variables)
-        if haskey(response["data"], "model") && haskey(response["data"]["model"], "webhooks")
-            webhooks = response["data"]["model"]["webhooks"]
+        if haskey(response, "model") && haskey(response["model"], "webhooks")
+            webhooks = response["model"]["webhooks"]
             @log_info "Retrieved webhooks" count=length(webhooks) model_id=model_id
             return webhooks
         else
@@ -1338,7 +1338,7 @@ function update_webhook(client::NumeraiClient, webhook_id::String;
     
     try
         response = graphql_query(client, mutation, variables)
-        if haskey(response["data"], "updateWebhook") && !isnothing(response["data"]["updateWebhook"])
+        if haskey(response, "updateWebhook") && !isnothing(response["updateWebhook"])
             @log_info "Webhook updated successfully" webhook_id=webhook_id
             return true
         else
@@ -1380,7 +1380,7 @@ function test_webhook(client::NumeraiClient, webhook_id::String)::Bool
     try
         response = graphql_query(client, mutation, variables)
         if haskey(response["data"], "testWebhook")
-            test_result = response["data"]["testWebhook"]
+            test_result = response["testWebhook"]
             if test_result["success"]
                 @log_info "Webhook test successful" webhook_id=webhook_id status_code=test_result["statusCode"] response_time=test_result["responseTime"]
                 return true
@@ -1435,7 +1435,7 @@ function get_webhook_logs(client::NumeraiClient, webhook_id::String; limit::Int=
     try
         response = graphql_query(client, query, variables)
         if haskey(response["data"], "webhookLogs")
-            logs = response["data"]["webhookLogs"]
+            logs = response["webhookLogs"]
             @log_info "Retrieved webhook logs" count=length(logs) webhook_id=webhook_id
             return logs
         else

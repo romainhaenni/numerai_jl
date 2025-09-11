@@ -537,15 +537,13 @@ using NumeraiTournament.Metrics
             df[!, "id"] = 1:n_samples
             
             # Create and train pipeline (using only tree-based models to avoid GPU issues)
-            models = [
-                Models.XGBoostModel("xgb_shallow", max_depth=4, learning_rate=0.02, colsample_bytree=0.2),
-                Models.LightGBMModel("lgbm_small", num_leaves=31, learning_rate=0.01, feature_fraction=0.1)
-            ]
+            # Use single model with current API
+            model = Models.XGBoostModel("xgb_shallow", max_depth=4, learning_rate=0.02, colsample_bytree=0.2)
             pipeline = Pipeline.MLPipeline(
                 feature_cols=feature_names,
                 target_col="target_cyrus_v4_20",
                 neutralize=false,  # Disable neutralization for testing
-                models=models
+                model=model
             )
             
             # Split data for training

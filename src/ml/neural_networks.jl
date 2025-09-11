@@ -703,7 +703,7 @@ end
 """
 Prediction function for neural network models
 """
-function predict_neural_network(model::NeuralNetworkModel, X::Matrix{Float64})::Vector{Float64}
+function predict_neural_network(model::NeuralNetworkModel, X::Matrix{Float64})::Union{Vector{Float64}, Matrix{Float64}}
     if model.model === nothing
         error("Model not trained yet")
     end
@@ -729,12 +729,19 @@ function predict_neural_network(model::NeuralNetworkModel, X::Matrix{Float64})::
     
     # Make prediction
     ŷ = model.model(X_processed')  # Transpose for Flux convention
-    predictions = vec(Flux.cpu(ŷ))  # Ensure CPU and vector format
+    predictions = Flux.cpu(ŷ)  # Ensure CPU format
     
     # Apply sigmoid to normalize predictions to [0,1] range for Numerai
     predictions = sigmoid.(predictions)
     
-    return Float64.(predictions)
+    # Return as vector for single-target or matrix for multi-target
+    if size(predictions, 1) == 1
+        # Single target - return as vector
+        return Float64.(vec(predictions))
+    else
+        # Multi-target - return as matrix (transpose back to samples x targets)
+        return Float64.(predictions')
+    end
 end
 
 # Interface implementations for compatibility with existing model system
@@ -757,7 +764,7 @@ end
 """
 Predict method implementation for neural network models
 """
-function predict(model::NeuralNetworkModel, X::Matrix{Float64})::Vector{Float64}
+function predict(model::NeuralNetworkModel, X::Matrix{Float64})::Union{Vector{Float64}, Matrix{Float64}}
     return predict_neural_network(model, X)
 end
 

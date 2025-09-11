@@ -112,19 +112,21 @@ function train_neural_models()
     
     train!(models["resnet"], X_train, y_train, X_val=X_val, y_val=y_val, verbose=false)
     
-    # 3. TabNet Model - designed for tabular data
-    @info "Training TabNet model..."
-    models["tabnet"] = TabNetModel("numerai_tabnet",
-                                  n_d=64,
-                                  n_a=64,
-                                  n_steps=3,
-                                  learning_rate=0.02,
-                                  epochs=50,
-                                  batch_size=512,
-                                  early_stopping_patience=10,
-                                  gpu_enabled=false)
-    
-    train!(models["tabnet"], X_train, y_train, X_val=X_val, y_val=y_val, verbose=false)
+    # 3. TabNet Model - REMOVED (implementation was incomplete)
+    # The TabNet model has been removed from the codebase as it was a simplified
+    # placeholder implementation. Full TabNet would require 3-4 weeks of development.
+    # @info "Training TabNet model..."
+    # models["tabnet"] = TabNetModel("numerai_tabnet",
+    #                               n_d=64,
+    #                               n_a=64,
+    #                               n_steps=3,
+    #                               learning_rate=0.02,
+    #                               epochs=50,
+    #                               batch_size=512,
+    #                               early_stopping_patience=10,
+    #                               gpu_enabled=false)
+    # 
+    # train!(models["tabnet"], X_train, y_train, X_val=X_val, y_val=y_val, verbose=false)
     
     # Evaluate models
     @info "=== Neural Network Model Results ==="

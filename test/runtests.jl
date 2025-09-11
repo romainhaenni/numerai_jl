@@ -206,13 +206,6 @@ Random.seed!(123)
             @test model.params["hidden_layers"] == [256, 256, 256, 128]
         end
         
-        @testset "TabNetModel creation" begin
-            model = NumeraiTournament.TabNetModel("test_tabnet", gpu_enabled=false)
-            @test model.name == "test_tabnet"
-            @test model isa NumeraiTournament.NeuralNetworkModel
-            @test model.params["n_d"] == 64
-            @test model.params["n_a"] == 64
-        end
     end
     
     @testset "ML Pipeline" begin

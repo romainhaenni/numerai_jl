@@ -44,15 +44,17 @@ resnet = NumeraiTournament.ResNetModel("my_resnet",
 )
 println("✓ Created ResNet model: $(resnet.name)")
 
-# Create a TabNet model
-tabnet = NumeraiTournament.TabNetModel("my_tabnet",
-    n_d=32,
-    n_a=32,
-    n_steps=3,
-    epochs=100,
-    gpu_enabled=false
-)
-println("✓ Created TabNet model: $(tabnet.name)")
+# TabNet model - REMOVED (implementation was incomplete)
+# The TabNet model has been removed from the codebase as it was a simplified
+# placeholder implementation. Full TabNet would require 3-4 weeks of development.
+# tabnet = NumeraiTournament.TabNetModel("my_tabnet",
+#     n_d=32,
+#     n_a=32,
+#     n_steps=3,
+#     epochs=100,
+#     gpu_enabled=false
+# )
+# println("✓ Created TabNet model: $(tabnet.name)")
 
 # Example 2: Using ModelConfig to create models
 println("\n2. Creating Models via ModelConfig")
@@ -154,7 +156,7 @@ end
 
 println("\n✅ Neural Network Integration Examples Complete!")
 println("\nKey Features:")
-println("• 🧠 Three neural network model types: MLP, ResNet, TabNet")
+println("• 🧠 Two neural network model types: MLP, ResNet (TabNet was removed)")
 println("• 🔧 Full ModelConfig integration for flexible configuration") 
 println("• 🤖 Seamless ensemble integration with traditional ML models")
 println("• ⚡ GPU acceleration support (Metal on macOS, CUDA on Linux)")

@@ -349,11 +349,18 @@ function gpu_standardize!(X::AbstractMatrix{Float64})
         μ = mean(X_gpu, dims=1)  # Row vector of means
         σ = std(X_gpu, dims=1, corrected=true)  # Row vector of stds
         
-        # Avoid division by zero - replace zero stds with 1
-        σ_safe = max.(σ, Float32(1e-10))
+        # Create a mask for columns with non-zero std (non-constant columns)
+        # Only standardize columns where std > threshold
+        threshold = Float32(1e-10)
+        mask = σ .> threshold
         
-        # Standardize all columns in one operation using broadcasting
-        X_gpu .= (X_gpu .- μ) ./ σ_safe
+        # Standardize only non-constant columns
+        # For constant columns (σ ≈ 0), keep original values
+        for j in 1:size(X_gpu, 2)
+            if mask[1, j]
+                X_gpu[:, j] .= (X_gpu[:, j] .- μ[1, j]) ./ σ[1, j]
+            end
+        end
         
         # Convert back to Float64 and copy to original array
         X .= Float64.(cpu(X_gpu))
@@ -400,12 +407,21 @@ function gpu_normalize!(X::AbstractMatrix{Float64})
         min_vals = minimum(X_gpu, dims=1)  # Row vector of minimums
         max_vals = maximum(X_gpu, dims=1)  # Row vector of maximums
         
-        # Compute range and avoid division by zero
+        # Compute range for each column
         range_vals = max_vals .- min_vals
-        range_safe = max.(range_vals, Float32(1e-10))
         
-        # Normalize all columns in one operation using broadcasting
-        X_gpu .= (X_gpu .- min_vals) ./ range_safe
+        # Create a mask for columns with non-zero range (non-constant columns)
+        # Only normalize columns where range > threshold
+        threshold = Float32(1e-10)
+        mask = range_vals .> threshold
+        
+        # Normalize only non-constant columns
+        # For constant columns (range ≈ 0), keep original values
+        for j in 1:size(X_gpu, 2)
+            if mask[1, j]
+                X_gpu[:, j] .= (X_gpu[:, j] .- min_vals[1, j]) ./ range_vals[1, j]
+            end
+        end
         
         # Convert back to Float64 and copy to original array
         X .= Float64.(cpu(X_gpu))

@@ -293,7 +293,7 @@ function create_training_panel(training_info::Dict{Symbol, Any}, config=nothing)
         progress_bar = create_progress_bar(training_info[:progress], 100, width=progress_width)
         
         content = """
-        Model: $(training_info[:current_model])
+        Model: $(get(training_info, :model_name, "unknown"))
         Epoch: $(training_info[:current_epoch])/$(training_info[:total_epochs])
         
         Progress: $progress_bar $(training_info[:progress])%

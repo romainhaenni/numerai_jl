@@ -62,6 +62,7 @@ mutable struct TournamentDashboard
     config::Any
     api_client::API.NumeraiClient
     model::Dict{Symbol, Any}  # Single model instead of vector
+    models::Vector{Dict{Symbol, Any}}  # Support for multiple models (for compatibility)
     events::Vector{Dict{Symbol, Any}}
     system_info::Dict{Symbol, Any}
     training_info::Dict{Symbol, Any}
@@ -74,6 +75,11 @@ mutable struct TournamentDashboard
     command_buffer::String  # For slash commands
     command_mode::Bool  # Track if we're in command mode
     show_model_details::Bool  # Track if model details panel should be shown
+    # Model wizard and selection
+    selected_model_details::Union{Nothing, Dict{Symbol, Any}}  # Details of selected model
+    selected_model_stats::Union{Nothing, Dict{Symbol, Any}}  # Stats of selected model
+    wizard_state::Union{Nothing, Any}  # Model wizard state
+    wizard_active::Bool  # Whether wizard is active
     # Error tracking and network status
     error_counts::Dict{ErrorCategory, Int}  # Track error counts by category
     network_status::Dict{Symbol, Any}  # Network connectivity status
@@ -134,12 +140,17 @@ function TournamentDashboard(config)
     # Get refresh rate from config
     refresh_rate = get(config.tui_config, "refresh_rate", 1.0)
     
+    # Initialize models vector with single model
+    models = [model]
+    
     return TournamentDashboard(
-        config, api_client, model, Vector{Dict{Symbol, Any}}(),
+        config, api_client, model, models,  # model and models
+        Vector{Dict{Symbol, Any}}(),  # events
         system_info, training_info, Float64[], performance_history,
-        false, false, false, refresh_rate,  # Use configured refresh rate
+        false, false, false, refresh_rate,  # running, paused, show_help, refresh_rate
         "", false,  # command_buffer and command_mode
         false,  # show_model_details
+        nothing, nothing, nothing, false,  # selected_model_details, selected_model_stats, wizard_state, wizard_active
         error_counts, network_status, Vector{CategorizedError}()  # error tracking fields
     )
 end

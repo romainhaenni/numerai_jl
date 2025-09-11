@@ -135,11 +135,13 @@ function get_logger()
     return GLOBAL_LOGGER[].logger
 end
 
+"""
+    close_logger()
+
+Properly close the logger and release file handles to prevent resource leaks.
+Should be called when the logger is no longer needed.
+"""
 function close_logger()
-    """
-    Properly close the logger and release file handles to prevent resource leaks.
-    Should be called when the logger is no longer needed.
-    """
     if isassigned(GLOBAL_LOGGER) && !isnothing(GLOBAL_LOGGER[].file_handle)
         try
             close(GLOBAL_LOGGER[].file_handle)
@@ -151,11 +153,13 @@ function close_logger()
     end
 end
 
+"""
+    flush_logger()
+
+Flush the logger file handle to ensure all pending log messages are written to disk.
+This is particularly useful in tests where immediate file availability is needed.
+"""
 function flush_logger()
-    """
-    Flush the logger file handle to ensure all pending log messages are written to disk.
-    This is particularly useful in tests where immediate file availability is needed.
-    """
     if isassigned(GLOBAL_LOGGER) && !isnothing(GLOBAL_LOGGER[].file_handle)
         try
             flush(GLOBAL_LOGGER[].file_handle)

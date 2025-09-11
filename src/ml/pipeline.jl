@@ -86,6 +86,9 @@ mutable struct MLPipeline
     # Multi-target support flags
     is_multi_target::Bool
     n_targets::Int
+    # Ensemble support
+    models::Vector{Models.NumeraiModel}  # Collection of models for ensemble
+    ensemble::Union{Nothing, Ensemble.ModelEnsemble}  # Ensemble wrapper
 end
 
 function MLPipeline(;
@@ -178,9 +181,13 @@ function MLPipeline(;
     # Initialize multi_target_models based on mode
     multi_target_models = target_mode == :multi ? Dict{String, Models.NumeraiModel}() : nothing
     
+    # Initialize ensemble support fields
+    initial_models = Models.NumeraiModel[model]  # Start with single model
+    initial_ensemble = nothing  # No ensemble initially
+    
     return MLPipeline(config, model, final_config, resolved_features, target_cols_vec, 
                      target_mode, multi_target_models, feature_groups, features_metadata, 
-                     is_multi_target, n_targets)
+                     is_multi_target, n_targets, initial_models, initial_ensemble)
 end
 
 # Helper function to create single model from config
@@ -968,6 +975,143 @@ function add_optimized_model!(pipeline::MLPipeline, model::Models.NumeraiModel)
             pipeline.config[:ensemble_type]
         )
     end
+end
+
+"""
+    predict_individual_models(pipeline::MLPipeline, df::DataFrame)
+
+Get predictions from each model in the ensemble individually.
+
+# Arguments
+- `pipeline`: Trained ML pipeline with ensemble
+- `df`: DataFrame to predict on
+
+# Returns
+- Matrix where each column contains predictions from one model
+"""
+function predict_individual_models(pipeline::MLPipeline, df::DataFrame)::Matrix{Float64}
+    X, _, _ = prepare_data(pipeline, df)
+    
+    if pipeline.ensemble === nothing
+        # Single model case
+        predictions = Models.predict(pipeline.model, X)
+        return reshape(predictions, :, 1)
+    end
+    
+    # Ensemble case
+    n_samples = size(X, 1)
+    n_models = length(pipeline.models)
+    predictions = Matrix{Float64}(undef, n_samples, n_models)
+    
+    for (i, model) in enumerate(pipeline.models)
+        predictions[:, i] = Models.predict(model, X)
+    end
+    
+    return predictions
+end
+
+"""
+    calculate_ensemble_mmc(pipeline::MLPipeline, df::DataFrame;
+                          stakes::Union{Nothing, Vector{Float64}}=nothing)
+
+Calculate Meta-Model Contribution (MMC) for ensemble models.
+
+# Arguments
+- `pipeline`: Trained ML pipeline with ensemble
+- `df`: DataFrame to evaluate on
+- `stakes`: Optional stake weights for MMC calculation
+
+# Returns
+- Dictionary mapping model names to MMC scores
+"""
+function calculate_ensemble_mmc(pipeline::MLPipeline, df::DataFrame;
+                               stakes::Union{Nothing, Vector{Float64}}=nothing)::Dict{String, Float64}
+    
+    if pipeline.ensemble === nothing
+        # Single model case
+        predictions = predict(pipeline, df)
+        _, y, _ = prepare_data(pipeline, df)
+        mmc = Metrics.calculate_mmc(predictions, zeros(length(y)), y)
+        return Dict(pipeline.model.name => mmc)
+    end
+    
+    # Get individual model predictions
+    individual_predictions = predict_individual_models(pipeline, df)
+    _, y, _ = prepare_data(pipeline, df)
+    
+    mmc_scores = Dict{String, Float64}()
+    
+    for (i, model) in enumerate(pipeline.models)
+        # Create meta-model from other models
+        other_indices = setdiff(1:length(pipeline.models), i)
+        if !isempty(other_indices)
+            other_predictions = individual_predictions[:, other_indices]
+            other_weights = pipeline.ensemble.weights[other_indices]
+            other_weights = other_weights ./ sum(other_weights)  # Renormalize
+            meta_model = other_predictions * other_weights
+        else
+            meta_model = zeros(length(y))
+        end
+        
+        # Calculate MMC for this model
+        model_predictions = individual_predictions[:, i]
+        mmc = Metrics.calculate_mmc(model_predictions, meta_model, y)
+        mmc_scores[model.name] = mmc
+    end
+    
+    return mmc_scores
+end
+
+"""
+    calculate_ensemble_tc(pipeline::MLPipeline, df::DataFrame;
+                         stakes::Union{Nothing, Vector{Float64}}=nothing)
+
+Calculate True Contribution (TC) for ensemble models.
+
+# Arguments
+- `pipeline`: Trained ML pipeline with ensemble
+- `df`: DataFrame to evaluate on
+- `stakes`: Optional stake weights for TC calculation
+
+# Returns
+- Dictionary mapping model names to TC scores
+"""
+function calculate_ensemble_tc(pipeline::MLPipeline, df::DataFrame;
+                              stakes::Union{Nothing, Vector{Float64}}=nothing)::Dict{String, Float64}
+    
+    if pipeline.ensemble === nothing
+        # Single model case
+        predictions = predict(pipeline, df)
+        _, y, _ = prepare_data(pipeline, df)
+        tc = Metrics.calculate_tc(predictions, zeros(length(y)), y)
+        return Dict(pipeline.model.name => tc)
+    end
+    
+    # Get individual model predictions
+    individual_predictions = predict_individual_models(pipeline, df)
+    _, y, _ = prepare_data(pipeline, df)
+    
+    tc_scores = Dict{String, Float64}()
+    
+    for (i, model) in enumerate(pipeline.models)
+        # Create meta-model from other models
+        other_indices = setdiff(1:length(pipeline.models), i)
+        if !isempty(other_indices)
+            other_predictions = individual_predictions[:, other_indices]
+            other_weights = pipeline.ensemble.weights[other_indices]
+            other_weights = other_weights ./ sum(other_weights)  # Renormalize
+            meta_model = other_predictions * other_weights
+        else
+            meta_model = zeros(length(y))
+        end
+        
+        # Calculate TC for this model
+        model_predictions = individual_predictions[:, i]
+        tc = Metrics.calculate_tc(model_predictions, meta_model, y)
+        tc_scores[model.name] = tc
+    end
+    
+    return tc_scores
 end
 
 """

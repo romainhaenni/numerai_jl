@@ -210,40 +210,76 @@ function coordinate_descent(X::Matrix{Float64}, y::Vector{Float64}, alpha::Float
     return coef, intercept
 end
 
-function train!(model::RidgeModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
+function train!(model::RidgeModel, X_train::Matrix{Float64}, y_train::Union{Vector{Float64}, Matrix{Float64}};
                X_val::Union{Nothing, Matrix{Float64}}=nothing,
                y_val::Union{Nothing, Vector{Float64}, Matrix{Float64}}=nothing,
                feature_names::Union{Nothing, Vector{String}}=nothing,
                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
                verbose::Bool=false)
     
+    # Check if multi-target
+    is_multi_target = y_train isa Matrix
+    n_targets = is_multi_target ? size(y_train, 2) : 1
+    
     if verbose
-        @info "Training Ridge model" name=model.name alpha=model.params["alpha"]
+        @info "Training Ridge model" name=model.name alpha=model.params["alpha"] multi_target=is_multi_target targets=n_targets
     end
     
-    # Fit Ridge regression
-    coef, intercept = fit_ridge(X_train, y_train, model.params["alpha"], model.params["fit_intercept"])
-    
-    # Store the model
-    model.model = Dict(
-        "coef" => coef,
-        "intercept" => intercept,
-        "n_features" => size(X_train, 2)
-    )
+    if is_multi_target
+        # Train separate model for each target
+        coefs = Matrix{Float64}(undef, size(X_train, 2), n_targets)
+        intercepts = Vector{Float64}(undef, n_targets)
+        
+        for i in 1:n_targets
+            coef, intercept = fit_ridge(X_train, y_train[:, i], model.params["alpha"], model.params["fit_intercept"])
+            coefs[:, i] = coef
+            intercepts[i] = intercept
+        end
+        
+        # Store the model
+        model.model = Dict(
+            "coef" => coefs,
+            "intercept" => intercepts,
+            "n_features" => size(X_train, 2),
+            "n_targets" => n_targets,
+            "is_multi_target" => true
+        )
+    else
+        # Single target
+        coef, intercept = fit_ridge(X_train, y_train, model.params["alpha"], model.params["fit_intercept"])
+        
+        # Store the model
+        model.model = Dict(
+            "coef" => coef,
+            "intercept" => intercept,
+            "n_features" => size(X_train, 2),
+            "n_targets" => 1,
+            "is_multi_target" => false
+        )
+    end
     
     # Validate if validation set provided
     if X_val !== nothing && y_val !== nothing
         val_predictions = predict(model, X_val)
-        val_score = cor(val_predictions, y_val)
-        if verbose
-            @info "Validation correlation" score=val_score
+        if is_multi_target
+            # Calculate correlation for each target
+            val_scores = [cor(val_predictions[:, i], y_val[:, i]) for i in 1:n_targets]
+            val_score = mean(val_scores)
+            if verbose
+                @info "Validation correlation" mean_score=val_score scores=val_scores
+            end
+        else
+            val_score = cor(val_predictions, y_val)
+            if verbose
+                @info "Validation correlation" score=val_score
+            end
         end
     end
     
     return model
 end
 
-function train!(model::LassoModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
+function train!(model::LassoModel, X_train::Matrix{Float64}, y_train::Union{Vector{Float64}, Matrix{Float64}};
                X_val::Union{Nothing, Matrix{Float64}}=nothing,
                y_val::Union{Nothing, Vector{Float64}, Matrix{Float64}}=nothing,
                feature_names::Union{Nothing, Vector{String}}=nothing,

@@ -1,6 +1,7 @@
 using Test
 using NumeraiTournament
-using NumeraiTournament.LinearModels: RidgeModel, LassoModel, ElasticNetModel, train!, predict, save_model, load_model!
+using NumeraiTournament.Models: RidgeModel, LassoModel, ElasticNetModel
+using NumeraiTournament.Models.LinearModels: train!, predict, save_model, load_model!
 using Random
 using Statistics
 

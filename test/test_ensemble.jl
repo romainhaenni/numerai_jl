@@ -1,8 +1,7 @@
 using Test
 using NumeraiTournament
 using NumeraiTournament.Ensemble: ModelEnsemble, train_ensemble!, predict_ensemble, optimize_weights, bagging_ensemble, stacking_ensemble, diversity_score
-using NumeraiTournament.Models: XGBoostModel, create_model
-using NumeraiTournament.LinearModels: RidgeModel
+using NumeraiTournament.Models: XGBoostModel, create_model, RidgeModel
 using Random
 using Statistics
 

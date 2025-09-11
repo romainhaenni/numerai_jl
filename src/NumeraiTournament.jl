@@ -33,7 +33,10 @@ export run_tournament, TournamentConfig, TournamentDashboard, TournamentSchedule
        RidgeModel, LassoModel, ElasticNetModel,
        MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel,
        get_models_gpu_status, create_model,
-       has_metal_gpu, get_gpu_info, gpu_standardize!, run_comprehensive_gpu_benchmark
+       has_metal_gpu, get_gpu_info, gpu_standardize!, run_comprehensive_gpu_benchmark,
+       download_tournament_data, train_model, train_all_models,
+       submit_predictions, submit_all_predictions,
+       show_model_performance, show_all_performance
 using .Logger: init_logger, @log_info, @log_warn, @log_error
 using .Models: XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel, 
                RidgeModel, LassoModel, ElasticNetModel,
@@ -42,8 +45,11 @@ using .Models: XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel,
 using .MetalAcceleration: has_metal_gpu, get_gpu_info, gpu_standardize!
 using .GPUBenchmarks: run_comprehensive_gpu_benchmark
 using .Performance: optimize_for_m4_max
-using .Scheduler: TournamentScheduler, start_scheduler
+using .Scheduler: TournamentScheduler, start_scheduler, download_latest_data, train_models
 using .Dashboard: TournamentDashboard, run_dashboard
+using .API: NumeraiClient, download_dataset, submit_predictions as api_submit_predictions, get_models
+using .Pipeline: MLPipeline, train!, predict, save_pipeline, load_pipeline
+using .DataLoader: load_training_data, load_live_data
 
 mutable struct TournamentConfig
     api_public_key::String
@@ -200,6 +206,264 @@ function run_tournament(; config_path::String="config.toml", headless::Bool=fals
     else
         dashboard = TournamentDashboard(config)
         run_dashboard(dashboard)
+    end
+end
+
+# Command-line wrapper functions
+function download_tournament_data(config_file::String="config.toml")
+    init_logger()
+    config = load_config(config_file)
+    
+    # Create API client
+    api_client = NumeraiClient(config.api_public_key, config.api_secret_key)
+    
+    # Create data directory if it doesn't exist
+    mkpath(config.data_dir)
+    
+    @log_info "Downloading tournament data..."
+    
+    # Download all dataset components
+    try
+        train_path = joinpath(config.data_dir, "train.parquet")
+        val_path = joinpath(config.data_dir, "validation.parquet")
+        live_path = joinpath(config.data_dir, "live.parquet")
+        features_path = joinpath(config.data_dir, "features.json")
+        
+        download_dataset(api_client, "train", train_path)
+        @log_info "Downloaded training data"
+        
+        download_dataset(api_client, "validation", val_path)
+        @log_info "Downloaded validation data"
+        
+        download_dataset(api_client, "live", live_path)
+        @log_info "Downloaded live data"
+        
+        download_dataset(api_client, "features", features_path)
+        @log_info "Downloaded features metadata"
+        
+        @log_info "All tournament data downloaded successfully"
+        return true
+    catch e
+        @log_error "Failed to download tournament data" error=e
+        return false
+    end
+end
+
+function train_model(model_name::String, config_file::String="config.toml")
+    init_logger()
+    config = load_config(config_file)
+    
+    @log_info "Training model: $model_name"
+    
+    # Load data
+    train_path = joinpath(config.data_dir, "train.parquet")
+    val_path = joinpath(config.data_dir, "validation.parquet")
+    
+    if !isfile(train_path) || !isfile(val_path)
+        @log_error "Training data not found. Run download_tournament_data first."
+        return false
+    end
+    
+    try
+        train_df = load_training_data(train_path, sample_pct=0.1)
+        val_df = load_training_data(val_path)
+        
+        feature_cols = filter(name -> startswith(name, "feature_"), names(train_df))
+        
+        # Create pipeline with specified model
+        pipeline = MLPipeline(
+            feature_cols=feature_cols,
+            target_col="target_cyrus_v4_20",
+            model_configs=Dict(model_name => Dict()),
+            neutralize=true,
+            neutralize_proportion=0.5
+        )
+        
+        # Train the model
+        train!(pipeline, train_df, val_df, verbose=true)
+        
+        # Save the trained model
+        model_path = joinpath(config.model_dir, "$(model_name)_model.jld2")
+        Pipeline.save_pipeline(pipeline, model_path)
+        
+        @log_info "Model $model_name trained and saved successfully"
+        return true
+    catch e
+        @log_error "Failed to train model $model_name" error=e
+        return false
+    end
+end
+
+function train_all_models(config_file::String="config.toml")
+    init_logger()
+    config = load_config(config_file)
+    
+    if isempty(config.models)
+        @log_warn "No models configured in config.toml"
+        return false
+    end
+    
+    success_count = 0
+    for model_name in config.models
+        if train_model(model_name, config_file)
+            success_count += 1
+        end
+    end
+    
+    @log_info "Trained $success_count out of $(length(config.models)) models"
+    return success_count == length(config.models)
+end
+
+function submit_predictions(model_name::String, config_file::String="config.toml")
+    init_logger()
+    config = load_config(config_file)
+    
+    # Create API client
+    api_client = NumeraiClient(config.api_public_key, config.api_secret_key)
+    
+    # Load the model
+    model_path = joinpath(config.model_dir, "$(model_name)_model.jld2")
+    if !isfile(model_path)
+        @log_error "Model $model_name not found. Train it first."
+        return false
+    end
+    
+    # Load live data
+    live_path = joinpath(config.data_dir, "live.parquet")
+    if !isfile(live_path)
+        @log_error "Live data not found. Download it first."
+        return false
+    end
+    
+    try
+        # Load pipeline and generate predictions
+        pipeline = Pipeline.load_pipeline(model_path)
+        live_df = load_live_data(live_path)
+        
+        predictions = predict(pipeline, live_df)
+        
+        # Submit predictions
+        submission_id = api_submit_predictions(api_client, predictions, model_name)
+        
+        @log_info "Predictions submitted successfully" model=model_name submission_id=submission_id
+        return true
+    catch e
+        @log_error "Failed to submit predictions for $model_name" error=e
+        return false
+    end
+end
+
+function submit_all_predictions(config_file::String="config.toml")
+    init_logger()
+    config = load_config(config_file)
+    
+    if isempty(config.models)
+        @log_warn "No models configured in config.toml"
+        return false
+    end
+    
+    success_count = 0
+    for model_name in config.models
+        if submit_predictions(model_name, config_file)
+            success_count += 1
+        end
+    end
+    
+    @log_info "Submitted predictions for $success_count out of $(length(config.models)) models"
+    return success_count == length(config.models)
+end
+
+function show_model_performance(model_name::String, config_file::String="config.toml")
+    init_logger()
+    config = load_config(config_file)
+    
+    # Create API client
+    api_client = NumeraiClient(config.api_public_key, config.api_secret_key)
+    
+    try
+        # Get model performance from API
+        models = get_models(api_client)
+        
+        for model in models
+            if model["name"] == model_name
+                println("\nModel: $(model["name"])")
+                println("Tournament: $(model["tournament"])")
+                println("Stake: $(get(model, "totalStake", 0.0)) NMR")
+                println("\nLatest Performance:")
+                
+                if haskey(model, "latestRanks") && model["latestRanks"] !== nothing
+                    ranks = model["latestRanks"]
+                    println("  CORR: $(get(ranks, "corr", "N/A"))")
+                    println("  MMC: $(get(ranks, "mmc", "N/A"))")
+                    println("  FNC: $(get(ranks, "fnc", "N/A"))")
+                    println("  TC: $(get(ranks, "tc", "N/A"))")
+                end
+                
+                if haskey(model, "latestReturns") && model["latestReturns"] !== nothing
+                    returns = model["latestReturns"]
+                    println("\nLatest Returns:")
+                    println("  1 Day: $(get(returns, "oneDay", "N/A"))")
+                    println("  3 Months: $(get(returns, "threeMonths", "N/A"))")
+                    println("  1 Year: $(get(returns, "oneYear", "N/A"))")
+                end
+                
+                return true
+            end
+        end
+        
+        @log_warn "Model $model_name not found"
+        return false
+    catch e
+        @log_error "Failed to get performance for $model_name" error=e
+        return false
+    end
+end
+
+function show_all_performance(config_file::String="config.toml")
+    init_logger()
+    config = load_config(config_file)
+    
+    # Create API client
+    api_client = NumeraiClient(config.api_public_key, config.api_secret_key)
+    
+    try
+        # Get all models performance from API
+        models = get_models(api_client)
+        
+        if isempty(models)
+            println("No models found")
+            return false
+        end
+        
+        for model in models
+            println("\n" * "="^50)
+            println("Model: $(model["name"])")
+            println("Tournament: $(model["tournament"])")
+            println("Stake: $(get(model, "totalStake", 0.0)) NMR")
+            
+            if haskey(model, "latestRanks") && model["latestRanks"] !== nothing
+                ranks = model["latestRanks"]
+                println("\nLatest Performance:")
+                println("  CORR: $(get(ranks, "corr", "N/A"))")
+                println("  MMC: $(get(ranks, "mmc", "N/A"))")
+                println("  FNC: $(get(ranks, "fnc", "N/A"))")
+                println("  TC: $(get(ranks, "tc", "N/A"))")
+            end
+            
+            if haskey(model, "latestReturns") && model["latestReturns"] !== nothing
+                returns = model["latestReturns"]
+                println("\nLatest Returns:")
+                println("  1 Day: $(get(returns, "oneDay", "N/A"))")
+                println("  3 Months: $(get(returns, "threeMonths", "N/A"))")
+                println("  1 Year: $(get(returns, "oneYear", "N/A"))")
+            end
+        end
+        println("\n" * "="^50)
+        
+        return true
+    catch e
+        @log_error "Failed to get performance data" error=e
+        return false
     end
 end
 

@@ -3,6 +3,7 @@ module Pipeline
 using DataFrames
 using Statistics
 using ProgressMeter
+using JLD2
 using ..DataLoader
 using ..Preprocessor
 using ..Models
@@ -1310,6 +1311,30 @@ function cross_validate_pipeline(pipeline::MLPipeline, df::DataFrame;
     return cv_scores
 end
 
-export MLPipeline, ModelConfig, train!, predict, evaluate, save_predictions, cross_validate_pipeline, create_model_from_config
+function save_pipeline(pipeline::MLPipeline, path::String)
+    """Save trained pipeline to disk using JLD2 format"""
+    # Create directory if it doesn't exist
+    dir = dirname(path)
+    if !isempty(dir) && !isdir(dir)
+        mkpath(dir)
+    end
+    
+    # Save the entire pipeline object
+    @save path pipeline
+    @info "Pipeline saved to $path"
+end
+
+function load_pipeline(path::String)::MLPipeline
+    """Load trained pipeline from disk"""
+    if !isfile(path)
+        error("Pipeline file not found: $path")
+    end
+    
+    @load path pipeline
+    @info "Pipeline loaded from $path"
+    return pipeline
+end
+
+export MLPipeline, ModelConfig, train!, predict, evaluate, save_predictions, cross_validate_pipeline, create_model_from_config, save_pipeline, load_pipeline
 
 end

@@ -15,29 +15,6 @@
 
 ## 🔧 MEDIUM PRIORITY (P2) - IMPORTANT ENHANCEMENTS
 
-### 8. **Multi-Target Support Missing in Linear Models** 🟡 **MEDIUM**
-- **Issue**: Linear models only accept Vector, not Matrix for multi-target predictions
-- **Impact**: Linear models cannot be used with V5 multi-target dataset
-- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/linear_models.jl`
-- **Status**: Functionality gap
-
-### 9. **Multi-Target Support Broken in Ensemble** 🟡 **MEDIUM**
-- **Issue**: Ensemble optimize_weights and stacking don't support multi-target
-- **Impact**: Cannot use ensembles with V5 multi-target predictions
-- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/ensemble.jl`
-- **Status**: Feature incomplete
-
-### 10. **CatBoost GPU Support Hardcoded to False** 🟡 **MEDIUM**
-- **Issue**: models.jl:160 hardcodes GPU support to false for CatBoost
-- **Impact**: Cannot leverage GPU acceleration for CatBoost models
-- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/models.jl:160`
-- **Status**: Performance limitation
-
-### 11. **API Logging Errors Silently Suppressed** 🟡 **MEDIUM**
-- **Issue**: client.jl:61-64 suppresses API logging errors without proper handling
-- **Impact**: API issues may go unnoticed, debugging difficulties
-- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/api/client.jl:61-64`
-- **Status**: Observability gap
 
 ### 12. **True Contribution (TC) Calculation** 🟡 **MEDIUM**
 - **Current**: Correlation-based approximation
@@ -97,6 +74,30 @@
 - **Achievement**: Implemented proper multi-target support for ALL traditional models (XGBoost, LightGBM, EvoTrees, CatBoost)
 - **Impact**: Full V5 dataset support now available for all tree-based models
 - **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/models.jl`, `/Users/romain/src/Numerai/numerai_jl/src/ml/pipeline.jl`
+
+### 🎯 **Multi-Target Support for Linear Models** ✅ **COMPLETED**
+- **Status**: Moved from P2 MEDIUM to COMPLETED
+- **Achievement**: Added full multi-target support to Ridge, Lasso, and ElasticNet models
+- **Impact**: Linear models can now be used with V5 multi-target dataset
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/linear_models.jl`
+
+### 🎯 **Ensemble Multi-Target Support** ✅ **COMPLETED**
+- **Status**: Moved from P2 MEDIUM to COMPLETED
+- **Achievement**: Fixed optimize_weights, stacking, and bagging to handle multi-target predictions
+- **Impact**: Ensembles can now be used with V5 multi-target predictions
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/ensemble.jl`
+
+### 🚀 **CatBoost GPU Support** ✅ **COMPLETED**
+- **Status**: Moved from P2 MEDIUM to COMPLETED
+- **Achievement**: Enabled proper Metal GPU detection and task_type=GPU configuration
+- **Impact**: CatBoost models can now leverage GPU acceleration
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/models.jl`
+
+### 🛠️ **API Logging Error Handling** ✅ **COMPLETED**
+- **Status**: Moved from P2 MEDIUM to COMPLETED
+- **Achievement**: Added proper logger initialization check and fallback error handling
+- **Impact**: API issues are now properly handled with improved debugging capabilities
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/api/client.jl`
 
 ### 🧹 **Debug Output Removal** ✅ **COMPLETED**  
 - **Status**: Moved from P3 LOW to COMPLETED
@@ -161,7 +162,7 @@
 - **P0 Critical**: ✅ **0 ISSUES** - ALL RESOLVED! System is production-ready
 - **P1 High**: 🟠 **1 REMAINING ISSUE** - Non-blocking functionality gap
   - TabNet fake implementation (cosmetic issue - does not block functionality)
-- **P2 Medium**: 🟡 **5 ACTIVE ISSUES** - Enhancement opportunities  
+- **P2 Medium**: 🟡 **1 ACTIVE ISSUE** - Enhancement opportunities  
 - **P3 Low**: 🟢 **3 NICE-TO-HAVE** - Non-essential improvements
 
 ### 🎯 **PRODUCTION READINESS ACHIEVED**

@@ -10,19 +10,31 @@
 - **Current**: neural_networks.jl:535-542 returns basic MLP instead of TabNet
 - **Impact**: Misleading model implementation, users expect TabNet but get MLP
 - **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/neural_networks.jl:535-542`
-- **Status**: Major functionality misrepresentation
+- **Status**: Major functionality misrepresentation confirmed
 
-### 2. **Feature Sets Incomplete** 🟠 **HIGH**
-- **Current**: Only small feature set (50 features) populated in features.json, medium/all sets missing
-- **Impact**: Limited model training options, reduced prediction accuracy potential
-- **Files**: `/Users/romain/src/Numerai/numerai_jl/data/features.json`
-- **Status**: Feature engineering capabilities restricted
+### 2. **Feature Sets Incomplete AND Naming Mismatch** 🟠 **HIGH**
+- **Current**: features.json has "all" key but dataloader expects "large", only small set (50 features) populated
+- **Impact**: Config mismatch prevents using larger feature sets, limited training options
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/data/features.json`, `/Users/romain/src/Numerai/numerai_jl/src/ml/dataloader.jl`
+- **Status**: Both incomplete data and naming inconsistency confirmed
 
 ### 3. **True Contribution (TC) Calculation** 🟠 **HIGH**
 - **Current**: Correlation-based approximation
 - **Need**: Official gradient-based method for exact TC matching Numerai's calculation
 - **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/metrics.jl`
 - **Impact**: TC estimates may differ from official Numerai calculations
+
+### 4. **Multi-Target Support Incomplete for Traditional Models** 🟠 **HIGH**
+- **Current**: Traditional models (XGBoost, LightGBM, etc.) only use first target in multi-target scenarios
+- **Need**: Full multi-target support implementation for all traditional models
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/ml/models.jl`
+- **Impact**: Reduced effectiveness on V5 multi-target datasets
+
+### 5. **GPU Test Tolerances Too Strict** 🟠 **HIGH**
+- **Current**: GPU tests use 1e-10 tolerance but Float32 precision only supports ~1e-6
+- **Impact**: 86 GPU-related test failures due to unrealistic precision expectations
+- **Files**: Test files using Metal GPU acceleration
+- **Status**: Confirmed cause of test failures - tolerances need adjustment for Float32
 
 
 ## 🔧 MEDIUM PRIORITY (P2) - IMPORTANT ENHANCEMENTS
@@ -84,8 +96,10 @@
 ### 🎯 **v0.6.6 Session Completions** ✅ **COMPLETED**
 - **Completed in this session**:
   1. ✅ **Metal GPU Float64 Issue** - FIXED: Implemented automatic Float32 conversion for Apple Metal GPU compatibility
-- **Impact**: GPU acceleration now fully functional on Apple Silicon with automatic type conversion
-- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/gpu/metal_acceleration.jl`
+  2. ✅ **Comprehensive Test Analysis** - ANALYZED: Identified 86 GPU precision failures out of 1,562 total tests
+  3. ✅ **Issue Root Cause Analysis** - CONFIRMED: TabNet fake implementation, feature set naming mismatch, strict GPU tolerances
+- **Impact**: GPU acceleration working, test failure causes identified, comprehensive system analysis completed
+- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/gpu/metal_acceleration.jl`, multiple test files
 
 ### 🎯 **v0.6.5 Session Completions** ✅ **COMPLETED**
 - **Completed in this session**:
@@ -235,30 +249,32 @@
 
 ## 📊 CURRENT SYSTEM STATUS
 
-### 🚨 **v0.6.6 READY FOR RELEASE** ✅ **ALL CRITICAL ISSUES RESOLVED**
+### 🚨 **v0.6.6 SYSTEM STATUS** ⚠️ **ISSUES IDENTIFIED**
 - **Command-Line Interface**: ✅ **FUNCTIONAL** - All CLI functions implemented and working
 - **EvoTrees Model**: ✅ **FUNCTIONAL** - Division error bug completely fixed, print_every_n=100
 - **Ensemble Tests**: ✅ **FUNCTIONAL** - ALL ensemble tests now passing (100% success rate)
 - **Bagging Ensemble**: ✅ **FUNCTIONAL** - Feature subsetting bug completely fixed
 - **API Integration**: ✅ FUNCTIONAL - Tournament endpoints working
-- **Multi-Target Support**: ✅ FUNCTIONAL - All models support V5 multi-target predictions
+- **Multi-Target Support**: ⚠️ **LIMITED** - Neural networks fully support, traditional models use first target only
 - **TUI Dashboard**: ✅ FUNCTIONAL - Dashboard components operational
 - **GPU Acceleration**: ✅ **FUNCTIONAL** - Float32 conversion implemented for Metal GPU compatibility
-- **Metal GPU**: ✅ **WORKING** - Compatible with Apple Silicon, automatic type conversion
-- **Configuration**: ⚠️ **LIMITED** - Only small feature set available, missing medium/all sets
-- **Test Suite**: ✅ **EXCELLENT** - ALL 1,562 tests passing (100% pass rate)
-- **Production Readiness Tests**: ✅ **EXCELLENT** - ALL 38/38 production readiness tests passing (100% success rate)
+- **Metal GPU**: ⚠️ **TEST ISSUES** - Working but 86 tests fail due to strict Float32 tolerances
+- **Configuration**: ⚠️ **BROKEN** - Feature naming mismatch prevents using larger feature sets
+- **Test Suite**: ⚠️ **MOSTLY PASSING** - 1,476/1,562 tests passing (94.5%), 86 GPU precision failures
+- **TabNet Model**: ⚠️ **FAKE IMPLEMENTATION** - Returns basic MLP instead of actual TabNet
 - **Linear Models**: ✅ FUNCTIONAL - Full multi-target support working
 - **Database Operations**: ✅ FUNCTIONAL - All functions implemented and working
 - **Feature Importance**: ✅ FUNCTIONAL - All model types now have correct feature importance calculation
-- **Release Status**: ✅ **v0.6.6 READY** - All critical fixes completed, production ready with GPU acceleration
+- **Release Status**: ⚠️ **v0.6.6 NEEDS FIXES** - P1 issues identified that affect functionality
 
 ### Blocking Issues Summary
 - **P0 Critical**: ✅ **0 BLOCKING ISSUES** - All critical functionality restored
-- **P1 High**: 🟡 **3 ACTIVE ISSUES** - Core functionality limitations
+- **P1 High**: 🟡 **5 ACTIVE ISSUES** - Core functionality limitations
   - TabNet fake implementation (misleading users)
-  - Feature sets incomplete (only small set with 50 features available)
+  - Feature sets naming mismatch + incomplete data (prevents using larger feature sets)
   - TC calculation using approximation
+  - Multi-target support incomplete for traditional models
+  - GPU test tolerances too strict (86 test failures)
 - **P2 Medium**: 🟡 **0 ACTIVE ISSUES** - All medium priority issues resolved
 - **P3 Low**: 🟢 **6 CLEANUP ISSUES** - Non-essential improvements
   - Hyperopt scoring formula hardcoded
@@ -268,18 +284,19 @@
   - GPU benchmarking validation needed
   - Configuration documentation
 
-### 🚨 **PRODUCTION READINESS STATUS: PRODUCTION READY** ✅
-**All critical fixes completed - system fully stable:**
+### 🚨 **PRODUCTION READINESS STATUS: NEEDS ATTENTION** ⚠️
+**Core functionality working but issues identified:**
 - ✅ **CLI functional**: Parameter mismatch fixed in commit 8017476
 - ✅ **Database fully operational**: All functions implemented and working
 - ✅ **Model persistence working**: Pipeline module references fixed in commit 8017476
 - ✅ **Ensemble fully functional**: All feature subsetting and weight optimization issues fixed in commit 27fd4aa
-- ✅ **Test suite excellent**: ALL 1,562 tests passing (100% pass rate)
-- ✅ **Production readiness tests**: ALL 38/38 production readiness tests passing (100% success rate)
+- ⚠️ **Test suite mostly passing**: 1,476/1,562 tests passing (94.5%), 86 GPU precision failures
 - ✅ **EvoTrees fully functional**: Division error bug completely resolved
 - ✅ **Feature importance working**: All model types have correct feature importance calculation
-- ✅ **GPU acceleration fully functional**: Metal Float32 conversion implemented, GPU acceleration working
-- ⚠️ **Limited features**: Only small feature set available (not blocking for basic functionality)
+- ✅ **GPU acceleration working**: Metal Float32 conversion implemented, but test tolerances need adjustment
+- ⚠️ **Feature configuration broken**: Naming mismatch prevents using medium/large feature sets
+- ⚠️ **TabNet misleading**: Fake implementation returns MLP instead of TabNet
+- ⚠️ **Multi-target limited**: Traditional models only use first target in multi-target scenarios
 
 **Working Components:**
 - ✅ API integration for data download and submission
@@ -291,11 +308,14 @@
 - ✅ Production readiness tests - 100% passing
 
 ### Priority Implementation Order
-1. 🟠 **Important: Fix TabNet implementation** - Replace fake TabNet with real implementation
-2. 🟠 **Important: Complete feature sets** - Add medium and all feature configurations
-3. 🟠 **Important: Implement official TC calculation** - Replace approximation with gradient-based method
-4. 🟢 **Enhancement: GPU benchmarking validation** - Validate Metal acceleration performance
-5. 🟢 **Enhancement: Configuration documentation** - Document all config.toml parameters
+1. 🟠 **Critical: Fix feature naming mismatch** - Change "all" to "large" in features.json or update dataloader
+2. 🟠 **Critical: Adjust GPU test tolerances** - Change from 1e-10 to 1e-6 for Float32 compatibility
+3. 🟠 **Important: Complete multi-target traditional models** - Implement full multi-target support
+4. 🟠 **Important: Fix TabNet implementation** - Replace fake TabNet with real implementation
+5. 🟠 **Important: Complete feature sets data** - Add medium and large feature configurations
+6. 🟠 **Important: Implement official TC calculation** - Replace approximation with gradient-based method
+7. 🟢 **Enhancement: GPU benchmarking validation** - Validate Metal acceleration performance
+8. 🟢 **Enhancement: Configuration documentation** - Document all config.toml parameters
 
 ## 🎯 IMPLEMENTATION RECOMMENDATIONS
 
@@ -328,8 +348,8 @@
 6. ⚠️ **API logging insufficient** - Debugging and error tracking needs improvement
 7. ✅ **Git tag created** - Release properly versioned and documented
 
-**✅ v0.6.6 DEPLOYMENT STATUS: PRODUCTION READY**
-All critical P0 issues have been resolved. CLI, database operations, ensemble functionality, EvoTrees models, feature importance analysis, GPU acceleration, and production readiness tests are now fully operational. System ready for production use with excellent test coverage (100% pass rate for both main tests and production readiness tests). **Major achievement: 7 critical fixes completed in this session.**
+**⚠️ v0.6.6 DEPLOYMENT STATUS: NEEDS FIXES**
+Core functionality working but P1 issues identified. CLI, database operations, ensemble functionality, EvoTrees models, and feature importance analysis are operational. However, 86 GPU test failures, feature configuration naming mismatch, incomplete multi-target support, and fake TabNet implementation need attention. Test success rate: 1,476/1,562 (94.5%). **Major achievement: Comprehensive analysis completed identifying specific issues to address.**
 
 **🏆 WORKING SYSTEM CAPABILITIES:**
 - ✅ API integration with Numerai tournament (data download/submission)  
@@ -342,7 +362,10 @@ All critical P0 issues have been resolved. CLI, database operations, ensemble fu
 - ✅ Production readiness tests passing 100%
 - ✅ EvoTrees model fully functional (division error fixed)
 
-**⚠️ LIMITED CAPABILITIES:**
+**⚠️ IDENTIFIED ISSUES REQUIRING FIXES:**
 - ⚠️ TabNet implementation is fake (returns basic MLP instead)
-- ⚠️ Limited to small feature set only (50 features vs hundreds available)  
+- ⚠️ Feature configuration broken (naming mismatch prevents using larger sets)
+- ⚠️ GPU test tolerances too strict (86 failures due to Float32 precision limits)
+- ⚠️ Multi-target support incomplete for traditional models (only uses first target)
 - ⚠️ TC calculation uses approximation instead of official method
+- ⚠️ Test success rate at 94.5% instead of 100% due to GPU precision issues

@@ -321,7 +321,7 @@ function load_features_json(filepath::String; feature_set::String="medium")
     features_data = JSON3.read(read(filepath, String))
     
     # Validate feature_set parameter
-    valid_feature_sets = ["small", "medium", "large"]
+    valid_feature_sets = ["small", "medium", "all"]
     if !(feature_set in valid_feature_sets)
         error("Invalid feature_set '$feature_set'. Must be one of: $(join(valid_feature_sets, ", "))")
     end
@@ -331,8 +331,8 @@ function load_features_json(filepath::String; feature_set::String="medium")
         feature_names = features_data.feature_sets.small
     elseif feature_set == "medium"
         feature_names = features_data.feature_sets.medium
-    elseif feature_set == "large"
-        feature_names = features_data.feature_sets.large
+    elseif feature_set == "all"
+        feature_names = features_data.feature_sets.all
     end
     
     target_names = collect(keys(features_data.targets))

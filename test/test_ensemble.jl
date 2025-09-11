@@ -24,9 +24,9 @@ using Statistics
     @testset "ModelEnsemble Basic" begin
         # Create ensemble with different model types
         models = [
-            create_model("xgboost", "model1", max_depth=3, iterations=10),
-            create_model("xgboost", "model2", max_depth=5, iterations=10),
-            create_model("xgboost", "model3", max_depth=7, iterations=10)
+            create_model("XGBoost", "model1", max_depth=3, num_rounds=10),
+            create_model("XGBoost", "model2", max_depth=5, num_rounds=10),
+            create_model("XGBoost", "model3", max_depth=7, num_rounds=10)
         ]
         
         ensemble = ModelEnsemble(models)
@@ -40,8 +40,8 @@ using Statistics
     @testset "Train and Predict Ensemble" begin
         @testset "Single Target" begin
             models = [
-                create_model("xgboost", "xgb1", max_depth=3, iterations=10),
-                create_model("xgboost", "xgb2", max_depth=5, iterations=10)
+                create_model("XGBoost", "xgb1", max_depth=3, num_rounds=10),
+                create_model("XGBoost", "xgb2", max_depth=5, num_rounds=10)
             ]
             
             ensemble = ModelEnsemble(models)
@@ -89,9 +89,9 @@ using Statistics
     @testset "Optimize Weights" begin
         @testset "Single Target" begin
             models = [
-                create_model("xgboost", "opt1", max_depth=3, iterations=10),
-                create_model("xgboost", "opt2", max_depth=5, iterations=10),
-                create_model("xgboost", "opt3", max_depth=7, iterations=10)
+                create_model("XGBoost", "opt1", max_depth=3, num_rounds=10),
+                create_model("XGBoost", "opt2", max_depth=5, num_rounds=10),
+                create_model("XGBoost", "opt3", max_depth=7, num_rounds=10)
             ]
             
             ensemble = ModelEnsemble(models)
@@ -138,13 +138,12 @@ using Statistics
         # Create bagging ensemble
         n_models = 3
         ensemble = bagging_ensemble(
-            () -> create_model("xgboost", "bagged", max_depth=3, iterations=10),
+            () -> create_model("XGBoost", "bagged", max_depth=3, num_rounds=10),
             n_models,
             X_train,
             y_train_single,
             sample_ratio=0.8,
-            feature_ratio=0.8,
-            verbose=false
+            feature_ratio=0.8
         )
         
         @test length(ensemble.models) == n_models
@@ -173,8 +172,8 @@ using Statistics
         @testset "Single Target" begin
             # Create base models
             base_models = [
-                create_model("xgboost", "base1", max_depth=3, iterations=10),
-                create_model("xgboost", "base2", max_depth=5, iterations=10)
+                create_model("XGBoost", "base1", max_depth=3, num_rounds=10),
+                create_model("XGBoost", "base2", max_depth=5, num_rounds=10)
             ]
             
             # Create meta model
@@ -250,7 +249,7 @@ using Statistics
     @testset "Mixed Model Types" begin
         # Test ensemble with different model types
         models = [
-            create_model("xgboost", "xgb_mixed", max_depth=3, iterations=10),
+            create_model("XGBoost", "xgb_mixed", max_depth=3, num_rounds=10),
             RidgeModel("ridge_mixed", alpha=1.0)
         ]
         
@@ -269,7 +268,7 @@ using Statistics
     
     @testset "Edge Cases" begin
         @testset "Single Model Ensemble" begin
-            models = [create_model("xgboost", "single", max_depth=3, iterations=10)]
+            models = [create_model("XGBoost", "single", max_depth=3, num_rounds=10)]
             ensemble = ModelEnsemble(models)
             
             @test length(ensemble.models) == 1

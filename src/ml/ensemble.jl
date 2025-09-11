@@ -6,7 +6,7 @@ using ThreadsX
 using ..Models
 using ..Preprocessor: check_memory_before_allocation, safe_matrix_allocation
 
-struct ModelEnsemble
+mutable struct ModelEnsemble
     models::Vector{<:Models.NumeraiModel}
     weights::Vector{Float64}
     name::String
@@ -32,6 +32,32 @@ end
 function train_ensemble!(ensemble::ModelEnsemble, X_train::Matrix{Float64}, y_train::Vector{Float64};
                         X_val::Union{Nothing, Matrix{Float64}}=nothing,
                         y_val::Union{Nothing, Vector{Float64}}=nothing,
+                        parallel::Bool=true,
+                        verbose::Bool=false)
+    
+    if parallel && Threads.nthreads() > 1
+        ThreadsX.foreach(ensemble.models) do model
+            if verbose
+                println("Training $(model.name)...")
+            end
+            Models.train!(model, X_train, y_train, X_val=X_val, y_val=y_val, verbose=false)
+        end
+    else
+        for model in ensemble.models
+            if verbose
+                println("Training $(model.name)...")
+            end
+            Models.train!(model, X_train, y_train, X_val=X_val, y_val=y_val, verbose=false)
+        end
+    end
+    
+    return ensemble
+end
+
+# Multi-target overload
+function train_ensemble!(ensemble::ModelEnsemble, X_train::Matrix{Float64}, y_train::Matrix{Float64};
+                        X_val::Union{Nothing, Matrix{Float64}}=nothing,
+                        y_val::Union{Nothing, Matrix{Float64}}=nothing,
                         parallel::Bool=true,
                         verbose::Bool=false)
     
@@ -138,6 +164,47 @@ function optimize_weights(ensemble::ModelEnsemble, X_val::Matrix{Float64}, y_val
     return best_weights
 end
 
+# Multi-target overload for optimize_weights
+function optimize_weights(ensemble::ModelEnsemble, X_val::Matrix{Float64}, y_val::Matrix{Float64};
+                         metric::Function=cor, n_iterations::Int=1000)::Vector{Float64}
+    n_models = length(ensemble.models)
+    n_samples = size(X_val, 1)
+    n_targets = size(y_val, 2)
+    
+    # For multi-target, optimize weights based on average performance across targets
+    best_weights = ensemble.weights
+    best_score = -Inf
+    
+    for _ in 1:n_iterations
+        trial_weights = rand(n_models)
+        trial_weights = trial_weights ./ sum(trial_weights)
+        
+        # Calculate weighted predictions for all targets
+        trial_score = 0.0
+        for target_idx in 1:n_targets
+            predictions_matrix = safe_matrix_allocation(n_samples, n_models)
+            for (i, model) in enumerate(ensemble.models)
+                model_pred = Models.predict(model, X_val)
+                if model_pred isa Matrix
+                    predictions_matrix[:, i] = model_pred[:, target_idx]
+                else
+                    predictions_matrix[:, i] = model_pred
+                end
+            end
+            trial_predictions = predictions_matrix * trial_weights
+            trial_score += metric(trial_predictions, y_val[:, target_idx])
+        end
+        trial_score /= n_targets  # Average across targets
+        
+        if trial_score > best_score
+            best_score = trial_score
+            best_weights = trial_weights
+        end
+    end
+    
+    return best_weights
+end
+
 function bagging_ensemble(model_constructor::Function, n_models::Int, 
                          X_train::Matrix{Float64}, y_train::Vector{Float64};
                          sample_ratio::Float64=0.8,
@@ -159,6 +226,44 @@ function bagging_ensemble(model_constructor::Function, n_models::Int,
         
         X_subset = X_train[sample_indices, feature_indices]
         y_subset = y_train[sample_indices]
+        
+        model = model_constructor()
+        Models.train!(model, X_subset, y_subset, verbose=false)
+        
+        return model
+    end
+    
+    if parallel && Threads.nthreads() > 1
+        models = ThreadsX.map(train_func, 1:n_models)
+    else
+        models = [train_func(i) for i in 1:n_models]
+    end
+    
+    return ModelEnsemble(models, name="bagging_ensemble")
+end
+
+# Multi-target overload for bagging_ensemble
+function bagging_ensemble(model_constructor::Function, n_models::Int, 
+                         X_train::Matrix{Float64}, y_train::Matrix{Float64};
+                         sample_ratio::Float64=0.8,
+                         feature_ratio::Float64=0.8,
+                         parallel::Bool=true)::ModelEnsemble
+    n_samples = size(X_train, 1)
+    n_features = size(X_train, 2)
+    
+    n_sample_subset = Int(floor(n_samples * sample_ratio))
+    n_feature_subset = Int(floor(n_features * feature_ratio))
+    
+    models = Models.NumeraiModel[]
+    
+    train_func = function(i)
+        Random.seed!(i)
+        
+        sample_indices = randperm(n_samples)[1:n_sample_subset]
+        feature_indices = randperm(n_features)[1:n_feature_subset]
+        
+        X_subset = X_train[sample_indices, feature_indices]
+        y_subset = y_train[sample_indices, :]  # Select all targets for the sample subset
         
         model = model_constructor()
         Models.train!(model, X_subset, y_subset, verbose=false)

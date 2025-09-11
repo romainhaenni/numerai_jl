@@ -301,6 +301,12 @@ Random.seed!(123)
     # Include Utils module tests
     include("test_utils.jl")
     
+    # Include Linear Models tests
+    include("test_linear_models.jl")
+    
+    # Include Ensemble tests
+    include("test_ensemble.jl")
+    
 end
 
 println("\n✅ All tests passed!")

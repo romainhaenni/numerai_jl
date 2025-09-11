@@ -1582,6 +1582,15 @@ function get_models_gpu_status()::Dict{String, Any}
     )
 end
 
+# Convenience function for creating models with string type and keyword arguments
+function create_model(model_type::String, name::String; kwargs...)
+    params = Dict{Symbol,Any}(:name => name)
+    for (k, v) in kwargs
+        params[k] = v
+    end
+    return create_model(Symbol(model_type), params)
+end
+
 # Model creation factory function
 function create_model(model_type::Symbol, params::Dict{Symbol,Any})
     # Ensure name is provided
@@ -1625,6 +1634,10 @@ export NumeraiModel, XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel, 
 include("linear_models.jl")
 using .LinearModels: RidgeModel, LassoModel, ElasticNetModel
 export RidgeModel, LassoModel, ElasticNetModel
+
+# Forward train! and predict for linear models
+train!(model::Union{RidgeModel, LassoModel, ElasticNetModel}, args...; kwargs...) = LinearModels.train!(model, args...; kwargs...)
+predict(model::Union{RidgeModel, LassoModel, ElasticNetModel}, args...; kwargs...) = LinearModels.predict(model, args...; kwargs...)
 
 # Include neural networks
 include("neural_networks.jl")

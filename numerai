@@ -168,7 +168,7 @@ function main()
             else
                 println("Starting Numerai Tournament System dashboard...")
             end
-            NumeraiTournament.run_tournament(headless=headless, config_file=config_file)
+            NumeraiTournament.run_tournament(headless=headless, config_path=config_file)
         end
     catch e
         println("\nError: $(e)")

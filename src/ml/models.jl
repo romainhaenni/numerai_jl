@@ -1625,6 +1625,11 @@ function create_model(model_type::Symbol, params::Dict{Symbol,Any})
     end
 end
 
+# Convenience function for creating models with just a type symbol
+function create_model(model_type::Symbol)
+    return create_model(model_type, Dict{Symbol,Any}())
+end
+
 export NumeraiModel, XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel, train!, predict, 
        cross_validate, feature_importance, save_model, load_model!,
        ensemble_predict, gpu_feature_selection_for_models, benchmark_model_performance,

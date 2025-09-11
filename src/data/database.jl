@@ -1,6 +1,7 @@
 module Database
 
 using SQLite
+using DBInterface
 using DataFrames
 using Dates
 using JSON3

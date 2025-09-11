@@ -187,6 +187,7 @@ function load_config(path::String="config.toml")::TournamentConfig
     )
 end
 
+
 function run_tournament(; config_path::String="config.toml", headless::Bool=false)
     # Initialize logging first
     init_logger()
@@ -284,7 +285,7 @@ function train_model(model_name::String, config_file::String="config.toml")
         
         # Save the trained model
         model_path = joinpath(config.model_dir, "$(model_name)_model.jld2")
-        Pipeline.save_pipeline(pipeline, model_path)
+        save_pipeline(pipeline, model_path)
         
         @log_info "Model $model_name trained and saved successfully"
         return true
@@ -337,7 +338,7 @@ function submit_predictions(model_name::String, config_file::String="config.toml
     
     try
         # Load pipeline and generate predictions
-        pipeline = Pipeline.load_pipeline(model_path)
+        pipeline = load_pipeline(model_path)
         live_df = load_live_data(live_path)
         
         predictions = predict(pipeline, live_df)

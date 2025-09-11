@@ -352,15 +352,23 @@ function gpu_standardize!(X::AbstractMatrix{Float64})
         # Create a mask for columns with non-zero std (non-constant columns)
         # Only standardize columns where std > threshold
         threshold = Float32(1e-10)
-        mask = σ .> threshold
         
-        # Standardize only non-constant columns
-        # For constant columns (σ ≈ 0), keep original values
-        for j in 1:size(X_gpu, 2)
-            if mask[1, j]
-                X_gpu[:, j] .= (X_gpu[:, j] .- μ[1, j]) ./ σ[1, j]
-            end
-        end
+        # For constant columns (σ ≈ 0), replace σ with 1 to preserve values
+        # For non-constant columns, use actual σ for standardization
+        σ_safe = ifelse.(σ .> threshold, σ, ones(Float32, size(σ)))
+        
+        # Standardize all columns using safe σ values
+        # Constant columns: (X - μ) / 1 = X - μ (centered but not scaled)
+        # Non-constant columns: (X - μ) / σ (properly standardized)
+        # Actually for constant columns, X - μ = 0, so result is 0 / 1 = 0
+        # To preserve constant values, we need a different approach
+        
+        # Create standardized version
+        X_standardized = (X_gpu .- μ) ./ σ_safe
+        
+        # For constant columns, restore original values
+        mask = σ .> threshold
+        X_gpu = ifelse.(mask, X_standardized, X_gpu)
         
         # Convert back to Float64 and copy to original array
         X .= Float64.(cpu(X_gpu))
@@ -413,15 +421,17 @@ function gpu_normalize!(X::AbstractMatrix{Float64})
         # Create a mask for columns with non-zero range (non-constant columns)
         # Only normalize columns where range > threshold
         threshold = Float32(1e-10)
-        mask = range_vals .> threshold
         
-        # Normalize only non-constant columns
-        # For constant columns (range ≈ 0), keep original values
-        for j in 1:size(X_gpu, 2)
-            if mask[1, j]
-                X_gpu[:, j] .= (X_gpu[:, j] .- min_vals[1, j]) ./ range_vals[1, j]
-            end
-        end
+        # For constant columns (range ≈ 0), replace range with 1 to preserve values
+        # For non-constant columns, use actual range for normalization
+        range_safe = ifelse.(range_vals .> threshold, range_vals, ones(Float32, size(range_vals)))
+        
+        # Create normalized version
+        X_normalized = (X_gpu .- min_vals) ./ range_safe
+        
+        # For constant columns, restore original values
+        mask = range_vals .> threshold
+        X_gpu = ifelse.(mask, X_normalized, X_gpu)
         
         # Convert back to Float64 and copy to original array
         X .= Float64.(cpu(X_gpu))

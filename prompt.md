@@ -12,6 +12,8 @@ You will need to write and run end to end and unit tests for the project. After 
 
 Make a commit and push your changes after every single file edit. After the commit do a "git push" to push the changes to the remote repository. If you create new branches, make sure to merge them into main and delete them afterwards. Do not leave feature branches open without merging them. Resolve any merge issues.
 
+Do not assume ready for production. We improve the program iteratively, to be production ready is not a goal. The goal is to have a model for the tournament that has maximal return.
+
 Important: We want single sources of truth, no migrations/adapters. If tests unrelated to your work fail then it's your job to resolve these tests as part of the increment of change.
 
 As soon as there are no build or test errors create a git tag. If there are no git tags start at 0.0.0 and increment patch by 1 for example 0.0.1 if 0.0.0 does not exist.

@@ -271,13 +271,13 @@ using NumeraiTournament.Logger
             )
             
             # Test successful API call (200)
-            Logger.log_api_call("/api/models", "GET", 200; duration=0.150)
+            Logger.log_api_call("/api/models", "GET", 200, 0.150)
             
             # Test client error (404)
-            Logger.log_api_call("/api/nonexistent", "GET", 404; duration=0.050)
+            Logger.log_api_call("/api/nonexistent", "GET", 404, 0.050)
             
             # Test server error (500)
-            Logger.log_api_call("/api/broken", "POST", 500; duration=2.500)
+            Logger.log_api_call("/api/broken", "POST", 500, 2.500)
             
             log_content = flush_and_read(log_file)
             @test occursin("API call successful", log_content)

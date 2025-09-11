@@ -157,7 +157,7 @@ function CatBoostModel(name::String="catboost_default";
                       gpu_enabled::Bool=true)
     
     # Check for GPU availability
-    use_gpu = gpu_enabled && false  # CatBoost GPU support needs special setup, disable for now
+    use_gpu = gpu_enabled && @isdefined(MetalAcceleration) && isdefined(MetalAcceleration, :has_metal_gpu) ? MetalAcceleration.has_metal_gpu() : false
     
     params = Dict{String, Any}(
         "loss_function" => "RMSE",
@@ -174,7 +174,10 @@ function CatBoostModel(name::String="catboost_default";
         "random_seed" => 42
     )
     
+    # Configure GPU parameters if available
     if use_gpu
+        params["task_type"] = "GPU"
+        params["devices"] = "0"  # Use first GPU device
         @info "CatBoost model configured with GPU acceleration" name=name
     else
         @info "CatBoost model configured with CPU" name=name reason="GPU support disabled for CatBoost"

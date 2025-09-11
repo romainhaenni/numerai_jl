@@ -29,7 +29,7 @@ mutable struct XGBoostModel <: NumeraiModel
 end
 
 mutable struct LightGBMModel <: NumeraiModel
-    model::Union{Nothing, LGBMRegression}
+    model::Union{Nothing, LGBMRegression, Vector{LGBMRegression}}  # Single model or vector of models for multi-target
     params::Dict{String, Any}
     name::String
     gpu_enabled::Bool
@@ -373,12 +373,29 @@ function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Union{Ve
     return model
 end
 
-function train!(model::LightGBMModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
+function train!(model::LightGBMModel, X_train::Matrix{Float64}, y_train::Union{Vector{Float64}, Matrix{Float64}};
                X_val::Union{Nothing, Matrix{Float64}}=nothing,
-               y_val::Union{Nothing, Vector{Float64}}=nothing,
+               y_val::Union{Nothing, Vector{Float64}, Matrix{Float64}}=nothing,
                feature_names::Union{Nothing, Vector{String}}=nothing,
                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
                verbose::Bool=false)
+    
+    # Detect multi-target case and set up appropriate parameters
+    is_multitarget = y_train isa Matrix{Float64}
+    n_targets = is_multitarget ? size(y_train, 2) : 1
+    
+    if is_multitarget
+        @info "Training LightGBM with multi-target support (using multiple single-target models)" n_targets=n_targets model_name=model.name
+        # LightGBM doesn't natively support multi-target regression, so we'll train multiple models
+        # Store target information for later use in prediction
+        model.params["n_targets"] = n_targets
+    else
+        @info "Training LightGBM with single-target" model_name=model.name
+        # Remove multi-target parameters if they exist
+        if haskey(model.params, "n_targets")
+            delete!(model.params, "n_targets")
+        end
+    end
     
     # Prepare interaction constraints for LightGBM if feature groups are provided
     interaction_constraints = nothing
@@ -402,53 +419,123 @@ function train!(model::LightGBMModel, X_train::Matrix{Float64}, y_train::Vector{
         end
     end
     
-    # Build parameters dictionary
-    lgbm_params = Dict{Symbol, Any}(
-        :objective => model.params["objective"],
-        :metric => [model.params["metric"]],
-        :num_leaves => model.params["num_leaves"],
-        :learning_rate => model.params["learning_rate"],
-        :feature_fraction => model.params["feature_fraction"],
-        :feature_fraction_bynode => feature_fraction_bynode,
-        :bagging_fraction => model.params["bagging_fraction"],
-        :bagging_freq => model.params["bagging_freq"],
-        :num_iterations => model.params["n_estimators"],
-        :num_threads => model.params["num_threads"],
-        :verbosity => verbose ? 1 : -1
-    )
-    
-    # Add interaction constraints if available (LightGBM uses Vector{Vector{Int}} format)
-    if interaction_constraints !== nothing && !isempty(interaction_constraints)
-        lgbm_params[:interaction_constraints] = interaction_constraints
-        if verbose
-            @info "Applied interaction constraints to LightGBM" constraints=interaction_constraints
+    if is_multitarget
+        # For multi-target, train separate models for each target
+        models = LGBMRegression[]
+        
+        for target_idx in 1:n_targets
+            @info "Training LightGBM model for target $target_idx/$n_targets"
+            y_target = y_train[:, target_idx]
+            
+            # Build parameters dictionary for this target
+            lgbm_params = Dict{Symbol, Any}(
+                :objective => model.params["objective"],
+                :metric => [model.params["metric"]],
+                :num_leaves => model.params["num_leaves"],
+                :learning_rate => model.params["learning_rate"],
+                :feature_fraction => model.params["feature_fraction"],
+                :feature_fraction_bynode => feature_fraction_bynode,
+                :bagging_fraction => model.params["bagging_fraction"],
+                :bagging_freq => model.params["bagging_freq"],
+                :num_iterations => model.params["n_estimators"],
+                :num_threads => model.params["num_threads"],
+                :verbosity => verbose ? 1 : -1
+            )
+            
+            # Add interaction constraints if available (LightGBM uses Vector{Vector{Int}} format)
+            if interaction_constraints !== nothing && !isempty(interaction_constraints)
+                lgbm_params[:interaction_constraints] = interaction_constraints
+                if verbose && target_idx == 1  # Only log once to avoid spam
+                    @info "Applied interaction constraints to LightGBM" constraints=interaction_constraints
+                end
+            end
+            
+            estimator = LGBMRegression(; lgbm_params...)
+            
+            # Train model for this target with appropriate validation data
+            if X_val !== nothing && y_val isa Matrix{Float64}
+                y_val_target = y_val[:, target_idx]
+                LightGBM.fit!(estimator, X_train, y_target, (X_val, y_val_target);
+                             verbosity=verbose ? 1 : -1,
+                             is_row_major=false,
+                             weights=Float32[],
+                             init_score=Float64[],
+                             group=Int64[],
+                             truncate_booster=false)
+            elseif X_val !== nothing && y_val isa Vector{Float64} && target_idx == 1
+                # Use single-target validation for first target only
+                LightGBM.fit!(estimator, X_train, y_target, (X_val, y_val);
+                             verbosity=verbose ? 1 : -1,
+                             is_row_major=false,
+                             weights=Float32[],
+                             init_score=Float64[],
+                             group=Int64[],
+                             truncate_booster=false)
+            else
+                LightGBM.fit!(estimator, X_train, y_target;
+                             verbosity=verbose ? 1 : -1,
+                             is_row_major=false,
+                             weights=Float32[],
+                             init_score=Float64[],
+                             group=Int64[],
+                             truncate_booster=false)
+            end
+            
+            push!(models, estimator)
         end
-    end
-    
-    estimator = LGBMRegression(; lgbm_params...)
-    
-    # Use the correct parameter names for LightGBM.jl v2.0.0
-    if X_val !== nothing && y_val !== nothing
-        LightGBM.fit!(estimator, X_train, y_train, (X_val, y_val);
-                     verbosity=verbose ? 1 : -1,
-                     is_row_major=false,
-                     weights=Float32[],
-                     init_score=Float64[],
-                     group=Int64[],
-                     truncate_booster=false)
+        
+        model.model = models
+        return model
     else
-        LightGBM.fit!(estimator, X_train, y_train;
-                     verbosity=verbose ? 1 : -1,
-                     is_row_major=false,
-                     weights=Float32[],
-                     init_score=Float64[],
-                     group=Int64[],
-                     truncate_booster=false)
+        # Single-target training
+        # Build parameters dictionary
+        lgbm_params = Dict{Symbol, Any}(
+            :objective => model.params["objective"],
+            :metric => [model.params["metric"]],
+            :num_leaves => model.params["num_leaves"],
+            :learning_rate => model.params["learning_rate"],
+            :feature_fraction => model.params["feature_fraction"],
+            :feature_fraction_bynode => feature_fraction_bynode,
+            :bagging_fraction => model.params["bagging_fraction"],
+            :bagging_freq => model.params["bagging_freq"],
+            :num_iterations => model.params["n_estimators"],
+            :num_threads => model.params["num_threads"],
+            :verbosity => verbose ? 1 : -1
+        )
+        
+        # Add interaction constraints if available (LightGBM uses Vector{Vector{Int}} format)
+        if interaction_constraints !== nothing && !isempty(interaction_constraints)
+            lgbm_params[:interaction_constraints] = interaction_constraints
+            if verbose
+                @info "Applied interaction constraints to LightGBM" constraints=interaction_constraints
+            end
+        end
+        
+        estimator = LGBMRegression(; lgbm_params...)
+        
+        # Use the correct parameter names for LightGBM.jl v2.0.0
+        if X_val !== nothing && y_val !== nothing
+            LightGBM.fit!(estimator, X_train, y_train, (X_val, y_val);
+                         verbosity=verbose ? 1 : -1,
+                         is_row_major=false,
+                         weights=Float32[],
+                         init_score=Float64[],
+                         group=Int64[],
+                         truncate_booster=false)
+        else
+            LightGBM.fit!(estimator, X_train, y_train;
+                         verbosity=verbose ? 1 : -1,
+                         is_row_major=false,
+                         weights=Float32[],
+                         init_score=Float64[],
+                         group=Int64[],
+                         truncate_booster=false)
+        end
+        
+        model.model = estimator
+        
+        return model
     end
-    
-    model.model = estimator
-    
-    return model
 end
 
 function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
@@ -607,18 +694,42 @@ function predict(model::XGBoostModel, X::Matrix{Float64})::Union{Vector{Float64}
     end
 end
 
-function predict(model::LightGBMModel, X::Matrix{Float64})::Vector{Float64}
+function predict(model::LightGBMModel, X::Matrix{Float64})::Union{Vector{Float64}, Matrix{Float64}}
     if model.model === nothing
         error("Model not trained yet")
     end
     
-    predictions = LightGBM.predict(model.model, X)
+    # Check if this is a multi-target model
+    is_multitarget = haskey(model.params, "n_targets") && model.params["n_targets"] > 1
     
-    # Convert to Vector if it's a Matrix (LightGBM.jl v2.0.0 sometimes returns Matrix)
-    if predictions isa Matrix
-        return vec(predictions)
+    if is_multitarget && model.model isa Vector{LGBMRegression}
+        n_targets = model.params["n_targets"]
+        n_samples = size(X, 1)
+        predictions_matrix = Matrix{Float64}(undef, n_samples, n_targets)
+        
+        # Get predictions from each target model
+        for (target_idx, target_model) in enumerate(model.model)
+            target_predictions = LightGBM.predict(target_model, X)
+            
+            # Convert to Vector if it's a Matrix (LightGBM.jl v2.0.0 sometimes returns Matrix)
+            if target_predictions isa Matrix
+                predictions_matrix[:, target_idx] = vec(target_predictions)
+            else
+                predictions_matrix[:, target_idx] = target_predictions
+            end
+        end
+        
+        return predictions_matrix
     else
-        return predictions
+        # Single-target prediction
+        predictions = LightGBM.predict(model.model, X)
+        
+        # Convert to Vector if it's a Matrix (LightGBM.jl v2.0.0 sometimes returns Matrix)
+        if predictions isa Matrix
+            return vec(predictions)
+        else
+            return predictions
+        end
     end
 end
 
@@ -713,10 +824,52 @@ function feature_importance(model::LightGBMModel)::Dict{String, Float64}
         error("Model not trained yet")
     end
     
-    importance = LightGBM.feature_importance(model.model)
-    feature_names = LightGBM.feature_name(model.model)
+    # Check if this is a multi-target model
+    is_multitarget = haskey(model.params, "n_targets") && model.params["n_targets"] > 1
     
-    return Dict(zip(feature_names, importance))
+    if is_multitarget && model.model isa Vector{LGBMRegression}
+        # For multi-target, average feature importance across all target models
+        n_targets = length(model.model)
+        
+        # Get feature names from first model's booster
+        feature_names = try
+            LightGBM.LGBM_BoosterGetFeatureNames(model.model[1].booster)
+        catch
+            # Fallback to generic feature names if booster feature names are not available
+            n_features = length(LightGBM.gain_importance(model.model[1]))
+            ["feature_$i" for i in 1:n_features]
+        end
+        
+        n_features = length(feature_names)
+        
+        # Initialize importance accumulator
+        total_importance = zeros(Float64, n_features)
+        
+        # Sum importance across all target models
+        for target_model in model.model
+            target_importance = LightGBM.gain_importance(target_model)
+            total_importance .+= target_importance
+        end
+        
+        # Average the importance
+        avg_importance = total_importance ./ n_targets
+        
+        return Dict(zip(feature_names, avg_importance))
+    else
+        # Single-target model
+        importance = LightGBM.gain_importance(model.model)
+        
+        # Get feature names from booster
+        feature_names = try
+            LightGBM.LGBM_BoosterGetFeatureNames(model.model.booster)
+        catch
+            # Fallback to generic feature names if booster feature names are not available
+            n_features = length(importance)
+            ["feature_$i" for i in 1:n_features]
+        end
+        
+        return Dict(zip(feature_names, importance))
+    end
 end
 
 function feature_importance(model::EvoTreesModel)::Dict{String, Float64}
@@ -773,9 +926,35 @@ function save_model(model::NumeraiModel, filepath::String)
     end
     
     if model isa XGBoostModel
-        XGBoost.save(model.model, filepath)
+        if model.model isa Vector{Booster}
+            # Multi-target XGBoost: save each model with suffix
+            for (i, target_model) in enumerate(model.model)
+                target_path = replace(filepath, r"(\.[^.]*$)" => "_target$(i)\\1")
+                XGBoost.save(target_model, target_path)
+            end
+            # Save metadata about multi-target structure
+            metadata_path = replace(filepath, r"(\.[^.]*$)" => "_metadata.json")
+            open(metadata_path, "w") do f
+                write(f, JSON3.write(Dict("n_targets" => length(model.model), "type" => "XGBoost")))
+            end
+        else
+            XGBoost.save(model.model, filepath)
+        end
     elseif model isa LightGBMModel
-        LightGBM.savemodel(model.model, filepath)
+        if model.model isa Vector{LGBMRegression}
+            # Multi-target LightGBM: save each model with suffix
+            for (i, target_model) in enumerate(model.model)
+                target_path = replace(filepath, r"(\.[^.]*$)" => "_target$(i)\\1")
+                LightGBM.savemodel(target_model, target_path)
+            end
+            # Save metadata about multi-target structure
+            metadata_path = replace(filepath, r"(\.[^.]*$)" => "_metadata.json")
+            open(metadata_path, "w") do f
+                write(f, JSON3.write(Dict("n_targets" => length(model.model), "type" => "LightGBM")))
+            end
+        else
+            LightGBM.savemodel(model.model, filepath)
+        end
     elseif model isa EvoTreesModel
         EvoTrees.save(model.model, filepath)
     elseif model isa CatBoostModel
@@ -786,12 +965,54 @@ function save_model(model::NumeraiModel, filepath::String)
 end
 
 function load_model!(model::XGBoostModel, filepath::String)
-    model.model = Booster(model_file=filepath)
+    # Check if this is a multi-target model by looking for metadata file
+    metadata_path = replace(filepath, r"(\.[^.]*$)" => "_metadata.json")
+    if isfile(metadata_path)
+        metadata = JSON3.read(read(metadata_path, String))
+        if haskey(metadata, "n_targets") && metadata["n_targets"] > 1
+            # Load multi-target models
+            n_targets = metadata["n_targets"]
+            models = Booster[]
+            for i in 1:n_targets
+                target_path = replace(filepath, r"(\.[^.]*$)" => "_target$(i)\\1")
+                push!(models, Booster(model_file=target_path))
+            end
+            model.model = models
+            model.params["n_targets"] = n_targets
+        else
+            model.model = Booster(model_file=filepath)
+        end
+    else
+        model.model = Booster(model_file=filepath)
+    end
     return model
 end
 
 function load_model!(model::LightGBMModel, filepath::String)
-    model.model = LightGBM.loadmodel(filepath)
+    # Check if this is a multi-target model by looking for metadata file
+    metadata_path = replace(filepath, r"(\.[^.]*$)" => "_metadata.json")
+    if isfile(metadata_path)
+        metadata = JSON3.read(read(metadata_path, String))
+        if haskey(metadata, "n_targets") && metadata["n_targets"] > 1
+            # Load multi-target models
+            n_targets = metadata["n_targets"]
+            models = LGBMRegression[]
+            for i in 1:n_targets
+                target_path = replace(filepath, r"(\.[^.]*$)" => "_target$(i)\\1")
+                target_model = LGBMRegression()
+                LightGBM.loadmodel!(target_model, target_path)
+                push!(models, target_model)
+            end
+            model.model = models
+            model.params["n_targets"] = n_targets
+        else
+            model.model = LGBMRegression()
+            LightGBM.loadmodel!(model.model, filepath)
+        end
+    else
+        model.model = LGBMRegression()
+        LightGBM.loadmodel!(model.model, filepath)
+    end
     return model
 end
 

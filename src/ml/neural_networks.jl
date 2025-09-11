@@ -23,7 +23,7 @@ import ..Models: NumeraiModel, train!, predict, feature_importance, save_model, 
 import ...MetalAcceleration: has_metal_gpu
 
 # Export neural network models
-export NeuralNetworkModel, MLPModel, ResNetModel, TabNetModel
+export NeuralNetworkModel, MLPModel, ResNetModel
 export train_neural_network!, predict_neural_network
 export correlation_loss, mse_correlation_loss
 export preprocess_for_neural_network, standardize_features!
@@ -64,21 +64,6 @@ mutable struct ResNetModel <: NeuralNetworkModel
     feature_stds::Union{Nothing, Vector{Float64}}
 end
 
-"""
-TabNet-style model with attention mechanism for tabular data
-"""
-mutable struct TabNetModel <: NeuralNetworkModel
-    model::Union{Nothing, Chain}
-    optimizer::Union{Nothing, Any}
-    params::Dict{String, Any}
-    name::String
-    gpu_enabled::Bool
-    training_history::Vector{Dict{String, Float64}}
-    best_model::Union{Nothing, Chain}
-    feature_means::Union{Nothing, Vector{Float64}}
-    feature_stds::Union{Nothing, Vector{Float64}}
-    attention_masks::Vector{Any}
-end
 
 """
 Early stopping callback
@@ -200,40 +185,6 @@ function ResNetModel(name::String="resnet_default";
     return ResNetModel(nothing, nothing, params, name, use_gpu, Dict{String, Float64}[], nothing, nothing, nothing)
 end
 
-function TabNetModel(name::String="tabnet_default";
-                    n_d::Int=64,
-                    n_a::Int=64,
-                    n_steps::Int=3,
-                    gamma::Float64=1.3,
-                    learning_rate::Float64=0.02,
-                    batch_size::Int=1024,
-                    epochs::Int=200,
-                    early_stopping_patience::Int=20,
-                    gpu_enabled::Bool=true)
-    
-    use_gpu = gpu_enabled && has_metal_gpu()
-    
-    params = Dict{String, Any}(
-        "n_d" => n_d,  # Dimension of the decision prediction layer
-        "n_a" => n_a,  # Dimension of the attention layer
-        "n_steps" => n_steps,  # Number of steps in the architecture
-        "gamma" => gamma,  # Coefficient for feature reusage in attention
-        "learning_rate" => learning_rate,
-        "batch_size" => batch_size,
-        "epochs" => epochs,
-        "early_stopping_patience" => early_stopping_patience,
-        "lambda_sparse" => 1e-3,  # Sparsity regularization
-        "virtual_batch_size" => 128
-    )
-    
-    if use_gpu
-        @info "TabNet model configured with GPU acceleration" name=name
-    else
-        @info "TabNet model configured with CPU" name=name reason=(gpu_enabled ? "GPU not available" : "GPU disabled")
-    end
-    
-    return TabNetModel(nothing, nothing, params, name, use_gpu, Dict{String, Float64}[], nothing, nothing, nothing, Any[])
-end
 
 # Custom loss functions for Numerai
 
@@ -303,22 +254,6 @@ function mse_correlation_loss(ŷ, y; α::Float64=0.7)
     return α * corr_loss + (1 - α) * mse
 end
 
-"""
-Sparsity loss for attention mechanisms (used in TabNet)
-"""
-function sparsity_loss(attention_masks::Vector; λ::Float64=1e-3)
-    if isempty(attention_masks)
-        return 0.0f0
-    end
-    
-    total_loss = 0.0f0
-    for mask in attention_masks
-        # Encourage sparsity in attention masks
-        total_loss += λ * sum(mask .* log.(mask .+ 1e-15))
-    end
-    
-    return total_loss / length(attention_masks)
-end
 
 # Data preprocessing functions
 
@@ -501,46 +436,6 @@ function build_resnet_model(input_dim::Int, hidden_layers::Vector{Int};
     return Chain(layers...)
 end
 
-"""
-Build simplified TabNet-inspired model with support for multi-output
-Note: This is a simplified version - full TabNet is more complex
-"""
-function build_tabnet_model(input_dim::Int; n_d::Int=64, n_a::Int=64, n_steps::Int=3, output_dim::Int=1)
-    
-    # Feature transformer
-    feature_transformer = Chain(
-        Dense(input_dim => n_d * 2),
-        relu,
-        Dense(n_d * 2 => n_d),
-        BatchNorm(n_d)
-    )
-    
-    # Attention transformer
-    attention_transformer = Chain(
-        Dense(n_a => n_a),
-        relu,
-        Dense(n_a => input_dim),
-        sigmoid  # Attention weights
-    )
-    
-    # Decision layers for each step
-    decision_layers = [Chain(
-        Dense(n_d => n_d ÷ 2),
-        relu,
-        Dense(n_d ÷ 2 => output_dim)  # Support multi-output
-    ) for _ in 1:n_steps]
-    
-    # This is a simplified implementation
-    # Full TabNet would require custom layers and attention mechanisms
-    return Chain(
-        Dense(input_dim => n_d),
-        BatchNorm(n_d),
-        relu,
-        Dense(n_d => n_d),
-        relu,
-        Dense(n_d => output_dim)  # Support multi-output
-    )
-end
 
 # Training infrastructure
 
@@ -699,12 +594,6 @@ function train_neural_network!(model::NeuralNetworkModel,
         model.model = build_resnet_model(input_dim, model.params["hidden_layers"],
                                        dropout_rate=model.params["dropout_rate"],
                                        residual_blocks=model.params["residual_blocks"],
-                                       output_dim=output_dim)
-    elseif model isa TabNetModel
-        model.model = build_tabnet_model(input_dim,
-                                       n_d=model.params["n_d"],
-                                       n_a=model.params["n_a"],
-                                       n_steps=model.params["n_steps"],
                                        output_dim=output_dim)
     end
     
@@ -1109,7 +998,7 @@ function cross_validate_neural_network(model_constructor::Function,
 end
 
 # Export all necessary functions and types
-export correlation_loss, mse_correlation_loss, sparsity_loss
+export correlation_loss, mse_correlation_loss
 export standardize_features!, preprocess_for_neural_network
 export train_neural_network!, predict_neural_network
 export get_training_history, plot_training_history

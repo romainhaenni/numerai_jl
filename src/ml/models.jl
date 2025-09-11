@@ -1667,8 +1667,6 @@ function create_model(model_type::Symbol, params::Dict{Symbol,Any})
         return NeuralNetworks.MLPModel(name; model_params...)
     elseif model_type == :ResNet
         return NeuralNetworks.ResNetModel(name; model_params...)
-    elseif model_type == :TabNet
-        return NeuralNetworks.TabNetModel(name; model_params...)
     else
         error("Unknown model type: $model_type")
     end
@@ -1695,10 +1693,10 @@ predict(model::Union{RidgeModel, LassoModel, ElasticNetModel}, args...; kwargs..
 
 # Include neural networks
 include("neural_networks.jl")
-using .NeuralNetworks: MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel, 
+using .NeuralNetworks: MLPModel, ResNetModel, NeuralNetworkModel, 
                        train_neural_network!, predict_neural_network,
                        correlation_loss, mse_correlation_loss
-export MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel,
+export MLPModel, ResNetModel, NeuralNetworkModel,
        train_neural_network!, predict_neural_network,
        correlation_loss, mse_correlation_loss
 

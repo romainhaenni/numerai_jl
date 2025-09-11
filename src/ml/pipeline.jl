@@ -255,19 +255,6 @@ function create_model_from_config(config::ModelConfig)::Models.NumeraiModel
             early_stopping_patience=get(config.params, :early_stopping_patience, 15),
             gpu_enabled=get(config.params, :gpu_enabled, true)
         )
-    elseif config.type == "tabnet"
-        return TabNetModel(
-            config.name;
-            n_d=get(config.params, :n_d, 64),
-            n_a=get(config.params, :n_a, 64),
-            n_steps=get(config.params, :n_steps, 3),
-            gamma=get(config.params, :gamma, 1.3),
-            learning_rate=get(config.params, :learning_rate, 0.02),
-            batch_size=get(config.params, :batch_size, 1024),
-            epochs=get(config.params, :epochs, 200),
-            early_stopping_patience=get(config.params, :early_stopping_patience, 20),
-            gpu_enabled=get(config.params, :gpu_enabled, true)
-        )
     elseif config.type == "ridge"
         return RidgeModel(
             config.name;

@@ -31,7 +31,7 @@ include("scheduler/cron.jl")
 export run_tournament, TournamentConfig, TournamentDashboard, TournamentScheduler, load_config,
        XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel,
        RidgeModel, LassoModel, ElasticNetModel,
-       MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel,
+       MLPModel, ResNetModel, NeuralNetworkModel,
        get_models_gpu_status, create_model,
        has_metal_gpu, get_gpu_info, gpu_standardize!, run_comprehensive_gpu_benchmark,
        download_tournament_data, train_model, train_all_models,
@@ -40,7 +40,7 @@ export run_tournament, TournamentConfig, TournamentDashboard, TournamentSchedule
 using .Logger: init_logger, @log_info, @log_warn, @log_error
 using .Models: XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel, 
                RidgeModel, LassoModel, ElasticNetModel,
-               MLPModel, ResNetModel, TabNetModel, NeuralNetworkModel,
+               MLPModel, ResNetModel, NeuralNetworkModel,
                get_models_gpu_status, create_model
 using .MetalAcceleration: has_metal_gpu, get_gpu_info, gpu_standardize!
 using .GPUBenchmarks: run_comprehensive_gpu_benchmark

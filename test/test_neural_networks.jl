@@ -29,16 +29,6 @@ using DataFrames
         @test resnet.name == "test_resnet"
         @test resnet.params["hidden_layers"] == [64, 64]
         @test resnet.params["epochs"] == 5
-        
-        # Test TabNet model creation
-        tabnet = NumeraiTournament.TabNetModel("test_tabnet",
-                                               n_d=32,
-                                               n_a=32,
-                                               epochs=5,
-                                               gpu_enabled=false)
-        @test tabnet.name == "test_tabnet"
-        @test tabnet.params["n_d"] == 32
-        @test tabnet.params["n_a"] == 32
     end
     
     @testset "Pipeline Integration" begin

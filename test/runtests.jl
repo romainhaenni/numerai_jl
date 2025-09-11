@@ -300,6 +300,33 @@ Random.seed!(123)
     # Include Ensemble tests
     include("test_ensemble.jl")
     
+    # Include additional test files for comprehensive coverage
+    # These were missing from the test suite
+    
+    # API and networking tests
+    include("test_api_client.jl")
+    include("test_webhooks.jl")
+    include("test_submission_windows.jl")
+    
+    # Neural network tests
+    include("test_neural_networks.jl")
+    
+    # Database tests
+    include("test_database.jl")
+    
+    # TUI tests
+    include("test_tui_comprehensive.jl")
+    
+    # Production readiness tests
+    include("test_production_ready.jl")
+    include("test_production_ready_v2.jl")
+    
+    # Basic functionality tests
+    include("test_basic.jl")
+    
+    # Main entry point test
+    include("test_main.jl")
+    
 end
 
 println("\n✅ All tests passed!")

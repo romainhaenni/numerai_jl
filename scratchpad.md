@@ -23,53 +23,40 @@
 
 ## 🌟 LOW PRIORITY (P3) - NICE TO HAVE
 
-### 1. **GPU Column-by-Column Processing Inefficiency** 🟢 **LOW**
-- **Current**: GPU operations process matrices column-by-column in loops
-- **Impact**: Poor GPU performance due to inefficient memory access patterns
-- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/gpu/metal_acceleration.jl`
-- **Status**: Should use batch matrix operations instead
-
-### 2. **GPU Device Information Placeholders** 🟢 **LOW**
-- **Current**: GPU memory information shows placeholder values, never updated
-- **Impact**: Inaccurate system monitoring and resource planning
-- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/gpu/metal_acceleration.jl`
-- **Status**: Device info functions contain hardcoded placeholder values
-
-### 3. **Inefficient Cron Next Run Algorithm** 🟢 **LOW**
-- **Current**: Brute force search for next cron run time, up to 525,600 iterations
-- **Impact**: CPU waste and potential scheduling delays
-- **Files**: `/Users/romain/src/Numerai/numerai_jl/src/scheduler/cron.jl`
-- **Status**: Should use mathematical calculation instead of brute force
-
-### 4. **Advanced API Analytics Endpoints** 🟢 **LOW**
+### 1. **Advanced API Analytics Endpoints** 🟢 **LOW**
 - **Missing**: Leaderboard data retrieval, detailed performance analytics
 - **Missing**: Historical performance trend analysis, model diagnostics
 - **Priority**: Non-essential for core functionality
 
-### 5. **GPU Feature Selection Fallback** 🟢 **LOW**
+### 2. **GPU Feature Selection Fallback** 🟢 **LOW**
 - **Current**: GPU feature selection fallback just returns first k features without selection
 - **Impact**: Suboptimal feature selection when GPU unavailable
 - **Files**: `/Users/romain/src/Numerai/numerai_jl/src/gpu/metal_acceleration.jl`
 - **Status**: Needs proper CPU fallback implementation
 
-### 6. **GPU Benchmarking Validation** 🟢 **LOW**
+### 3. **GPU Benchmarking Validation** 🟢 **LOW**
 - **Current**: Metal acceleration implemented but needs performance validation
 - **Files**: `/Users/romain/src/Numerai/numerai_jl/src/gpu/benchmarks.jl`
 - **Impact**: Performance optimization opportunities
 
-### 7. **Test Suite Count Discrepancy** 🟢 **LOW**
+### 4. **Test Suite Count Discrepancy** 🟢 **LOW**
 - **Current**: System reports 1,554 tests but actually has 2,182+ @test statements
 - **Impact**: Misleading test coverage reporting
 - **Files**: Test suite across `/Users/romain/src/Numerai/numerai_jl/test/` directory
 - **Status**: Test count reporting needs verification
 
-### 8. **Configuration Documentation** 🟢 **LOW**
+### 5. **Configuration Documentation** 🟢 **LOW**
 - **Need**: Comprehensive config.toml parameter documentation
 - **Impact**: User experience and configuration clarity
 
 ## COMPLETED ITEMS ✅
 
-### Recent Major Completions (v0.6.13)
+### Recent Major Completions (v0.6.14)
+- ✅ **GPU Column-by-Column Processing Inefficiency Fixed** - GPU operations now use efficient batch matrix operations instead of column-by-column processing loops
+- ✅ **GPU Device Information Placeholders Fixed** - GPU device information now reports actual memory usage and compute units instead of placeholder values
+- ✅ **Inefficient Cron Next Run Algorithm Fixed** - Cron scheduling algorithm optimized from O(525,600) brute force search to O(1) mathematical calculation
+
+### Major Completions (v0.6.13)
 - ✅ **Neural Network Models Missing from Models Module Fixed** - Added forwarding functions for MLPNet and ResNet in Models module, neural networks now fully accessible through standard interface
 - ✅ **Import Syntax Error in Neural Networks Fixed** - Corrected import statement from `import ...MetalAcceleration` to `import ..MetalAcceleration` in neural_networks.jl
 
@@ -110,7 +97,7 @@
   - TC calculation method (correlation vs gradient-based)
 - **P2 Medium**: 🟡 **1 MEDIUM PRIORITY ISSUE** - Important enhancement needed
   - EvoTrees GPU bug workaround
-- **P3 Low**: 🟢 **8 LOW PRIORITY ISSUES** - Performance and usability improvements
+- **P3 Low**: 🟢 **5 LOW PRIORITY ISSUES** - Performance and usability improvements
 
 ### Test Suite Status
 - **Test Pass Rate**: ~86% (2,069 passed, 113 failed/errored based on analysis) ⚠️
@@ -132,8 +119,9 @@
 - ✅ Traditional ML models (XGBoost, LightGBM, CatBoost, EvoTrees)
 - ✅ Database operations
 - ✅ Feature importance analysis
-- ✅ GPU acceleration
+- ✅ GPU acceleration (optimized in v0.6.14 with batch matrix operations)
 - ✅ Multi-target support for all model types
+- ✅ Tournament scheduling (optimized in v0.6.14 with O(1) cron algorithm)
 
 ## 🎯 IMPLEMENTATION RECOMMENDATIONS
 

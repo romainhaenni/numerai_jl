@@ -1061,8 +1061,53 @@ function feature_importance(model::XGBoostModel)::Dict{String, Float64}
         error("Model not trained yet")
     end
     
-    importance = XGBoost.importance(model.model)
-    return importance
+    # Check if this is a multi-target model
+    is_multitarget = haskey(model.params, "n_targets") && model.params["n_targets"] > 1
+    
+    if is_multitarget && model.model isa Vector
+        # For multi-target, average feature importance across all target models
+        n_targets = length(model.model)
+        
+        # Get importance from first model to initialize
+        first_importance = XGBoost.importance(model.model[1])
+        
+        # Initialize accumulator with first model's importance
+        feature_dict = Dict{String, Float64}()
+        for (feature_name, importance_value) in first_importance
+            feature_dict[feature_name] = importance_value
+        end
+        
+        # Add importance from other target models
+        for i in 2:n_targets
+            target_importance = XGBoost.importance(model.model[i])
+            for (feature_name, importance_value) in target_importance
+                if haskey(feature_dict, feature_name)
+                    feature_dict[feature_name] += importance_value
+                else
+                    feature_dict[feature_name] = importance_value
+                end
+            end
+        end
+        
+        # Average the importance scores
+        for feature_name in keys(feature_dict)
+            feature_dict[feature_name] /= n_targets
+        end
+        
+        # Normalize to sum to 1
+        total_importance = sum(values(feature_dict))
+        if total_importance > 0
+            for feature_name in keys(feature_dict)
+                feature_dict[feature_name] /= total_importance
+            end
+        end
+        
+        return feature_dict
+    else
+        # Single-target case
+        importance = XGBoost.importance(model.model)
+        return importance
+    end
 end
 
 function feature_importance(model::LightGBMModel)::Dict{String, Float64}

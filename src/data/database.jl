@@ -564,6 +564,157 @@ function get_all_models(conn::DatabaseConnection)
     end
 end
 
-export get_performance_summary, get_all_models, get_latest_submission
+"""
+    save_predictions(conn::DatabaseConnection, df::DataFrame, model_name::String, round_number::Int)
+
+Save prediction data to the database archive.
+
+# Arguments
+- `conn`: Database connection
+- `df`: DataFrame containing predictions with columns: era, prediction, target (optional)
+- `model_name`: Name of the model
+- `round_number`: Round number
+"""
+function save_predictions(conn::DatabaseConnection, df::DataFrame, model_name::String, round_number::Int)
+    try
+        # Prepare the insert statement
+        stmt = SQLite.Stmt(conn.db, """
+            INSERT INTO predictions_archive 
+            (model_name, round_number, era, prediction_value, actual_target)
+            VALUES (?, ?, ?, ?, ?)
+        """)
+        
+        # Insert each prediction
+        for row in eachrow(df)
+            era = string(get(row, :era, ""))
+            prediction = Float64(get(row, :prediction, 0.0))
+            target = haskey(row, :target) ? Float64(row.target) : missing
+            
+            SQLite.bind!(stmt, 1, model_name)
+            SQLite.bind!(stmt, 2, round_number)
+            SQLite.bind!(stmt, 3, era)
+            SQLite.bind!(stmt, 4, prediction)
+            SQLite.bind!(stmt, 5, target)
+            
+            SQLite.execute(stmt)
+        end
+        
+        SQLite.finalize!(stmt)
+        @log_info "Saved $(nrow(df)) predictions for $model_name round $round_number"
+        return true
+    catch e
+        @log_error "Failed to save predictions" error=e model=model_name round=round_number
+        return false
+    end
+end
+
+"""
+    get_predictions(conn::DatabaseConnection, model_name::String, round_number::Int)
+
+Retrieve predictions from the database archive.
+
+# Arguments
+- `conn`: Database connection
+- `model_name`: Name of the model
+- `round_number`: Round number
+
+# Returns
+- DataFrame with predictions or empty DataFrame on error
+"""
+function get_predictions(conn::DatabaseConnection, model_name::String, round_number::Int)
+    try
+        query = """
+            SELECT era, prediction_value as prediction, actual_target as target
+            FROM predictions_archive
+            WHERE model_name = ? AND round_number = ?
+            ORDER BY era
+        """
+        
+        result = DBInterface.execute(conn.db, query, (model_name, round_number)) |> DataFrame
+        return result
+    catch e
+        @log_error "Failed to get predictions" error=e model=model_name round=round_number
+        return DataFrame()
+    end
+end
+
+"""
+    save_model_metadata(conn::DatabaseConnection, model_name::String, round_number::Int, metadata::Dict)
+
+Save additional model metadata to the database.
+
+# Arguments
+- `conn`: Database connection
+- `model_name`: Name of the model
+- `round_number`: Round number
+- `metadata`: Dictionary containing metadata to save
+"""
+function save_model_metadata(conn::DatabaseConnection, model_name::String, round_number::Int, metadata::Dict)
+    try
+        # Convert metadata to JSON string
+        metadata_json = JSON3.write(metadata)
+        
+        # Update or insert into model_configs table
+        SQLite.execute(conn.db, """
+            INSERT OR REPLACE INTO model_configs 
+            (model_name, config_json, updated_at)
+            VALUES (?, ?, datetime('now'))
+        """, (model_name, metadata_json))
+        
+        # Also save round-specific metadata in training_runs if needed
+        if round_number > 0
+            save_training_run(conn, Dict(
+                "model_name" => model_name,
+                "round_number" => round_number,
+                "hyperparameters" => metadata,
+                "metrics" => get(metadata, "metrics", Dict()),
+                "duration_seconds" => get(metadata, "duration_seconds", 0),
+                "num_samples" => get(metadata, "num_samples", 0)
+            ))
+        end
+        
+        @log_info "Saved metadata for $model_name"
+        return true
+    catch e
+        @log_error "Failed to save model metadata" error=e model=model_name
+        return false
+    end
+end
+
+"""
+    get_model_metadata(conn::DatabaseConnection, model_name::String)
+
+Retrieve model metadata from the database.
+
+# Arguments
+- `conn`: Database connection
+- `model_name`: Name of the model
+
+# Returns
+- Dictionary with metadata or empty Dict on error
+"""
+function get_model_metadata(conn::DatabaseConnection, model_name::String)
+    try
+        query = """
+            SELECT config_json
+            FROM model_configs
+            WHERE model_name = ?
+        """
+        
+        result = DBInterface.execute(conn.db, query, (model_name,)) |> DataFrame
+        
+        if nrow(result) > 0
+            return JSON3.read(result.config_json[1], Dict{String, Any})
+        else
+            return Dict{String, Any}()
+        end
+    catch e
+        @log_error "Failed to get model metadata" error=e model=model_name
+        return Dict{String, Any}()
+    end
+end
+
+export get_performance_summary, get_all_models, get_latest_submission,
+       save_predictions, get_predictions, save_model_metadata, get_model_metadata
 
 end # module

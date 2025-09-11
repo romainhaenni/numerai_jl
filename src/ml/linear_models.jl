@@ -212,7 +212,7 @@ end
 
 function train!(model::RidgeModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
                X_val::Union{Nothing, Matrix{Float64}}=nothing,
-               y_val::Union{Nothing, Vector{Float64}}=nothing,
+               y_val::Union{Nothing, Vector{Float64}, Matrix{Float64}}=nothing,
                feature_names::Union{Nothing, Vector{String}}=nothing,
                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
                verbose::Bool=false)
@@ -245,78 +245,168 @@ end
 
 function train!(model::LassoModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
                X_val::Union{Nothing, Matrix{Float64}}=nothing,
-               y_val::Union{Nothing, Vector{Float64}}=nothing,
+               y_val::Union{Nothing, Vector{Float64}, Matrix{Float64}}=nothing,
                feature_names::Union{Nothing, Vector{String}}=nothing,
                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
                verbose::Bool=false)
     
+    # Check if multi-target
+    is_multi_target = y_train isa Matrix
+    n_targets = is_multi_target ? size(y_train, 2) : 1
+    
     if verbose
-        @info "Training Lasso model" name=model.name alpha=model.params["alpha"]
+        @info "Training Lasso model" name=model.name alpha=model.params["alpha"] multi_target=is_multi_target targets=n_targets
     end
     
-    # Fit Lasso regression using coordinate descent
-    coef, intercept = coordinate_descent(X_train, y_train, model.params["alpha"], 1.0,
-                                        model.params["fit_intercept"], model.params["max_iter"], 
-                                        model.params["tol"])
-    
-    # Store the model
-    model.model = Dict(
-        "coef" => coef,
-        "intercept" => intercept,
-        "n_features" => size(X_train, 2),
-        "n_nonzero" => sum(coef .!= 0)
-    )
-    
-    if verbose
-        @info "Lasso training complete" n_nonzero_coef=model.model["n_nonzero"]
+    if is_multi_target
+        # Train separate model for each target
+        coefs = Matrix{Float64}(undef, size(X_train, 2), n_targets)
+        intercepts = Vector{Float64}(undef, n_targets)
+        n_nonzeros = Vector{Int}(undef, n_targets)
+        
+        for i in 1:n_targets
+            coef, intercept = coordinate_descent(X_train, y_train[:, i], model.params["alpha"], 1.0,
+                                                model.params["fit_intercept"], model.params["max_iter"], 
+                                                model.params["tol"])
+            coefs[:, i] = coef
+            intercepts[i] = intercept
+            n_nonzeros[i] = sum(coef .!= 0)
+        end
+        
+        # Store the model
+        model.model = Dict(
+            "coef" => coefs,
+            "intercept" => intercepts,
+            "n_features" => size(X_train, 2),
+            "n_targets" => n_targets,
+            "is_multi_target" => true,
+            "n_nonzero" => n_nonzeros
+        )
+        
+        if verbose
+            @info "Lasso training complete" mean_n_nonzero_coef=mean(n_nonzeros) n_nonzero_per_target=n_nonzeros
+        end
+    else
+        # Single target
+        coef, intercept = coordinate_descent(X_train, y_train, model.params["alpha"], 1.0,
+                                            model.params["fit_intercept"], model.params["max_iter"], 
+                                            model.params["tol"])
+        
+        # Store the model
+        model.model = Dict(
+            "coef" => coef,
+            "intercept" => intercept,
+            "n_features" => size(X_train, 2),
+            "n_targets" => 1,
+            "is_multi_target" => false,
+            "n_nonzero" => sum(coef .!= 0)
+        )
+        
+        if verbose
+            @info "Lasso training complete" n_nonzero_coef=model.model["n_nonzero"]
+        end
     end
     
     # Validate if validation set provided
     if X_val !== nothing && y_val !== nothing
         val_predictions = predict(model, X_val)
-        val_score = cor(val_predictions, y_val)
-        if verbose
-            @info "Validation correlation" score=val_score
+        if is_multi_target
+            # Calculate correlation for each target
+            val_scores = [cor(val_predictions[:, i], y_val[:, i]) for i in 1:n_targets]
+            val_score = mean(val_scores)
+            if verbose
+                @info "Validation correlation" mean_score=val_score scores=val_scores
+            end
+        else
+            val_score = cor(val_predictions, y_val)
+            if verbose
+                @info "Validation correlation" score=val_score
+            end
         end
     end
     
     return model
 end
 
-function train!(model::ElasticNetModel, X_train::Matrix{Float64}, y_train::Vector{Float64};
+function train!(model::ElasticNetModel, X_train::Matrix{Float64}, y_train::Union{Vector{Float64}, Matrix{Float64}};
                X_val::Union{Nothing, Matrix{Float64}}=nothing,
-               y_val::Union{Nothing, Vector{Float64}}=nothing,
+               y_val::Union{Nothing, Vector{Float64}, Matrix{Float64}}=nothing,
                feature_names::Union{Nothing, Vector{String}}=nothing,
                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
                verbose::Bool=false)
     
+    # Check if multi-target
+    is_multi_target = y_train isa Matrix
+    n_targets = is_multi_target ? size(y_train, 2) : 1
+    
     if verbose
-        @info "Training ElasticNet model" name=model.name alpha=model.params["alpha"] l1_ratio=model.params["l1_ratio"]
+        @info "Training ElasticNet model" name=model.name alpha=model.params["alpha"] l1_ratio=model.params["l1_ratio"] multi_target=is_multi_target targets=n_targets
     end
     
-    # Fit ElasticNet regression using coordinate descent
-    coef, intercept = coordinate_descent(X_train, y_train, model.params["alpha"], model.params["l1_ratio"],
-                                        model.params["fit_intercept"], model.params["max_iter"], 
-                                        model.params["tol"])
-    
-    # Store the model
-    model.model = Dict(
-        "coef" => coef,
-        "intercept" => intercept,
-        "n_features" => size(X_train, 2),
-        "n_nonzero" => sum(coef .!= 0)
-    )
-    
-    if verbose
-        @info "ElasticNet training complete" n_nonzero_coef=model.model["n_nonzero"]
+    if is_multi_target
+        # Train separate model for each target
+        coefs = Matrix{Float64}(undef, size(X_train, 2), n_targets)
+        intercepts = Vector{Float64}(undef, n_targets)
+        n_nonzeros = Vector{Int}(undef, n_targets)
+        
+        for i in 1:n_targets
+            coef, intercept = coordinate_descent(X_train, y_train[:, i], model.params["alpha"], model.params["l1_ratio"],
+                                                model.params["fit_intercept"], model.params["max_iter"], 
+                                                model.params["tol"])
+            coefs[:, i] = coef
+            intercepts[i] = intercept
+            n_nonzeros[i] = sum(coef .!= 0)
+        end
+        
+        # Store the model
+        model.model = Dict(
+            "coef" => coefs,
+            "intercept" => intercepts,
+            "n_features" => size(X_train, 2),
+            "n_targets" => n_targets,
+            "is_multi_target" => true,
+            "n_nonzero" => n_nonzeros
+        )
+        
+        if verbose
+            @info "ElasticNet training complete" mean_n_nonzero_coef=mean(n_nonzeros) n_nonzero_per_target=n_nonzeros
+        end
+    else
+        # Single target
+        coef, intercept = coordinate_descent(X_train, y_train, model.params["alpha"], model.params["l1_ratio"],
+                                            model.params["fit_intercept"], model.params["max_iter"], 
+                                            model.params["tol"])
+        
+        # Store the model
+        model.model = Dict(
+            "coef" => coef,
+            "intercept" => intercept,
+            "n_features" => size(X_train, 2),
+            "n_targets" => 1,
+            "is_multi_target" => false,
+            "n_nonzero" => sum(coef .!= 0)
+        )
+        
+        if verbose
+            @info "ElasticNet training complete" n_nonzero_coef=model.model["n_nonzero"]
+        end
     end
     
     # Validate if validation set provided
     if X_val !== nothing && y_val !== nothing
         val_predictions = predict(model, X_val)
-        val_score = cor(val_predictions, y_val)
-        if verbose
-            @info "Validation correlation" score=val_score
+        if is_multi_target
+            # Calculate correlation for each target
+            val_scores = [cor(val_predictions[:, i], y_val[:, i]) for i in 1:n_targets]
+            val_score = mean(val_scores)
+            if verbose
+                @info "Validation correlation" mean_score=val_score scores=val_scores
+            end
+        else
+            val_score = cor(val_predictions, y_val)
+            if verbose
+                @info "Validation correlation" score=val_score
+            end
         end
     end
     

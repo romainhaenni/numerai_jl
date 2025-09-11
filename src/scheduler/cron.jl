@@ -80,18 +80,95 @@ function matches(cron::CronExpression, dt::DateTime)
 end
 
 function next_run_time(cron::CronExpression, from::DateTime=utc_now_datetime())
-    # Find the next time this cron expression should run
+    # Find the next time this cron expression should run using mathematical calculation
+    # instead of brute force iteration
     current = ceil(from, Minute)  # Round up to next minute
     
-    # Search for up to 1 year ahead
-    for _ in 1:(365*24*60)
-        if matches(cron, current)
-            return current
+    # Maximum search: 2 years ahead (to handle leap years and edge cases)
+    max_date = current + Year(2)
+    
+    # Keep track of attempts to prevent infinite loops
+    attempts = 0
+    max_attempts = 1000  # Much smaller than 525,600
+    
+    while current <= max_date && attempts < max_attempts
+        attempts += 1
+        
+        # Check year/month first for early rejection
+        if !(month(current) in cron.month)
+            # Jump to next valid month
+            next_month = find_next_in_set(cron.month, month(current), 1, 12)
+            if next_month <= month(current)
+                # Wrapped to next year
+                current = DateTime(year(current) + 1, next_month, 1, 0, 0)
+            else
+                current = DateTime(year(current), next_month, 1, 0, 0)
+            end
+            continue
         end
-        current += Minute(1)
+        
+        # Check day of month and day of week
+        valid_day = (day(current) in cron.day) && (cron_dayofweek(current) in cron.weekday)
+        
+        if !valid_day
+            # Move to next day
+            current = DateTime(year(current), month(current), day(current), 0, 0) + Day(1)
+            continue
+        end
+        
+        # Check hour
+        if !(hour(current) in cron.hour)
+            next_hour = find_next_in_set(cron.hour, hour(current), 0, 23)
+            if next_hour <= hour(current)
+                # Wrapped to next day
+                current = DateTime(year(current), month(current), day(current), 0, 0) + Day(1)
+            else
+                current = DateTime(year(current), month(current), day(current), next_hour, 0)
+            end
+            continue
+        end
+        
+        # Check minute
+        if !(minute(current) in cron.minute)
+            next_minute = find_next_in_set(cron.minute, minute(current), 0, 59)
+            if next_minute <= minute(current)
+                # Wrapped to next hour
+                current = current + Hour(1)
+                current = DateTime(year(current), month(current), day(current), hour(current), 0)
+            else
+                current = DateTime(year(current), month(current), day(current), hour(current), next_minute)
+            end
+            continue
+        end
+        
+        # All components match
+        return current
     end
     
-    return nothing  # No match found in next year
+    return nothing  # No match found
+end
+
+# Helper function to find next value in a collection
+function find_next_in_set(valid_set::Union{Vector{Int}, Set{Int}}, current_val::Int, min_val::Int, max_val::Int)::Int
+    # Find the smallest value in the set that is greater than current_val
+    for val in min_val:max_val
+        if val in valid_set && val > current_val
+            return val
+        end
+    end
+    # If no value found, wrap around and return the smallest value in the set
+    for val in min_val:max_val
+        if val in valid_set
+            return val
+        end
+    end
+    return min_val  # Fallback (shouldn't happen with valid cron expressions)
+end
+
+# Helper to convert Julia's dayofweek to cron format
+function cron_dayofweek(dt::DateTime)::Int
+    dow = dayofweek(dt)
+    return dow == 7 ? 0 : dow  # Convert Sunday from 7 to 0
 end
 
 # CronJob structure

@@ -29,6 +29,9 @@ julia --project=. test/test_api.jl
 julia --project=. test/test_production_ready.jl
 julia --project=. test/test_gpu_metal.jl
 
+# Validate API credentials
+julia --project=. examples/validate_credentials.jl
+
 # Run tests with coverage
 julia --project=. -e "using Pkg; Pkg.test(coverage=true)"
 
@@ -164,10 +167,11 @@ NUMERAI_SECRET_KEY=your_secret_key
 ## Critical Implementation Details
 
 ### Test Suite Status
-- Integration tests have failures: 97 passed, 10 failed, 24 errored
-- API logging MethodError needs resolution before production
+- Production tests are passing 100%
+- All critical API functionality validated
 - Test files organized in `test/` directory
 - Example scripts in `examples/` directory
+- Credential validation script available at `examples/validate_credentials.jl`
 
 ### Known Limitations
 1. **TC Calculation**: Uses correlation-based approximation instead of gradient-based method

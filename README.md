@@ -52,6 +52,17 @@ NUMERAI_PUBLIC_ID=your_public_id_here
 NUMERAI_SECRET_KEY=your_secret_key_here
 ```
 
+To get valid API credentials:
+- Go to https://numer.ai/account
+- Navigate to the API/Compute section
+- Generate a new API key pair
+- Copy both the Public ID (32 chars) and Secret Key (64 chars)
+
+Validate your credentials:
+```bash
+julia --project=. examples/validate_credentials.jl
+```
+
 4. Configure tournament settings in `config.toml`:
 ```toml
 models = ["your_model_name"]

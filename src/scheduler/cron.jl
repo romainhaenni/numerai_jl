@@ -453,10 +453,12 @@ function hourly_monitoring(scheduler::TournamentScheduler)
                                                  sharpe_history_rounds=scheduler.config.sharpe_history_rounds,
                                                  sharpe_min_data_points=scheduler.config.sharpe_min_data_points)
                 
-                if perf.corr < -0.05
-                    @log_warn "Model performance alert" model=model correlation=perf.corr
+                # Use configuration value for performance alert threshold
+                threshold = get(scheduler.config, :performance_alert_threshold, -0.05)
+                if perf.corr < threshold
+                    @log_warn "Model performance alert" model=model correlation=perf.corr threshold=threshold
                     # Send notification for performance alert
-                    Notifications.notify_performance_alert(model, "correlation", perf.corr, -0.05)
+                    Notifications.notify_performance_alert(model, "correlation", perf.corr, threshold)
                 end
             catch model_error
                 log_event(scheduler, :error, "Failed to get performance for $model: $model_error")

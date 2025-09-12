@@ -25,3 +25,7 @@ stake_amount = 1.0
 # Feature set configuration
 # Options: "small" (~300 features), "medium" (~1000 features), "all" (~5000 features)
 feature_set = "medium"
+
+# Performance monitoring thresholds
+# Alert when model correlation drops below this threshold
+performance_alert_threshold = -0.05

@@ -108,22 +108,35 @@ function memory_efficient_load(file_path::String;
 end
 
 function load_csv_chunked(file_path::String, chunk_size::Int)
-    chunks = DataFrame[]
+    # Count total rows first for proper chunking
+    total_rows = countlines(file_path) - 1  # Subtract header row
     
-    # Read CSV in chunks
-    for chunk in CSV.Rows(file_path, limit=chunk_size, reusebuffer=true)
-        df_chunk = DataFrame(chunk)
-        push!(chunks, df_chunk)
+    chunks = DataFrame[]
+    offset = 0
+    
+    while offset < total_rows
+        # Read a chunk starting from offset
+        df_chunk = CSV.read(
+            file_path, 
+            DataFrame; 
+            skipto=offset + 2,  # +2 because skipto is 1-indexed and we skip header
+            limit=min(chunk_size, total_rows - offset),
+            copycols=true
+        )
         
-        # Process chunk immediately if needed to reduce memory
-        if length(chunks) > 10  # Combine every 10 chunks
+        push!(chunks, df_chunk)
+        offset += chunk_size
+        
+        # Process chunks periodically to reduce memory
+        if length(chunks) >= 10
             combined = vcat(chunks...)
             chunks = [combined]
+            GC.gc()  # Force garbage collection to free memory
         end
     end
     
-    # Combine all chunks
-    return vcat(chunks...)
+    # Combine all remaining chunks
+    return isempty(chunks) ? DataFrame() : vcat(chunks...)
 end
 
 function load_parquet_chunked(file_path::String, chunk_size::Int)

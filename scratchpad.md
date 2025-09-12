@@ -2,6 +2,49 @@
 
 ## User Inputs
 - I have updated @.env and @config.toml with new API credentials. Fix the auth issue now!
+- get rid of the executable `./numerai`, i want a julia command to run the TUI
+- TUI errors:
+```
+┌ Error: Dashboard event
+│   message = "Training failed: ErrorException(\"Training data file not found: data/train.parquet\")"
+└ @ NumeraiTournament.Dashboard ~/src/Numerai/numerai_jl/src/logger.jl:229
+┌ Error: Training error
+│   exception = Training data file not found: data/train.parquet
+└ @ NumeraiTournament.Dashboard ~/src/Numerai/numerai_jl/src/tui/dashboard.jl:964
+┌ Info: Logging initialized
+│   log_file = "logs/numerai_20250912_070447.log"
+│   console_level = Info
+└   file_level = Debug
+┌ Info: Logging initialized
+│   log_file = "logs/numerai_20250912_070448.log"
+│   console_level = Info
+└   file_level = Debug
+┌ Error: GraphQL Error
+│   errors =
+│    1-element JSON3.Array{JSON3.Object, Vector{UInt8}, SubArray{UInt64, 1, Vector{UInt64}, Tuple{UnitRange{Int64}}, true}}:
+│     {
+│           "error": "Not authenticated",
+│            "code": "not_authenticated",
+│         "message": "You must be authenticated to perform this action.",
+│            "path": [
+│                      "account"
+│                    ],
+│       "locations": [
+│                      {
+│                           "line": 2,
+│                         "column": 5
+│                      }
+│                    ]
+│    }
+│   query = "query {\n    account {\n        models {\n            name\n            latestSubmission {\n             "
+└ @ NumeraiTournament.API ~/src/Numerai/numerai_jl/src/logger.jl:229
+┌ Error: Non-retryable error encountered
+│   context = "GraphQL query"
+│   error = "ErrorException(\"GraphQL Error: JSON3.Object[{\\n       \\\"error\\\": \\\"Not authenticated\\\",\\n        \\\"code\\\": \\\"not_authenticated\\\",\\n     \\\"message\\\": \\\"You must be authenticated to perform this action.\\\",\\n        \\\"path\\\": [\\n                  \\\"account\\\"\\n                ],\\n   \\\"locations\\\": [\\n                  {\\n                       \\\"line\\\": 2,\\n                     \\\"column\\\": 5\\n                  }\\n                ]\\n}]\")"
+└ @ NumeraiTournament.API.Retry ~/src/Numerai/numerai_jl/src/api/retry.jl:76
+┌ Warning: Failed to fetch latest submission: ErrorException("GraphQL Error: JSON3.Object[{\n       \"error\": \"Not authenticated\",\n        \"code\": \"not_authenticated\",\n     \"message\": \"You must be authenticated to perform this action.\",\n        \"path\": [\n                  \"account\"\n                ],\n   \"locations\": [\n                  {\n                       \"line\": 2,\n                     \"column\": 5\n                  }\n                ]\n}]")
+└ @ NumeraiTournament.API ~/src/Numerai/numerai_jl/src/api/client.jl:1219
+```
 
 ## PRODUCTION STATUS: READY ✅
 

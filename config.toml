@@ -12,7 +12,7 @@ api_secret_key = "337BEF4U2RZO6VOUHJGSOHAIWB7XT2M56PNL66HMS6KVWPZRC4XPMVEIVDLVSB
 tournament_id = 8
 
 # Model names to manage (leave empty to auto-discover from your Numerai account)
-models = ["my_model_1", "my_model_2"]
+models = ["numeraijl"]
 
 # Data storage directories
 data_dir = "data"
@@ -20,7 +20,7 @@ model_dir = "models"
 
 # Automation settings
 auto_submit = true
-stake_amount = 10.0
+stake_amount = 1.0
 
 # Feature set configuration
 # Options: "small" (~300 features), "medium" (~1000 features), "all" (~5000 features)

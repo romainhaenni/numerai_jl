@@ -61,7 +61,7 @@ function graphql_query(client::NumeraiClient, query::String, variables::Dict=Dic
         duration = time() - start_time
         try
             # Ensure logger is initialized before attempting to log
-            if !@isdefined(GLOBAL_LOGGER) || !isassigned(Logger.GLOBAL_LOGGER)
+            if !isassigned(Logger.GLOBAL_LOGGER)
                 Logger.init_logger()
             end
             log_api_call(GRAPHQL_ENDPOINT, "POST", response.status, duration)

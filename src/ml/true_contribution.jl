@@ -276,10 +276,14 @@ function compute_portfolio_gradient(predictions::AbstractVector{T},
     end
     
     try
-        # Normalize inputs to prevent numerical issues
-        pred_norm = (predictions .- mean(predictions)) ./ max(std(predictions), 1e-8)
-        meta_norm = (meta_model .- mean(meta_model)) ./ max(std(meta_model), 1e-8)
-        returns_norm = (returns .- mean(returns)) ./ max(std(returns), 1e-8)
+        # Normalize inputs to prevent numerical issues with improved robustness
+        pred_std = std(predictions)
+        meta_std = std(meta_model)
+        returns_std = std(returns)
+        
+        pred_norm = pred_std > 1e-12 ? (predictions .- mean(predictions)) ./ pred_std : zeros(T, n_samples)
+        meta_norm = meta_std > 1e-12 ? (meta_model .- mean(meta_model)) ./ meta_std : zeros(T, n_samples)
+        returns_norm = returns_std > 1e-12 ? (returns .- mean(returns)) ./ returns_std : zeros(T, n_samples)
         
         # Create a differentiable function that:
         # 1. Takes predictions as input
@@ -289,15 +293,19 @@ function compute_portfolio_gradient(predictions::AbstractVector{T},
         # 5. Returns portfolio performance metric
         
         function portfolio_performance(pred_input::AbstractVector)
-            # Construct expected returns: combine predictions with meta-model
-            expected_returns = [mean(pred_input), meta_norm[1]]  # Simplified: use means
+            # Construct expected returns: use means of both prediction and meta-model
+            expected_returns = [mean(pred_input), mean(meta_norm)]
             
-            # Simple 2x2 covariance estimation for numerical stability
-            var_pred = var(pred_input) + config.regularization
-            var_meta = var(meta_norm) + config.regularization
-            covar = clamp(cov(pred_input, meta_norm), -0.95 * sqrt(var_pred * var_meta), 
-                         0.95 * sqrt(var_pred * var_meta))
+            # Construct meaningful covariance matrix representing portfolio variance structure
+            var_pred = max(var(pred_input), config.regularization)
+            var_meta = max(var(meta_norm), config.regularization)
             
+            # Calculate correlation between predictions and meta-model, clamped for stability
+            correlation = length(pred_input) > 1 && var_pred > 0 && var_meta > 0 ? 
+                         clamp(cor(pred_input, meta_norm), -0.95, 0.95) : 0.0
+            
+            # Build covariance matrix from variances and correlation
+            covar = correlation * sqrt(var_pred * var_meta)
             covariance_matrix = [var_pred covar; covar var_meta]
             
             # Solve portfolio optimization analytically
@@ -365,8 +373,14 @@ function calculate_tc_gradient(predictions::AbstractVector{T},
         return 0.0
     end
     
-    # Check for constant inputs
-    if std(predictions) < 1e-10
+    # Check for constant inputs - early exit for constant predictions
+    pred_std = std(predictions)
+    if pred_std < 1e-12
+        return 0.0
+    end
+    
+    # Check for constant meta-model or returns
+    if std(meta_model) < 1e-12 || std(returns) < 1e-12
         return 0.0
     end
     
@@ -482,7 +496,8 @@ function calculate_tc_improved(predictions::AbstractVector{T},
             tc_score = calculate_tc_gradient(predictions, meta_model, returns, config)
             
             # Sanity check: if gradient method returns unreasonable values, fall back
-            if isnan(tc_score) || isinf(tc_score) || abs(tc_score) > 10.0
+            # Relaxed threshold from 10.0 to 50.0 for better tolerance of extreme but valid results
+            if isnan(tc_score) || isinf(tc_score) || abs(tc_score) > 50.0
                 @warn "Gradient-based TC returned unreasonable value ($tc_score), falling back to correlation method"
                 return calculate_tc_correlation_fallback(predictions, meta_model, returns)
             end

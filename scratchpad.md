@@ -33,6 +33,7 @@
 
 - when i press "h" for "help", or "p" for pause in the TUI, then nothing happens, ensure that the program runs without issues, write tests and test extensively:
 - my editor shows me 526 "Missing reference" warnings, ensure that the code has no reference warnings
+- how do i run ALL tests? update the @README.md. ensure that there is a command to run ALL tests. Ensure that ALL tests are successful, and fix the production code when not. dont take shortcuts!
 
 ## ✅ CRITICAL PRIORITY (P0) - ALL RESOLVED
 

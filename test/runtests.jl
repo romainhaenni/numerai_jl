@@ -280,6 +280,9 @@ Random.seed!(123)
     # Include MMC metrics tests
     include("test_metrics.jl")
     
+    # Include comprehensive True Contribution tests
+    include("test_true_contribution.jl")
+    
     # Include cron scheduler tests
     include("test_cron_scheduler.jl")
     

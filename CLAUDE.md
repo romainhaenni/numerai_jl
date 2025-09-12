@@ -196,6 +196,33 @@ NUMERAI_SECRET_KEY=your_secret_key
 2. Retry logic configured in `src/api/retry.jl`
 3. Schema updates go in `src/api/schemas.jl`
 
+## Testing Best Practices
+
+### Critical Test Environment Setup
+1. **Always use project environment**: Run tests with `julia --project=.` to avoid module loading issues
+   - Module not found errors often indicate missing project activation
+   - The project environment ensures correct package versions and dependencies
+
+2. **Conditional import pattern for test files**: Use this pattern for optional GPU dependencies:
+   ```julia
+   if Metal.functional()
+       @testset "GPU Tests" begin
+           # GPU-specific tests here
+       end
+   else
+       @warn "Metal GPU not available, skipping GPU tests"
+   end
+   ```
+
+3. **Float32 precision expectations**: GPU operations return Float32 by default
+   - Use `≈` (isapprox) instead of `==` for floating-point comparisons
+   - Be aware of precision differences between CPU (Float64) and GPU (Float32) operations
+   - Consider using `rtol` and `atol` parameters for approximate equality testing
+
+4. **Test isolation**: Each test file should be runnable independently
+   - Avoid dependencies between test files
+   - Initialize required modules within each test file
+
 ## Tournament Schedule
 - Weekend rounds: Saturday 18:00 UTC
 - Daily rounds: Tuesday-Friday 18:00 UTC

@@ -1,9 +1,10 @@
-# Numerai Tournament Configuration
+# Numerai Tournament Configuration Example
+#
+# Copy this file to config.toml and update with your settings
 
 # API Credentials (can also be set via environment variables NUMERAI_PUBLIC_ID and NUMERAI_SECRET_KEY)
-# Uncomment and set these values if not using environment variables
-# api_public_key = "YOUR_PUBLIC_KEY_HERE"
-# api_secret_key = "YOUR_SECRET_KEY_HERE"
+api_public_key = "I3MEFCUZJQ4BEU5TSO7MY7XDIU2UBV7E"
+api_secret_key = "337BEF4U2RZO6VOUHJGSOHAIWB7XT2M56PNL66HMS6KVWPZRC4XPMVEIVDLVSBHE"
 
 # Tournament Configuration
 # 8 = Classic Tournament (default)
@@ -11,7 +12,7 @@
 tournament_id = 8
 
 # Model names to manage (leave empty to auto-discover from your Numerai account)
-models = []
+models = ["my_model_1", "my_model_2"]
 
 # Data storage directories
 data_dir = "data"
@@ -19,115 +20,8 @@ model_dir = "models"
 
 # Automation settings
 auto_submit = true
-stake_amount = 0.0
+stake_amount = 10.0
 
 # Feature set configuration
 # Options: "small" (~300 features), "medium" (~1000 features), "all" (~5000 features)
 feature_set = "medium"
-
-# System configuration
-max_workers = 16  # Number of parallel workers (defaults to CPU threads)
-
-# ML Pipeline Configuration
-[ml]
-# Training data sampling percentage (0.0-1.0)
-# Use smaller values for faster training during development
-# Default: 0.1 (10% of training data)
-sample_pct = 0.1
-
-# Target column for predictions
-# This is the target to optimize for in the tournament
-# Default: "target_cyrus_v4_20" (standard Numerai target)
-target_col = "target_cyrus_v4_20"
-
-# Feature neutralization settings
-# Neutralization reduces feature exposure to improve consistency
-# Default: false (disabled)
-enable_neutralization = false
-
-# Neutralization proportion (0.0-1.0)
-# Higher values apply stronger neutralization
-# Only used when enable_neutralization = true
-# Default: 0.5 (50% neutralization)
-neutralization_proportion = 0.5
-
-# True Contribution calculation settings
-[ml.true_contribution]
-# Calculation method: "gradient" (new gradient-based approach) or "correlation" (existing method)
-# The gradient-based method models TC more accurately through portfolio optimization
-# Default: "correlation" (for backward compatibility)
-method = "correlation"
-
-# Optimization parameters (only used with gradient method)
-max_iterations = 1000         # Maximum optimization iterations
-tolerance = 1e-6             # Convergence tolerance
-regularization = 1e-4        # L2 regularization parameter
-risk_aversion = 1.0          # Risk aversion parameter in mean-variance optimization
-
-# Hyperparameter Optimization Configuration
-[hyperopt]
-# Scoring formula weights for hyperparameter optimization
-# The final score is: correlation_weight * correlation + sharpe_weight * sharpe
-correlation_weight = 0.7
-sharpe_weight = 0.3
-
-# API Configuration
-[api]
-# Sharpe ratio calculation settings
-# Number of recent rounds to use for Sharpe calculation (max 52 = ~1 year)
-sharpe_history_rounds = 52
-# Minimum number of data points required for Sharpe calculation
-sharpe_min_data_points = 2
-# Whether to enable dynamic Sharpe calculation (true) or use hardcoded 0.0 (false)
-enable_dynamic_sharpe = true
-
-# TUI Dashboard Configuration
-[tui]
-refresh_rate = 1.0  # Dashboard refresh rate in seconds
-model_update_interval = 30.0  # Model data update interval in seconds
-network_check_interval = 60.0  # Network connectivity check interval
-network_timeout = 5  # Network check timeout in seconds
-
-# TUI Limits
-[tui.limits]
-performance_history_max = 100  # Maximum performance history entries
-api_error_history_max = 50  # Maximum API error history entries
-events_history_max = 100  # Maximum event history entries
-max_events_display = 20  # Maximum events to display at once
-
-# TUI Panel Dimensions
-[tui.panels]
-model_panel_width = 60
-staking_panel_width = 40
-predictions_panel_width = 40
-events_panel_width = 60
-events_panel_height = 22
-system_panel_width = 40
-training_panel_width = 40
-help_panel_width = 40
-
-# TUI Chart Configuration
-[tui.charts]
-sparkline_width = 40
-sparkline_height = 8
-bar_chart_width = 40
-histogram_bins = 20
-histogram_width = 40
-performance_sparkline_width = 30
-performance_sparkline_height = 4
-correlation_bar_width = 20
-mini_chart_width = 10
-correlation_positive_threshold = 0.02
-correlation_negative_threshold = -0.02
-
-# TUI Training Configuration
-[tui.training]
-default_epochs = 100
-progress_bar_width = 20
-
-# Compounding Configuration
-[compounding]
-enabled = false  # Enable automatic stake compounding
-min_compound_amount = 1.0  # Minimum amount to compound
-compound_percentage = 100.0  # Percentage of earnings to compound
-max_stake_amount = 10000.0  # Maximum stake amount per model

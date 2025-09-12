@@ -7,6 +7,7 @@ using ..DataLoader
 using ..Pipeline
 using ..Dashboard
 using ..Compounding
+using ..Notifications
 using ..Logger: @log_info, @log_warn, @log_error
 
 # Import UTC utility function

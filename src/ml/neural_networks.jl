@@ -19,7 +19,7 @@ using BSON: @save, @load
 # Import the base model interface from parent module scope
 # Note: NumeraiModel is already defined in Models module
 import ..Models: NumeraiModel, train!, predict, feature_importance, save_model, load_model!
-# Import MetalAcceleration functions from main module
+# Import MetalAcceleration functions from main module  
 import ..MetalAcceleration: has_metal_gpu
 
 # Export neural network models

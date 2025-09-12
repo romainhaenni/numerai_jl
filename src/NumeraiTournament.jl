@@ -35,6 +35,7 @@ export run_tournament, TournamentConfig, TournamentDashboard, TournamentSchedule
        XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel,
        RidgeModel, LassoModel, ElasticNetModel,
        MLPModel, ResNetModel, NeuralNetworkModel,
+       train!, predict, feature_importance, save_model, load_model!,
        get_models_gpu_status, create_model,
        has_metal_gpu, get_gpu_info, gpu_standardize!, run_comprehensive_gpu_benchmark,
        download_tournament_data, train_model, train_all_models,
@@ -48,20 +49,20 @@ using .Notifications: send_notification, notify_training_complete, notify_submis
 using .Models: XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel, 
                RidgeModel, LassoModel, ElasticNetModel,
                get_models_gpu_status, create_model
-using .NeuralNetworks: MLPModel, ResNetModel, NeuralNetworkModel, 
-                       train! as nn_train!, predict as nn_predict,
-                       feature_importance as nn_feature_importance,
-                       save_model as nn_save_model, load_model! as nn_load_model!
+using .NeuralNetworks: MLPModel, ResNetModel, NeuralNetworkModel
+import .NeuralNetworks
 using .MetalAcceleration: has_metal_gpu, get_gpu_info, gpu_standardize!
 using .GPUBenchmarks: run_comprehensive_gpu_benchmark
 using .Performance: optimize_for_m4_max
 using .Scheduler: TournamentScheduler, start_scheduler, download_latest_data, train_models
 using .Dashboard: TournamentDashboard, run_dashboard
 using .API: NumeraiClient, download_dataset, submit_predictions as api_submit_predictions, get_models, get_model_performance
-using .Pipeline: MLPipeline, train!, predict, save_pipeline, load_pipeline
+using .Pipeline: MLPipeline, save_pipeline, load_pipeline
+import .Pipeline: train!, predict
 using .DataLoader: load_training_data, load_live_data
 
-# Neural network functions are accessed via NeuralNetworks module directly
+# Neural network models are accessible and work through the NeuralNetworks module
+# The standard interface methods are implemented directly in the NeuralNetworks module
 
 mutable struct TournamentConfig
     api_public_key::String

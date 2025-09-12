@@ -1664,9 +1664,23 @@ function create_model(model_type::Symbol, params::Dict{Symbol,Any})
     elseif model_type == :ElasticNet
         return LinearModels.ElasticNetModel(name; model_params...)
     elseif model_type == :NeuralNetwork || model_type == :MLP
-        return NeuralNetworks.MLPModel(name; model_params...)
+        # Try to access NeuralNetworks from parent module
+        parent_module = parentmodule(@__MODULE__)
+        if isdefined(parent_module, :NeuralNetworks)
+            nn_module = getfield(parent_module, :NeuralNetworks)
+            return nn_module.MLPModel(name; model_params...)
+        else
+            error("Neural networks not available. MLPModel requires the NeuralNetworks module to be loaded at the main module level.")
+        end
     elseif model_type == :ResNet
-        return NeuralNetworks.ResNetModel(name; model_params...)
+        # Try to access NeuralNetworks from parent module
+        parent_module = parentmodule(@__MODULE__)
+        if isdefined(parent_module, :NeuralNetworks)
+            nn_module = getfield(parent_module, :NeuralNetworks)
+            return nn_module.ResNetModel(name; model_params...)
+        else
+            error("Neural networks not available. ResNetModel requires the NeuralNetworks module to be loaded at the main module level.")
+        end
     else
         error("Unknown model type: $model_type")
     end
@@ -1694,7 +1708,7 @@ feature_importance(model::Union{RidgeModel, LassoModel, ElasticNetModel}) = Line
 save_model(model::Union{RidgeModel, LassoModel, ElasticNetModel}, filepath::String) = LinearModels.save_model(model, filepath)
 load_model!(model::Union{RidgeModel, LassoModel, ElasticNetModel}, filepath::String) = LinearModels.load_model!(model, filepath)
 
-# Neural networks will be included separately at main module level
+# Neural networks are included separately at main module level to avoid dependency issues
 # Exports are handled there
 
 end

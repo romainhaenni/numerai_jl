@@ -236,13 +236,50 @@ end
 
 """
 Convert array to GPU if available, otherwise return original
+Automatically converts Float64 to Float32 for Metal compatibility
 """
-function gpu(x::AbstractArray)
+function gpu(x::AbstractArray{Float64})
+    if has_metal_gpu()
+        try
+            # Convert Float64 to Float32 for Metal compatibility
+            x_f32 = Float32.(x)
+            return MtlArray(x_f32)
+        catch e
+            @warn "Failed to transfer Float64 array to GPU, using CPU" exception=e
+            return x
+        end
+    else
+        return x
+    end
+end
+
+function gpu(x::AbstractArray{Float32})
     if has_metal_gpu()
         try
             return MtlArray(x)
         catch e
-            @warn "Failed to transfer to GPU, using CPU" exception=e
+            @warn "Failed to transfer Float32 array to GPU, using CPU" exception=e
+            return x
+        end
+    else
+        return x
+    end
+end
+
+function gpu(x::AbstractArray{T}) where T
+    if has_metal_gpu()
+        try
+            # For other numeric types, attempt direct conversion
+            if T <: Real
+                # Try to convert to Float32 for Metal compatibility
+                x_f32 = Float32.(x)
+                return MtlArray(x_f32)
+            else
+                # For non-numeric types, attempt direct transfer
+                return MtlArray(x)
+            end
+        catch e
+            @warn "Failed to transfer $(T) array to GPU, using CPU" exception=e
             return x
         end
     else
@@ -252,12 +289,24 @@ end
 
 """
 Convert array to CPU
+Converts Float32 GPU arrays back to Float64 for consistency with CPU operations
 """
-function cpu(x::MtlArray)
+function cpu(x::MtlArray{Float32})
+    try
+        # Convert back to Float64 for consistency with CPU operations
+        cpu_array = Array(x)
+        return Float64.(cpu_array)
+    catch e
+        @warn "Failed to transfer Float32 array from GPU to CPU" exception=e
+        return x
+    end
+end
+
+function cpu(x::MtlArray{T}) where T
     try
         return Array(x)
     catch e
-        @warn "Failed to transfer from GPU to CPU" exception=e
+        @warn "Failed to transfer $(T) array from GPU to CPU" exception=e
         return x
     end
 end
@@ -353,22 +402,24 @@ function gpu_standardize!(X::AbstractMatrix{Float64})
         # Only standardize columns where std > threshold
         threshold = Float32(1e-10)
         
-        # For constant columns (σ ≈ 0), replace σ with 1 to preserve values
-        # For non-constant columns, use actual σ for standardization
-        σ_safe = ifelse.(σ .> threshold, σ, ones(Float32, size(σ)))
+        # Handle standardization using vectorized operations to avoid scalar indexing
+        # Create safe divisors: use 1.0 for constant columns (σ ≈ 0) to avoid division by zero
+        σ_cpu = cpu(σ)  # Move to CPU for safer indexing
+        μ_cpu = cpu(μ)
         
-        # Standardize all columns using safe σ values
-        # Constant columns: (X - μ) / 1 = X - μ (centered but not scaled)
-        # Non-constant columns: (X - μ) / σ (properly standardized)
-        # Actually for constant columns, X - μ = 0, so result is 0 / 1 = 0
-        # To preserve constant values, we need a different approach
+        σ_safe = similar(σ)
+        μ_safe = similar(μ)
         
-        # Create standardized version
-        X_standardized = (X_gpu .- μ) ./ σ_safe
+        # Create safe versions on CPU, then move back to GPU
+        σ_safe_cpu = ifelse.(σ_cpu .> threshold, σ_cpu, ones(Float32, size(σ_cpu)))
+        μ_safe_cpu = μ_cpu
         
-        # For constant columns, restore original values
-        mask = σ .> threshold
-        X_gpu = ifelse.(mask, X_standardized, X_gpu)
+        # Transfer back to GPU
+        σ_safe = gpu(σ_safe_cpu)
+        μ_safe = gpu(μ_safe_cpu)
+        
+        # Perform vectorized standardization
+        X_gpu = (X_gpu .- μ_safe) ./ σ_safe
         
         # Convert back to Float64 and copy to original array
         X .= Float64.(cpu(X_gpu))
@@ -422,16 +473,24 @@ function gpu_normalize!(X::AbstractMatrix{Float64})
         # Only normalize columns where range > threshold
         threshold = Float32(1e-10)
         
-        # For constant columns (range ≈ 0), replace range with 1 to preserve values
-        # For non-constant columns, use actual range for normalization
-        range_safe = ifelse.(range_vals .> threshold, range_vals, ones(Float32, size(range_vals)))
+        # Handle normalization using vectorized operations to avoid scalar indexing
+        # Create safe divisors: use 1.0 for constant columns (range ≈ 0) to avoid division by zero
+        range_cpu = cpu(range_vals)  # Move to CPU for safer operations
+        min_cpu = cpu(min_vals)
         
-        # Create normalized version
-        X_normalized = (X_gpu .- min_vals) ./ range_safe
+        range_safe = similar(range_vals)
+        min_safe = similar(min_vals)
         
-        # For constant columns, restore original values
-        mask = range_vals .> threshold
-        X_gpu = ifelse.(mask, X_normalized, X_gpu)
+        # Create safe versions on CPU, then move back to GPU
+        range_safe_cpu = ifelse.(range_cpu .> threshold, range_cpu, ones(Float32, size(range_cpu)))
+        min_safe_cpu = min_cpu
+        
+        # Transfer back to GPU
+        range_safe = gpu(range_safe_cpu)
+        min_safe = gpu(min_safe_cpu)
+        
+        # Perform vectorized normalization
+        X_gpu = (X_gpu .- min_safe) ./ range_safe
         
         # Convert back to Float64 and copy to original array
         X .= Float64.(cpu(X_gpu))
@@ -524,8 +583,33 @@ function gpu_compute_correlations(predictions::AbstractVector{Float64}, targets:
         pred_gpu = gpu(pred_f32)
         targ_gpu = gpu(targ_f32)
         
-        # Compute correlation on GPU
-        correlation = cor(pred_gpu, targ_gpu)
+        # Compute correlation manually on GPU using the formula:
+        # cor(x,y) = cov(x,y) / (std(x) * std(y))
+        # where cov(x,y) = E[(x - μx)(y - μy)]
+        
+        n = Float32(length(predictions))
+        
+        # Compute means
+        mean_pred = sum(pred_gpu) / n
+        mean_targ = sum(targ_gpu) / n
+        
+        # Center the variables
+        pred_centered = pred_gpu .- mean_pred
+        targ_centered = targ_gpu .- mean_targ
+        
+        # Compute covariance
+        covariance = sum(pred_centered .* targ_centered) / (n - 1)
+        
+        # Compute standard deviations
+        var_pred = sum(pred_centered .^ 2) / (n - 1)
+        var_targ = sum(targ_centered .^ 2) / (n - 1)
+        
+        std_pred = sqrt(var_pred)
+        std_targ = sqrt(var_targ)
+        
+        # Compute correlation
+        correlation = covariance / (std_pred * std_targ)
+        
         return Float64(correlation)
     catch e
         @warn "GPU correlation computation failed, falling back to CPU" exception=e

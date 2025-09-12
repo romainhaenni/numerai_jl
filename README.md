@@ -52,34 +52,41 @@ max_workers = 16
 
 ### Interactive Dashboard
 ```bash
-./numerai
+# Start with default number of threads
+julia start_tui.jl
+
+# Recommended: Start with multiple threads for better performance
+julia -t auto start_tui.jl
+
+# Or specify exact number of threads (e.g., 16 for M4 Max)
+julia -t 16 start_tui.jl
 ```
 
 ### Headless Mode (for automation)
 ```bash
-./numerai --headless
+julia start_tui.jl --headless
 ```
 
 ### Command-Line Operations
 
 #### Download Tournament Data
 ```bash
-./numerai --download
+julia start_tui.jl --download
 ```
 
 #### Train Models
 ```bash
-./numerai --train
+julia start_tui.jl --train
 ```
 
 #### Submit Predictions
 ```bash
-./numerai --submit
+julia start_tui.jl --submit
 ```
 
 #### View Model Performance
 ```bash
-./numerai --performance
+julia start_tui.jl --performance
 ```
 
 ### TUI Dashboard Controls
@@ -142,7 +149,7 @@ The system automatically optimizes for M4 Max:
 
 For best performance, run Julia with multiple threads:
 ```bash
-julia -t 16 ./numerai
+julia -t 16 start_tui.jl
 ```
 
 ## Tournament Schedule
@@ -187,7 +194,7 @@ numerai_jl/
 ├── data/                # Tournament data
 ├── models/              # Trained models
 ├── config.toml          # Configuration
-└── numerai              # Executable
+└── start_tui.jl         # TUI starter script
 ```
 
 ### Contributing

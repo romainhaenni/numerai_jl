@@ -1,7 +1,10 @@
 #!/usr/bin/env julia
 
 # Test script to verify dashboard works with fixes
-using NumeraiTournament
+# Import NumeraiTournament if not already loaded (for standalone testing)
+if !isdefined(Main, :NumeraiTournament)
+    using NumeraiTournament
+end
 
 println("\n=== Testing Dashboard Creation ===")
 

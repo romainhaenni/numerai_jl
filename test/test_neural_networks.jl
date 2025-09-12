@@ -1,4 +1,7 @@
-using NumeraiTournament
+# Import NumeraiTournament if not already loaded (for standalone testing)
+if !isdefined(Main, :NumeraiTournament)
+    using NumeraiTournament
+end
 using Test
 using Random
 using DataFrames

@@ -1,5 +1,8 @@
 using Test
-using NumeraiTournament
+# Import NumeraiTournament if not already loaded (for standalone testing)
+if !isdefined(Main, :NumeraiTournament)
+    using NumeraiTournament
+end
 using NumeraiTournament.API: NumeraiClient, create_webhook, delete_webhook, list_webhooks, 
                               update_webhook, test_webhook, get_webhook_logs, get_models_for_user
 using Dates

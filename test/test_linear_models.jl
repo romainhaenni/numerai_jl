@@ -1,5 +1,8 @@
 using Test
-using NumeraiTournament
+# Import NumeraiTournament if not already loaded (for standalone testing)
+if !isdefined(Main, :NumeraiTournament)
+    using NumeraiTournament
+end
 using NumeraiTournament.Models: RidgeModel, LassoModel, ElasticNetModel
 using NumeraiTournament.Models.LinearModels: train!, predict, save_model, load_model!
 using Random

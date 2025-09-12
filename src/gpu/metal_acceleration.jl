@@ -405,20 +405,30 @@ function gpu_standardize!(X::AbstractMatrix{Float64})
         threshold = Float32(1e-10)
         
         # Handle standardization using vectorized operations to avoid scalar indexing
-        # Create safe divisors: use 1.0 for constant columns (σ ≈ 0) to avoid division by zero
+        # For constant columns, we want to preserve original values, not standardize them
         σ_cpu = cpu(σ)  # Move to CPU for safer operations
         μ_cpu = cpu(μ)
+        X_cpu_orig = cpu(X_gpu)  # Original values for constant columns
         
-        # Create safe versions on CPU to avoid scalar indexing on GPU
+        # Create masks for constant vs variable columns
+        is_constant = σ_cpu .<= threshold
+        is_variable = .!is_constant
+        
+        # For variable columns: standardize normally
+        # For constant columns: keep original values
         σ_safe_cpu = similar(σ_cpu)
-        σ_safe_cpu .= ifelse.(σ_cpu .> threshold, σ_cpu, one(eltype(σ_cpu)))
+        σ_safe_cpu .= ifelse.(is_variable, σ_cpu, one(eltype(σ_cpu)))
         
         # Transfer back to GPU
         σ_safe = gpu(σ_safe_cpu)
-        μ_safe = gpu(μ_cpu)  # μ doesn't need modification
+        μ_safe = gpu(μ_cpu)
+        is_constant_gpu = gpu(Float32.(is_constant))  # Convert to Float32 for GPU
         
-        # Perform vectorized standardization
-        X_gpu = (X_gpu .- μ_safe) ./ σ_safe
+        # Perform vectorized standardization only for variable columns
+        X_standardized = (X_gpu .- μ_safe) ./ σ_safe
+        
+        # Preserve original values for constant columns
+        X_gpu = X_standardized .* (1.0f0 .- is_constant_gpu) .+ X_gpu .* is_constant_gpu
         
         # Convert back to Float64 and copy to original array
         X .= Float64.(cpu(X_gpu))
@@ -473,20 +483,29 @@ function gpu_normalize!(X::AbstractMatrix{Float64})
         threshold = Float32(1e-10)
         
         # Handle normalization using vectorized operations to avoid scalar indexing
-        # Create safe divisors: use 1.0 for constant columns (range ≈ 0) to avoid division by zero
+        # For constant columns, we want to preserve original values, not normalize them
         range_cpu = cpu(range_vals)  # Move to CPU for safer operations
         min_cpu = cpu(min_vals)
         
-        # Create safe versions on CPU to avoid scalar indexing on GPU
+        # Create masks for constant vs variable columns
+        is_constant = range_cpu .<= threshold
+        is_variable = .!is_constant
+        
+        # For variable columns: normalize normally
+        # For constant columns: keep original values
         range_safe_cpu = similar(range_cpu)
-        range_safe_cpu .= ifelse.(range_cpu .> threshold, range_cpu, one(eltype(range_cpu)))
+        range_safe_cpu .= ifelse.(is_variable, range_cpu, one(eltype(range_cpu)))
         
         # Transfer back to GPU
         range_safe = gpu(range_safe_cpu)
-        min_safe = gpu(min_cpu)  # min values don't need modification
+        min_safe = gpu(min_cpu)
+        is_constant_gpu = gpu(Float32.(is_constant))  # Convert to Float32 for GPU
         
-        # Perform vectorized normalization
-        X_gpu = (X_gpu .- min_safe) ./ range_safe
+        # Perform vectorized normalization only for variable columns
+        X_normalized = (X_gpu .- min_safe) ./ range_safe
+        
+        # Preserve original values for constant columns
+        X_gpu = X_normalized .* (1.0f0 .- is_constant_gpu) .+ X_gpu .* is_constant_gpu
         
         # Convert back to Float64 and copy to original array
         X .= Float64.(cpu(X_gpu))

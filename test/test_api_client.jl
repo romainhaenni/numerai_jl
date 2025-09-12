@@ -5,7 +5,10 @@ using Test
 using JSON3
 using Dates
 
-using NumeraiTournament
+# Import NumeraiTournament if not already loaded (for standalone testing)
+if !isdefined(Main, :NumeraiTournament)
+    using NumeraiTournament
+end
 
 # Mock GraphQL responses for testing
 const MOCK_RESPONSES = Dict(

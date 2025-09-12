@@ -4,8 +4,10 @@ using Dates
 using Random
 using Base.Threads
 
-# Import the main module and logger
-using NumeraiTournament
+# Import NumeraiTournament if not already loaded (for standalone testing)
+if !isdefined(Main, :NumeraiTournament)
+    using NumeraiTournament
+end
 using NumeraiTournament.Logger
 
 @testset "Logger Module Tests" begin

@@ -1,7 +1,10 @@
 using Test
 using Dates
 using TimeZones
-using NumeraiTournament
+# Import NumeraiTournament if not already loaded (for standalone testing)
+if !isdefined(Main, :NumeraiTournament)
+    using NumeraiTournament
+end
 using NumeraiTournament.Scheduler
 
 # Mock function for testing

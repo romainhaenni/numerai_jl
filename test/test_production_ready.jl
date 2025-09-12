@@ -11,7 +11,10 @@ using Random
 using JSON3
 using CSV
 using Logging
-using NumeraiTournament
+# Import NumeraiTournament if not already loaded (for standalone testing)
+if !isdefined(Main, :NumeraiTournament)
+    using NumeraiTournament
+end
 # Metrics functions accessed via NumeraiTournament.Metrics module
 
 # Access submodules properly

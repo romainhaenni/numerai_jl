@@ -4,8 +4,10 @@ using Random
 using DataFrames
 using LinearAlgebra
 
-# Import the main module and its submodules
-using NumeraiTournament
+# Import NumeraiTournament if not already loaded (for standalone testing)
+if !isdefined(Main, :NumeraiTournament)
+    using NumeraiTournament
+end
 using NumeraiTournament.Models
 using NumeraiTournament.Ensemble
 using NumeraiTournament.Pipeline

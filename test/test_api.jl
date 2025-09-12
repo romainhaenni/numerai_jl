@@ -1,6 +1,11 @@
 using Test
 using Dates
 
+# Import NumeraiTournament if not already loaded (for standalone testing)
+if !isdefined(Main, :NumeraiTournament)
+    using NumeraiTournament
+end
+
 # Load environment variables
 if isfile(joinpath(@__DIR__, "..", ".env"))
     for line in readlines(joinpath(@__DIR__, "..", ".env"))

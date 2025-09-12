@@ -6,9 +6,12 @@ using DataFrames
 using Logging
 using Printf
 
-# Import the main module and GPU acceleration module
-using NumeraiTournament
+# Import NumeraiTournament if not already loaded (for standalone testing)
+if !isdefined(Main, :NumeraiTournament)
+    using NumeraiTournament
+end
 using NumeraiTournament.MetalAcceleration
+using Metal: MtlArray  # For type checking in tests
 
 @testset "GPU Metal Acceleration Tests" begin
     
@@ -137,7 +140,12 @@ using NumeraiTournament.MetalAcceleration
                 # Should return an array
                 @test gpu_arr isa AbstractArray
                 @test size(gpu_arr) == size(arr)
-                @test eltype(gpu_arr) == eltype(arr)
+                # GPU converts Float64 to Float32 for Metal compatibility
+                if eltype(arr) == Float64 && has_metal_gpu()
+                    @test eltype(gpu_arr) == Float32 || eltype(gpu_arr) == Float64  # Allow both (GPU or CPU fallback)
+                else
+                    @test eltype(gpu_arr) == eltype(arr)
+                end
                 
                 # If GPU is not available, should return original array
                 if !has_metal_gpu()
@@ -221,7 +229,8 @@ using NumeraiTournament.MetalAcceleration
                 
                 @test result_gpu isa AbstractVector
                 @test length(result_gpu) == n
-                @test result_gpu ≈ result_cpu rtol=1e-12
+                # Use appropriate precision for Float32 GPU operations
+                @test result_gpu ≈ result_cpu rtol=1e-6
             end
             
             # Test error handling with mismatched lengths
@@ -581,7 +590,9 @@ using NumeraiTournament.MetalAcceleration
             end
             
             @test result isa AbstractArray
-            @test result == test_var || size(result) == size(test_var)
+            # Convert GPU arrays to CPU for comparison to avoid scalar indexing
+            result_cpu = result isa MtlArray ? cpu(result) : result
+            @test result_cpu ≈ test_var || size(result_cpu) == size(test_var)
             
             # Test fallback with intentional error in GPU path
             result_fallback = @gpu_fallback begin
@@ -610,7 +621,7 @@ using NumeraiTournament.MetalAcceleration
             
             result_square = with_gpu_fallback(gpu_square, cpu_square, test_data)
             expected = test_data .^ 2
-            @test result_square ≈ expected rtol=1e-12
+            @test result_square ≈ expected rtol=1e-6
             
             # Test fallback with error in GPU function
             error_gpu_func = (x) -> error("GPU function failed")

@@ -118,6 +118,7 @@ function EvoTreesModel(name::String="evotrees_default";
                       subsample::Float64=0.8,
                       colsample::Float64=0.8,
                       nrounds::Int=1000,
+                      early_stopping_rounds::Int=10,
                       gpu_enabled::Bool=true)
     
     # Check if GPU is available and configure accordingly
@@ -131,6 +132,7 @@ function EvoTreesModel(name::String="evotrees_default";
         "rowsample" => subsample,
         "colsample" => colsample,
         "nrounds" => nrounds,
+        "early_stopping_rounds" => early_stopping_rounds,
         "nbins" => 64,
         "monotone_constraints" => Dict{Int, Int}(),
         "device" => use_gpu ? "gpu" : "cpu"
@@ -648,6 +650,7 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Union{V
             rowsample=model.params["rowsample"],
             colsample=colsample_val,
             nrounds=model.params["nrounds"],
+            early_stopping_rounds=model.params["early_stopping_rounds"],
             nbins=model.params["nbins"],
             monotone_constraints=model.params["monotone_constraints"],
             device=model.params["device"]
@@ -655,7 +658,7 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Union{V
         
         # Train the model
         if X_val !== nothing && y_val !== nothing
-            # Train with validation set (avoiding early stopping due to EvoTrees bug)
+            # Train with validation set and early stopping enabled
             model.model = EvoTrees.fit_evotree(config; 
                                               x_train=X_train, 
                                               y_train=y_train,

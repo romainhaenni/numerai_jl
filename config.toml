@@ -51,6 +51,19 @@ enable_neutralization = false
 # Default: 0.5 (50% neutralization)
 neutralization_proportion = 0.5
 
+# True Contribution calculation settings
+[ml.true_contribution]
+# Calculation method: "gradient" (new gradient-based approach) or "correlation" (existing method)
+# The gradient-based method models TC more accurately through portfolio optimization
+# Default: "correlation" (for backward compatibility)
+method = "correlation"
+
+# Optimization parameters (only used with gradient method)
+max_iterations = 1000         # Maximum optimization iterations
+tolerance = 1e-6             # Convergence tolerance
+regularization = 1e-4        # L2 regularization parameter
+risk_aversion = 1.0          # Risk aversion parameter in mean-variance optimization
+
 # Hyperparameter Optimization Configuration
 [hyperopt]
 # Scoring formula weights for hyperparameter optimization

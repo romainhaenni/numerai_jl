@@ -22,6 +22,7 @@ include("ml/linear_models.jl")
 include("ml/neural_networks.jl")
 include("ml/ensemble.jl")
 include("ml/metrics.jl")
+include("ml/true_contribution.jl")
 include("ml/hyperopt.jl")
 include("ml/pipeline.jl")
 include("performance/optimization.jl")
@@ -42,7 +43,10 @@ export run_tournament, TournamentConfig, TournamentDashboard, TournamentSchedule
        submit_predictions, submit_all_predictions,
        show_model_performance, show_all_performance,
        send_notification, notify_training_complete, notify_submission_complete,
-       notify_performance_alert, notify_error, notify_round_open
+       notify_performance_alert, notify_error, notify_round_open,
+       TCConfig, default_tc_config, load_tc_config_from_toml,
+       calculate_tc_improved, calculate_tc_improved_batch,
+       calculate_tc_gradient, calculate_tc_correlation_fallback
 using .Logger: init_logger, @log_info, @log_warn, @log_error
 using .Notifications: send_notification, notify_training_complete, notify_submission_complete,
                       notify_performance_alert, notify_error, notify_round_open
@@ -60,6 +64,9 @@ using .API: NumeraiClient, download_dataset, submit_predictions as api_submit_pr
 using .Pipeline: MLPipeline, save_pipeline, load_pipeline
 import .Pipeline: train!, predict
 using .DataLoader: load_training_data, load_live_data
+using .TrueContribution: TCConfig, default_tc_config, load_tc_config_from_toml,
+                        calculate_tc_improved, calculate_tc_improved_batch,
+                        calculate_tc_gradient, calculate_tc_correlation_fallback
 
 # Neural network models are accessible and work through the NeuralNetworks module
 # The standard interface methods are implemented directly in the NeuralNetworks module

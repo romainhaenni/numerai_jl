@@ -54,7 +54,7 @@ include("tui/panels.jl")
 include("tui/dashboard.jl")
 include("scheduler/cron.jl")
 
-export run_tournament, TournamentConfig, TournamentDashboard, TournamentScheduler, load_config,
+export run_tournament, TournamentConfig, TournamentDashboard, run_dashboard, TournamentScheduler, load_config,
        XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel,
        RidgeModel, LassoModel, ElasticNetModel,
        MLPModel, ResNetModel, NeuralNetworkModel,
@@ -68,10 +68,12 @@ export run_tournament, TournamentConfig, TournamentDashboard, TournamentSchedule
        notify_performance_alert, notify_error, notify_round_open,
        TCConfig, default_tc_config, load_tc_config_from_toml,
        calculate_tc_improved, calculate_tc_improved_batch,
-       calculate_tc_gradient, calculate_tc_correlation_fallback
+       calculate_tc_gradient, calculate_tc_correlation_fallback,
+       run_headless, show_performance
 using .Logger: init_logger, @log_info, @log_warn, @log_error
 using .Notifications: send_notification, notify_training_complete, notify_submission_complete,
                       notify_performance_alert, notify_error, notify_round_open
+using .Scheduler: TournamentScheduler, start_scheduler
 using .Models: XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel, 
                RidgeModel, LassoModel, ElasticNetModel,
                get_models_gpu_status, create_model
@@ -522,6 +524,23 @@ function show_all_performance(config_file::String="config.toml")
         @log_error "Failed to get performance data" error=e
         return false
     end
+end
+
+function run_headless(config_file::String="config.toml")
+    """Run in headless mode with scheduler"""
+    init_logger()
+    config = load_config(config_file)
+    scheduler = TournamentScheduler(config)
+    
+    @log_info "Starting headless mode with scheduler"
+    
+    # Start the scheduler (will run in a loop)
+    start_scheduler(scheduler, with_dashboard=false)
+end
+
+function show_performance(config_file::String="config.toml")
+    """Show performance for all models"""
+    show_all_performance(config_file)
 end
 
 end

@@ -18,10 +18,10 @@ using NumeraiTournament
 
 if download_only
     println("Downloading tournament data...")
-    NumeraiTournament.download_latest_data()
+    NumeraiTournament.download_tournament_data()
 elseif train_only
     println("Training models...")
-    NumeraiTournament.train_models()
+    NumeraiTournament.train_all_models()
 elseif submit_only
     println("Submitting predictions...")
     NumeraiTournament.submit_predictions()
@@ -35,5 +35,9 @@ else
     # Start the TUI dashboard
     println("Starting Numerai Tournament TUI Dashboard...")
     println("Tip: For best performance, run with multiple threads: julia -t auto start_tui.jl")
-    NumeraiTournament.run_dashboard()
+    
+    # Load config and create dashboard
+    config = NumeraiTournament.load_config("config.toml")
+    dashboard = NumeraiTournament.TournamentDashboard(config)
+    NumeraiTournament.run_dashboard(dashboard)
 end

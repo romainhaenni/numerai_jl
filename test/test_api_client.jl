@@ -5,10 +5,7 @@ using Test
 using JSON3
 using Dates
 
-# Add the src directory to LOAD_PATH
-push!(LOAD_PATH, joinpath(dirname(@__DIR__), "src"))
-
-using NumeraiTournament
+# NumeraiTournament is already loaded by runtests.jl
 
 # Mock GraphQL responses for testing
 const MOCK_RESPONSES = Dict(

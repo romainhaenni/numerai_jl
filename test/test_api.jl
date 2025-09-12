@@ -1,9 +1,3 @@
-using Pkg
-Pkg.activate(joinpath(@__DIR__, ".."))
-
-push!(LOAD_PATH, joinpath(@__DIR__, "..", "src"))
-
-using NumeraiTournament
 using Test
 using Dates
 

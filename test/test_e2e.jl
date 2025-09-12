@@ -1,5 +1,5 @@
 using Test
-using NumeraiTournament
+# NumeraiTournament is already loaded by runtests.jl
 using Dates
 using DataFrames
 using Random

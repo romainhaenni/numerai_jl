@@ -1,16 +1,7 @@
 #!/usr/bin/env julia
 
 # Test script to verify dashboard works with fixes
-using Pkg
-Pkg.activate(@__DIR__)
-
-# Force recompilation
-println("Force recompiling NumeraiTournament...")
-Pkg.precompile()
-
-push!(LOAD_PATH, joinpath(@__DIR__, "src"))
-
-using NumeraiTournament
+# NumeraiTournament is already loaded by runtests.jl
 
 println("\n=== Testing Dashboard Creation ===")
 

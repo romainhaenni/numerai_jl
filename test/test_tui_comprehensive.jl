@@ -4,10 +4,7 @@
 using Test
 using Dates
 
-# Add the src directory to LOAD_PATH
-push!(LOAD_PATH, joinpath(dirname(@__DIR__), "src"))
-
-using NumeraiTournament
+# NumeraiTournament is already loaded by runtests.jl
 
 @testset "Comprehensive TUI Tests" begin
     

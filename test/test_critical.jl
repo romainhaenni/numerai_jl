@@ -2,7 +2,10 @@
 
 # Critical functionality test - Quick verification that core systems work
 
-using NumeraiTournament
+# Load NumeraiTournament only if not already loaded
+if !@isdefined(NumeraiTournament)
+    using NumeraiTournament
+end
 using Test
 using DataFrames
 using Random

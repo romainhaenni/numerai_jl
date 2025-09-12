@@ -1,9 +1,4 @@
-using Pkg
-Pkg.activate(joinpath(@__DIR__, ".."))
-
-push!(LOAD_PATH, joinpath(@__DIR__, "..", "src"))
-
-using NumeraiTournament
+# NumeraiTournament is already loaded by runtests.jl
 
 # Load environment variables
 if isfile(joinpath(@__DIR__, "..", ".env"))

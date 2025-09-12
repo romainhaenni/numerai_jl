@@ -5,7 +5,7 @@ using LinearAlgebra
 using DataFrames
 
 # Import the main module and its submodules
-using NumeraiTournament
+# NumeraiTournament is already loaded by runtests.jl
 using NumeraiTournament.Metrics
 
 @testset "True Contribution (TC) Comprehensive Tests" begin

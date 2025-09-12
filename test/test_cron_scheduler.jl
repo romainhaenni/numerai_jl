@@ -1,7 +1,7 @@
 using Test
 using Dates
 using TimeZones
-using NumeraiTournament
+# NumeraiTournament is already loaded by runtests.jl
 using NumeraiTournament.Scheduler
 
 # Mock function for testing

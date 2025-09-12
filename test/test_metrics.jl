@@ -5,7 +5,7 @@ using DataFrames
 using LinearAlgebra
 
 # Import the main module and its submodules
-using NumeraiTournament
+# NumeraiTournament is already loaded by runtests.jl
 using NumeraiTournament.Models
 using NumeraiTournament.Ensemble
 using NumeraiTournament.Pipeline

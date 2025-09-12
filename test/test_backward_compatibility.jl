@@ -1,8 +1,5 @@
 #!/usr/bin/env julia
-using Pkg
-Pkg.activate(".")
-
-using NumeraiTournament
+# NumeraiTournament is already loaded by runtests.jl
 using Test
 
 println("Testing backward compatibility...")

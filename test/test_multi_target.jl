@@ -90,7 +90,7 @@ try
         target_col=target_names,  # Vector of target names
         model_configs=[
             NumeraiTournament.Pipeline.ModelConfig("mlp", 
-                Dict(:hidden_layers => [32, 16], :epochs => 5, :batch_size => 128))
+                Dict(:hidden_layers => [32, 16], :epochs => 5, :batch_size => 128, :gpu_enabled => true))
         ]
     )
     
@@ -118,14 +118,33 @@ try
     # Test prediction
     println("\n5. Testing multi-target prediction...")
     predictions = NumeraiTournament.Pipeline.predict(multi_pipeline, val_df, verbose=true)
-    println("   ✅ Multi-target predictions: $(size(predictions))")
     
-    # Calculate correlations for each target
-    if predictions isa Matrix
+    # Handle both Dict and Matrix return types
+    if predictions isa Dict
+        println("   ✅ Multi-target predictions: Dict with $(length(predictions)) targets")
+        
+        # Calculate correlations for each target
+        _, y_val, _ = NumeraiTournament.Pipeline.prepare_data(multi_pipeline, val_df)
+        correlations = Float64[]
+        for (i, target_col) in enumerate(target_names)
+            if haskey(predictions, target_col)
+                corr_val = cor(predictions[target_col], y_val[:, i])
+                push!(correlations, corr_val)
+            end
+        end
+        println("   ✅ Target correlations: $(round.(correlations, digits=4))")
+        println("      - Average correlation: $(round(mean(correlations), digits=4))")
+        
+    elseif predictions isa Matrix
+        println("   ✅ Multi-target predictions: $(size(predictions))")
+        
+        # Calculate correlations for each target
         _, y_val, _ = NumeraiTournament.Pipeline.prepare_data(multi_pipeline, val_df)
         correlations = [cor(predictions[:, i], y_val[:, i]) for i in 1:n_targets]
         println("   ✅ Target correlations: $(round.(correlations, digits=4))")
         println("      - Average correlation: $(round(mean(correlations), digits=4))")
+    else
+        println("   ❌ Unexpected prediction type: $(typeof(predictions))")
     end
     
     println("\n🎉 All multi-target tests passed successfully!")

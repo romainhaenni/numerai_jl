@@ -4,7 +4,7 @@
 # This test verifies that the NumeraiTournament.jl package is production-ready
 # by checking all critical components and functionality
 
-using NumeraiTournament
+# NumeraiTournament is already loaded by runtests.jl
 using Test
 using DataFrames
 using Random

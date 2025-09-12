@@ -209,7 +209,7 @@ function correlation_loss(ŷ, y)
                 continue
             end
             
-            if std(pred_vec) < 1e-8 || std(true_vec) < 1e-8
+            if std(pred_vec) < 1f-8 || std(true_vec) < 1f-8
                 total_loss += 1.0f0
                 continue
             end
@@ -230,7 +230,7 @@ function correlation_loss(ŷ, y)
             return 1.0f0  # Maximum loss
         end
         
-        if std(pred_vec) < 1e-8 || std(true_vec) < 1e-8
+        if std(pred_vec) < 1f-8 || std(true_vec) < 1f-8
             return 1.0f0  # No variation in predictions
         end
         
@@ -272,7 +272,8 @@ function standardize_features!(X::Matrix{Float64};
     if stds === nothing
         stds = vec(std(X, dims=1))
         # Handle zero standard deviation
-        stds[stds .< 1e-8] .= 1.0
+        threshold = 1e-8  # Keep as Float64 for Float64 arrays
+        stds[stds .< threshold] .= 1.0
     end
     
     # Standardize in-place
@@ -286,7 +287,7 @@ end
 """
 Preprocess data for neural network training
 """
-function preprocess_for_neural_network(X_train::Matrix{Float64}, y_train::Vector{Float64};
+function preprocess_for_neural_network(X_train::Matrix{Float64}, y_train::Union{Vector{Float64}, Matrix{Float64}};
                                      X_val::Union{Nothing, Matrix{Float64}}=nothing,
                                      use_gpu::Bool=true)
     
@@ -302,7 +303,7 @@ function preprocess_for_neural_network(X_train::Matrix{Float64}, y_train::Vector
     
     # Convert to Float32 for better GPU performance
     X_train_f32 = Float32.(X_train)
-    y_train_f32 = Float32.(y_train)
+    y_train_f32 = Float32.(y_train)  # Works for both Vector and Matrix
     
     X_val_f32 = X_val !== nothing ? Float32.(X_val) : nothing
     
@@ -442,7 +443,7 @@ end
 """
 Update early stopping state
 """
-function update_early_stopping!(early_stopping::EarlyStopping, current_score::Float64)
+function update_early_stopping!(early_stopping::EarlyStopping, current_score::Real)
     if current_score > early_stopping.best_score + early_stopping.min_delta
         early_stopping.best_score = current_score
         early_stopping.counter = 0
@@ -652,13 +653,25 @@ function train_neural_network!(model::NeuralNetworkModel,
         val_correlation = 0.0
         
         if X_val_proc !== nothing && y_val !== nothing
+            # Ensure y_val is Float32 and on the same device as X_val_proc
+            y_val_f32 = Float32.(y_val)
+            if model.gpu_enabled && has_metal_gpu()
+                try
+                    y_val_proc = Flux.gpu(y_val_f32)
+                catch
+                    y_val_proc = y_val_f32
+                end
+            else
+                y_val_proc = y_val_f32
+            end
+            
             ŷ_val = model.model(X_val_proc')
-            val_loss = loss_function(ŷ_val, y_val')
-            val_correlation = cor(vec(Flux.cpu(ŷ_val)), y_val)
+            val_loss = loss_function(ŷ_val, y_val_proc')
+            val_correlation = cor(vec(Flux.cpu(ŷ_val)), vec(Flux.cpu(y_val_proc)))
         else
             # Use training data for validation metrics
             ŷ_train = model.model(X_train_proc')
-            val_correlation = cor(vec(Flux.cpu(ŷ_train)), y_train)
+            val_correlation = cor(vec(Flux.cpu(ŷ_train)), vec(Flux.cpu(y_train_proc)))
         end
         
         # Log progress

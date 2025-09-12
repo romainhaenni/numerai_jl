@@ -4,7 +4,7 @@
 # This validates the entire NumeraiTournament.jl system for production deployment
 
 using Test
-using NumeraiTournament
+# NumeraiTournament is already loaded by runtests.jl
 using DataFrames
 using Random
 using Statistics

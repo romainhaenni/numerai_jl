@@ -1,0 +1,531 @@
+        - module LinearModels
+        - 
+        - using GLM
+        - using DataFrames
+        - using Statistics
+        - using LinearAlgebra
+        - using StatsBase
+        - using Logging
+        - using BSON
+        - 
+        - # Import the abstract type from Models module
+        - using ..Models: NumeraiModel
+        - 
+        - export RidgeModel, LassoModel, ElasticNetModel, train!, predict, save_model, load_model!, feature_importance
+        - 
+        - mutable struct RidgeModel <: NumeraiModel
+        1     model::Any  # GLM model
+        -     params::Dict{String, Any}
+        -     name::String
+        -     gpu_enabled::Bool
+        - end
+        - 
+        - mutable struct LassoModel <: NumeraiModel
+        0     model::Any  # GLM model
+        -     params::Dict{String, Any}
+        -     name::String
+        -     gpu_enabled::Bool
+        - end
+        - 
+        - mutable struct ElasticNetModel <: NumeraiModel
+        0     model::Any  # GLM model
+        -     params::Dict{String, Any}
+        -     name::String
+        -     gpu_enabled::Bool
+        - end
+        - 
+        - """
+        -     RidgeModel(name::String="ridge_default"; alpha::Float64=1.0, fit_intercept::Bool=true)
+        - 
+        - Create a Ridge regression model with L2 regularization.
+        - """
+        2 function RidgeModel(name::String="ridge_default"; 
+        -                    alpha::Float64=1.0,
+        -                    fit_intercept::Bool=true,
+        -                    max_iter::Int=1000,
+        -                    tol::Float64=1e-4,
+        -                    gpu_enabled::Bool=false)
+        -     
+        1     params = Dict{String, Any}(
+        -         "alpha" => alpha,
+        -         "fit_intercept" => fit_intercept,
+        -         "max_iter" => max_iter,
+        -         "tol" => tol
+        -     )
+        -     
+        1     @info "Ridge model configured" name=name alpha=alpha
+        -     
+        1     return RidgeModel(nothing, params, name, false)  # Linear models don't use GPU
+        - end
+        - 
+        - """
+        -     LassoModel(name::String="lasso_default"; alpha::Float64=1.0, fit_intercept::Bool=true)
+        - 
+        - Create a Lasso regression model with L1 regularization.
+        - """
+        0 function LassoModel(name::String="lasso_default"; 
+        -                    alpha::Float64=1.0,
+        -                    fit_intercept::Bool=true,
+        -                    max_iter::Int=1000,
+        -                    tol::Float64=1e-4,
+        -                    gpu_enabled::Bool=false)
+        -     
+        0     params = Dict{String, Any}(
+        -         "alpha" => alpha,
+        -         "fit_intercept" => fit_intercept,
+        -         "max_iter" => max_iter,
+        -         "tol" => tol
+        -     )
+        -     
+        0     @info "Lasso model configured" name=name alpha=alpha
+        -     
+        0     return LassoModel(nothing, params, name, false)  # Linear models don't use GPU
+        - end
+        - 
+        - """
+        -     ElasticNetModel(name::String="elasticnet_default"; alpha::Float64=1.0, l1_ratio::Float64=0.5)
+        - 
+        - Create an ElasticNet regression model with combined L1 and L2 regularization.
+        - """
+        0 function ElasticNetModel(name::String="elasticnet_default"; 
+        -                         alpha::Float64=1.0,
+        -                         l1_ratio::Float64=0.5,
+        -                         fit_intercept::Bool=true,
+        -                         max_iter::Int=1000,
+        -                         tol::Float64=1e-4,
+        -                         gpu_enabled::Bool=false)
+        -     
+        0     params = Dict{String, Any}(
+        -         "alpha" => alpha,
+        -         "l1_ratio" => l1_ratio,
+        -         "fit_intercept" => fit_intercept,
+        -         "max_iter" => max_iter,
+        -         "tol" => tol
+        -     )
+        -     
+        0     @info "ElasticNet model configured" name=name alpha=alpha l1_ratio=l1_ratio
+        -     
+        0     return ElasticNetModel(nothing, params, name, false)  # Linear models don't use GPU
+        - end
+        - 
+        - # Helper function for Ridge regression using normal equations with regularization
+        0 function fit_ridge(X::Matrix{Float64}, y::Vector{Float64}, alpha::Float64, fit_intercept::Bool)
+        0     n_samples, n_features = size(X)
+        -     
+        -     # Add intercept if needed
+        0     if fit_intercept
+        0         X_with_intercept = hcat(ones(n_samples), X)
+        -     else
+        0         X_with_intercept = X
+        -     end
+        -     
+        -     # Ridge regression: (X'X + αI)β = X'y
+        0     XtX = X_with_intercept' * X_with_intercept
+        0     n_params = size(XtX, 1)
+        -     
+        -     # Add regularization to diagonal (except intercept if present)
+        0     regularization = alpha * I(n_params)
+        0     if fit_intercept
+        0         regularization[1, 1] = 0  # Don't regularize intercept
+        -     end
+        -     
+        -     # Solve for coefficients
+        0     coefficients = (XtX + regularization) \ (X_with_intercept' * y)
+        -     
+        0     if fit_intercept
+        0         intercept = coefficients[1]
+        0         coef = coefficients[2:end]
+        -     else
+        0         intercept = 0.0
+        0         coef = coefficients
+        -     end
+        -     
+        0     return coef, intercept
+        - end
+        - 
+        - # Helper function for coordinate descent (used for Lasso and ElasticNet)
+        0 function coordinate_descent(X::Matrix{Float64}, y::Vector{Float64}, alpha::Float64, 
+        -                            l1_ratio::Float64, fit_intercept::Bool, max_iter::Int, tol::Float64)
+        0     n_samples, n_features = size(X)
+        -     
+        -     # Initialize coefficients
+        0     coef = zeros(n_features)
+        0     intercept = fit_intercept ? mean(y) : 0.0
+        -     
+        -     # Center X and y if fitting intercept
+        0     if fit_intercept
+        0         X_centered = X .- mean(X, dims=1)
+        0         y_centered = y .- mean(y)
+        -     else
+        0         X_centered = X
+        0         y_centered = y
+        -     end
+        -     
+        -     # Precompute column norms
+        0     col_norms = vec(sum(X_centered.^2, dims=1))
+        -     
+        -     # Coordinate descent iterations
+        0     for iter in 1:max_iter
+        0         coef_old = copy(coef)
+        -         
+        -         # Update each coefficient
+        0         for j in 1:n_features
+        0             if col_norms[j] == 0
+        0                 continue
+        -             end
+        -             
+        -             # Compute residual without j-th feature
+        0             residual = y_centered - X_centered * coef + X_centered[:, j] * coef[j]
+        -             
+        -             # Compute gradient
+        0             grad = -X_centered[:, j]' * residual / n_samples
+        -             
+        -             # Soft thresholding for Lasso/ElasticNet
+        0             l1_penalty = alpha * l1_ratio
+        0             l2_penalty = alpha * (1 - l1_ratio)
+        -             
+        0             if grad > l1_penalty
+        0                 coef[j] = -(grad - l1_penalty) / (col_norms[j] / n_samples + l2_penalty)
+        0             elseif grad < -l1_penalty
+        0                 coef[j] = -(grad + l1_penalty) / (col_norms[j] / n_samples + l2_penalty)
+        -             else
+        0                 coef[j] = 0.0
+        -             end
+        0         end
+        -         
+        -         # Check convergence
+        0         if maximum(abs.(coef - coef_old)) < tol
+        0             if iter % 100 == 0
+        0                 @info "Converged at iteration $iter"
+        -             end
+        0             break
+        -         end
+        0     end
+        -     
+        -     # Recompute intercept if needed
+        0     if fit_intercept
+        0         intercept = mean(y) - mean(X * coef)
+        -     end
+        -     
+        0     return coef, intercept
+        - end
+        - 
+        0 function train!(model::RidgeModel, X_train::Matrix{Float64}, y_train::Union{Vector{Float64}, Matrix{Float64}};
+        -                X_val::Union{Nothing, Matrix{Float64}}=nothing,
+        -                y_val::Union{Nothing, Vector{Float64}, Matrix{Float64}}=nothing,
+        -                feature_names::Union{Nothing, Vector{String}}=nothing,
+        -                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
+        -                verbose::Bool=false)
+        -     
+        -     # Check if multi-target
+        0     is_multi_target = y_train isa Matrix
+        0     n_targets = is_multi_target ? size(y_train, 2) : 1
+        -     
+        0     if verbose
+        0         @info "Training Ridge model" name=model.name alpha=model.params["alpha"] multi_target=is_multi_target targets=n_targets
+        -     end
+        -     
+        0     if is_multi_target
+        -         # Train separate model for each target
+        0         coefs = Matrix{Float64}(undef, size(X_train, 2), n_targets)
+        0         intercepts = Vector{Float64}(undef, n_targets)
+        -         
+        0         for i in 1:n_targets
+        0             coef, intercept = fit_ridge(X_train, y_train[:, i], model.params["alpha"], model.params["fit_intercept"])
+        0             coefs[:, i] = coef
+        0             intercepts[i] = intercept
+        0         end
+        -         
+        -         # Store the model
+        0         model.model = Dict(
+        -             "coef" => coefs,
+        -             "intercept" => intercepts,
+        -             "n_features" => size(X_train, 2),
+        -             "n_targets" => n_targets,
+        -             "is_multi_target" => true
+        -         )
+        -     else
+        -         # Single target
+        0         coef, intercept = fit_ridge(X_train, y_train, model.params["alpha"], model.params["fit_intercept"])
+        -         
+        -         # Store the model
+        0         model.model = Dict(
+        -             "coef" => coef,
+        -             "intercept" => intercept,
+        -             "n_features" => size(X_train, 2),
+        -             "n_targets" => 1,
+        -             "is_multi_target" => false
+        -         )
+        -     end
+        -     
+        -     # Validate if validation set provided
+        0     if X_val !== nothing && y_val !== nothing
+        0         val_predictions = predict(model, X_val)
+        0         if is_multi_target
+        -             # Calculate correlation for each target
+        0             val_scores = [cor(val_predictions[:, i], y_val[:, i]) for i in 1:n_targets]
+        0             val_score = mean(val_scores)
+        0             if verbose
+        0                 @info "Validation correlation" mean_score=val_score scores=val_scores
+        -             end
+        -         else
+        0             val_score = cor(val_predictions, y_val)
+        0             if verbose
+        0                 @info "Validation correlation" score=val_score
+        -             end
+        -         end
+        -     end
+        -     
+        0     return model
+        - end
+        - 
+        0 function train!(model::LassoModel, X_train::Matrix{Float64}, y_train::Union{Vector{Float64}, Matrix{Float64}};
+        -                X_val::Union{Nothing, Matrix{Float64}}=nothing,
+        -                y_val::Union{Nothing, Vector{Float64}, Matrix{Float64}}=nothing,
+        -                feature_names::Union{Nothing, Vector{String}}=nothing,
+        -                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
+        -                verbose::Bool=false)
+        -     
+        -     # Check if multi-target
+        0     is_multi_target = y_train isa Matrix
+        0     n_targets = is_multi_target ? size(y_train, 2) : 1
+        -     
+        0     if verbose
+        0         @info "Training Lasso model" name=model.name alpha=model.params["alpha"] multi_target=is_multi_target targets=n_targets
+        -     end
+        -     
+        0     if is_multi_target
+        -         # Train separate model for each target
+        0         coefs = Matrix{Float64}(undef, size(X_train, 2), n_targets)
+        0         intercepts = Vector{Float64}(undef, n_targets)
+        0         n_nonzeros = Vector{Int}(undef, n_targets)
+        -         
+        0         for i in 1:n_targets
+        0             coef, intercept = coordinate_descent(X_train, y_train[:, i], model.params["alpha"], 1.0,
+        -                                                 model.params["fit_intercept"], model.params["max_iter"], 
+        -                                                 model.params["tol"])
+        0             coefs[:, i] = coef
+        0             intercepts[i] = intercept
+        0             n_nonzeros[i] = sum(coef .!= 0)
+        0         end
+        -         
+        -         # Store the model
+        0         model.model = Dict(
+        -             "coef" => coefs,
+        -             "intercept" => intercepts,
+        -             "n_features" => size(X_train, 2),
+        -             "n_targets" => n_targets,
+        -             "is_multi_target" => true,
+        -             "n_nonzero" => n_nonzeros
+        -         )
+        -         
+        0         if verbose
+        0             @info "Lasso training complete" mean_n_nonzero_coef=mean(n_nonzeros) n_nonzero_per_target=n_nonzeros
+        -         end
+        -     else
+        -         # Single target
+        0         coef, intercept = coordinate_descent(X_train, y_train, model.params["alpha"], 1.0,
+        -                                             model.params["fit_intercept"], model.params["max_iter"], 
+        -                                             model.params["tol"])
+        -         
+        -         # Store the model
+        0         model.model = Dict(
+        -             "coef" => coef,
+        -             "intercept" => intercept,
+        -             "n_features" => size(X_train, 2),
+        -             "n_targets" => 1,
+        -             "is_multi_target" => false,
+        -             "n_nonzero" => sum(coef .!= 0)
+        -         )
+        -         
+        0         if verbose
+        0             @info "Lasso training complete" n_nonzero_coef=model.model["n_nonzero"]
+        -         end
+        -     end
+        -     
+        -     # Validate if validation set provided
+        0     if X_val !== nothing && y_val !== nothing
+        0         val_predictions = predict(model, X_val)
+        0         if is_multi_target
+        -             # Calculate correlation for each target
+        0             val_scores = [cor(val_predictions[:, i], y_val[:, i]) for i in 1:n_targets]
+        0             val_score = mean(val_scores)
+        0             if verbose
+        0                 @info "Validation correlation" mean_score=val_score scores=val_scores
+        -             end
+        -         else
+        0             val_score = cor(val_predictions, y_val)
+        0             if verbose
+        0                 @info "Validation correlation" score=val_score
+        -             end
+        -         end
+        -     end
+        -     
+        0     return model
+        - end
+        - 
+        0 function train!(model::ElasticNetModel, X_train::Matrix{Float64}, y_train::Union{Vector{Float64}, Matrix{Float64}};
+        -                X_val::Union{Nothing, Matrix{Float64}}=nothing,
+        -                y_val::Union{Nothing, Vector{Float64}, Matrix{Float64}}=nothing,
+        -                feature_names::Union{Nothing, Vector{String}}=nothing,
+        -                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
+        -                verbose::Bool=false)
+        -     
+        -     # Check if multi-target
+        0     is_multi_target = y_train isa Matrix
+        0     n_targets = is_multi_target ? size(y_train, 2) : 1
+        -     
+        0     if verbose
+        0         @info "Training ElasticNet model" name=model.name alpha=model.params["alpha"] l1_ratio=model.params["l1_ratio"] multi_target=is_multi_target targets=n_targets
+        -     end
+        -     
+        0     if is_multi_target
+        -         # Train separate model for each target
+        0         coefs = Matrix{Float64}(undef, size(X_train, 2), n_targets)
+        0         intercepts = Vector{Float64}(undef, n_targets)
+        0         n_nonzeros = Vector{Int}(undef, n_targets)
+        -         
+        0         for i in 1:n_targets
+        0             coef, intercept = coordinate_descent(X_train, y_train[:, i], model.params["alpha"], model.params["l1_ratio"],
+        -                                                 model.params["fit_intercept"], model.params["max_iter"], 
+        -                                                 model.params["tol"])
+        0             coefs[:, i] = coef
+        0             intercepts[i] = intercept
+        0             n_nonzeros[i] = sum(coef .!= 0)
+        0         end
+        -         
+        -         # Store the model
+        0         model.model = Dict(
+        -             "coef" => coefs,
+        -             "intercept" => intercepts,
+        -             "n_features" => size(X_train, 2),
+        -             "n_targets" => n_targets,
+        -             "is_multi_target" => true,
+        -             "n_nonzero" => n_nonzeros
+        -         )
+        -         
+        0         if verbose
+        0             @info "ElasticNet training complete" mean_n_nonzero_coef=mean(n_nonzeros) n_nonzero_per_target=n_nonzeros
+        -         end
+        -     else
+        -         # Single target
+        0         coef, intercept = coordinate_descent(X_train, y_train, model.params["alpha"], model.params["l1_ratio"],
+        -                                             model.params["fit_intercept"], model.params["max_iter"], 
+        -                                             model.params["tol"])
+        -         
+        -         # Store the model
+        0         model.model = Dict(
+        -             "coef" => coef,
+        -             "intercept" => intercept,
+        -             "n_features" => size(X_train, 2),
+        -             "n_targets" => 1,
+        -             "is_multi_target" => false,
+        -             "n_nonzero" => sum(coef .!= 0)
+        -         )
+        -         
+        0         if verbose
+        0             @info "ElasticNet training complete" n_nonzero_coef=model.model["n_nonzero"]
+        -         end
+        -     end
+        -     
+        -     # Validate if validation set provided
+        0     if X_val !== nothing && y_val !== nothing
+        0         val_predictions = predict(model, X_val)
+        0         if is_multi_target
+        -             # Calculate correlation for each target
+        0             val_scores = [cor(val_predictions[:, i], y_val[:, i]) for i in 1:n_targets]
+        0             val_score = mean(val_scores)
+        0             if verbose
+        0                 @info "Validation correlation" mean_score=val_score scores=val_scores
+        -             end
+        -         else
+        0             val_score = cor(val_predictions, y_val)
+        0             if verbose
+        0                 @info "Validation correlation" score=val_score
+        -             end
+        -         end
+        -     end
+        -     
+        0     return model
+        - end
+        - 
+        - # Prediction function for all linear models
+        0 function predict(model::Union{RidgeModel, LassoModel, ElasticNetModel}, X::Matrix{Float64})::Union{Vector{Float64}, Matrix{Float64}}
+        0     if model.model === nothing
+        0         error("Model not trained yet")
+        -     end
+        -     
+        0     is_multi_target = get(model.model, "is_multi_target", false)
+        -     
+        0     if is_multi_target
+        -         # Multi-target prediction
+        0         n_targets = model.model["n_targets"]
+        0         predictions = Matrix{Float64}(undef, size(X, 1), n_targets)
+        0         for i in 1:n_targets
+        0             predictions[:, i] = X * model.model["coef"][:, i] .+ model.model["intercept"][i]
+        0         end
+        0         return predictions
+        -     else
+        -         # Single target prediction
+        0         predictions = X * model.model["coef"] .+ model.model["intercept"]
+        0         return predictions
+        -     end
+        - end
+        - 
+        - # Save/load functions for linear models
+        - function save_model(model::Union{RidgeModel, LassoModel, ElasticNetModel}, filepath::String)
+        -     if model.model === nothing
+        -         error("Model not trained yet")
+        -     end
+        -     
+        -     # Save as BSON file
+        -     BSON.@save filepath model
+        -     
+        -     println("Linear model saved to $filepath")
+        - end
+        - 
+        - function load_model!(model::Union{RidgeModel, LassoModel, ElasticNetModel}, filepath::String)
+        -     loaded = BSON.load(filepath)
+        -     
+        -     # Copy the loaded model's fields
+        -     model.model = loaded[:model].model
+        -     model.params = loaded[:model].params
+        -     
+        -     return model
+        - end
+        - 
+        - # Feature importance for linear models based on coefficient magnitudes
+        - function feature_importance(model::Union{RidgeModel, LassoModel, ElasticNetModel})::Dict{String, Float64}
+        -     if model.model === nothing
+        -         error("Model not trained yet")
+        -     end
+        -     
+        -     # Get coefficients
+        -     coef = model.model["coef"]
+        -     
+        -     # Handle multi-target models
+        -     if coef isa Matrix
+        -         # For multi-target, average the absolute coefficients across targets
+        -         # coef is (n_features, n_targets)
+        -         abs_coef = mean(abs.(coef), dims=2)[:,1]  # Average across targets
+        -     else
+        -         # Single target case
+        -         abs_coef = abs.(coef)
+        -     end
+        -     
+        -     # Normalize to sum to 1 (if there are any non-zero coefficients)
+        -     total = sum(abs_coef)
+        -     if total > 0
+        -         abs_coef = abs_coef ./ total
+        -     end
+        -     
+        -     # Create dictionary with feature names
+        -     feature_dict = Dict{String, Float64}()
+        -     for i in 1:length(abs_coef)
+        -         feature_dict["feature_$(i)"] = abs_coef[i]
+        -     end
+        -     
+        -     return feature_dict
+        - end
+        - 
+        - end  # module LinearModels

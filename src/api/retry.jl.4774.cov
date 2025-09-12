@@ -1,0 +1,186 @@
+        - module Retry
+        - 
+        - using HTTP
+        - using Logging
+        - using LoggingExtras
+        - using Downloads
+        - 
+        - export with_retry, RetryConfig, exponential_backoff
+        - 
+        - struct RetryConfig
+       28     max_attempts::Int
+        -     initial_delay::Float64  # seconds
+        -     max_delay::Float64      # seconds
+        -     exponential_base::Float64
+        -     jitter::Bool
+        -     retry_on::Vector{Type}
+        - end
+        - 
+       62 function RetryConfig(;
+        -     max_attempts::Int = 3,
+        -     initial_delay::Float64 = 1.0,
+        -     max_delay::Float64 = 60.0,
+        -     exponential_base::Float64 = 2.0,
+        -     jitter::Bool = true,
+        -     retry_on::Vector{Type} = Type[HTTP.ExceptionRequest.StatusError, HTTP.TimeoutError, HTTP.ConnectionPool.ConnectError]
+        - )
+       28     RetryConfig(max_attempts, initial_delay, max_delay, exponential_base, jitter, retry_on)
+        - end
+        - 
+      138 function exponential_backoff(attempt::Int, config::RetryConfig)
+      259     delay = min(config.initial_delay * config.exponential_base^(attempt - 1), config.max_delay)
+      138     if config.jitter
+        -         # Add random jitter between 0% and 25% of the delay
+      118         delay *= (1.0 + rand() * 0.25)
+        -     end
+      138     return delay
+        - end
+        - 
+       41 function should_retry(error, config::RetryConfig)
+        -     # Check if error type is in retry list
+       41     for retry_type in config.retry_on
+       77         if isa(error, retry_type)
+        -             # Special handling for HTTP status errors
+       36             if isa(error, HTTP.ExceptionRequest.StatusError)
+        9                 status = error.response.status
+        -                 # Retry on server errors (5xx) and rate limiting (429)
+       15                 if status >= 500 || status == 429
+        4                     return true
+        -                 end
+        -                 # Don't retry client errors (4xx) except rate limiting
+        9                 if status >= 400 && status < 500 && status != 429
+        4                     return false
+        -                 end
+        -             end
+       28             return true
+        -         end
+       41     end
+        5     return false
+        - end
+        - 
+       50 function with_retry(f::Function, config::RetryConfig = RetryConfig(); context::String = "operation")
+       25     last_error = nothing
+        -     
+       25     for attempt in 1:config.max_attempts
+       45         try
+       45             @debug "Attempting $context" attempt=attempt max_attempts=config.max_attempts
+       46             result = f()
+       18             if attempt > 1
+        9                 @info "Successfully completed after retry" context=context attempts=attempt
+        -             end
+       45             return result
+        -         catch e
+       27             last_error = e
+        -             
+       27             if !should_retry(e, config)
+        3                 @error "Non-retryable error encountered" context=context error=string(e)
+        3                 rethrow(e)
+        -             end
+        -             
+       24             if attempt == config.max_attempts
+        3                 @error "Max retry attempts exceeded" context=context attempts=attempt error=string(e)
+        3                 rethrow(e)
+        -             end
+        -             
+       21             delay = exponential_backoff(attempt, config)
+       21             @warn "Retrying after error" context=context attempt=attempt delay_seconds=round(delay, digits=2) error=string(e)
+       21             sleep(delay)
+        -         end
+       42     end
+        -     
+        -     # This should never be reached, but just in case
+        1     if last_error !== nothing
+        0         rethrow(last_error)
+        -     end
+        - end
+        - 
+        - # Convenience function for GraphQL retries with specific configuration
+        4 function with_graphql_retry(f::Function; context::String = "GraphQL query")
+        6     config = RetryConfig(
+        -         max_attempts = 5,
+        -         initial_delay = 2.0,
+        -         max_delay = 30.0,
+        -         exponential_base = 1.5,
+        -         jitter = true
+        -     )
+        2     return with_retry(f, config; context = context)
+        - end
+        - 
+        - # Convenience function for file download retries
+        2 function with_download_retry(f::Function; context::String = "file download")
+        3     config = RetryConfig(
+        -         max_attempts = 3,
+        -         initial_delay = 5.0,
+        -         max_delay = 60.0,
+        -         exponential_base = 2.0,
+        -         jitter = true,
+        -         retry_on = Type[Downloads.RequestError, HTTP.TimeoutError, InterruptException]
+        -     )
+        1     return with_retry(f, config; context = context)
+        - end
+        - 
+        - # Circuit breaker pattern for API calls
+        - mutable struct CircuitBreaker
+       10     failure_threshold::Int
+        -     recovery_timeout::Float64  # seconds
+        -     failure_count::Int
+        -     last_failure_time::Float64
+        -     state::Symbol  # :closed, :open, :half_open
+        - end
+        - 
+       20 function CircuitBreaker(;
+        -     failure_threshold::Int = 5,
+        -     recovery_timeout::Float64 = 60.0
+        - )
+       10     CircuitBreaker(failure_threshold, recovery_timeout, 0, 0.0, :closed)
+        - end
+        - 
+       30 function is_open(cb::CircuitBreaker)
+       30     if cb.state == :open
+        -         # Check if we should transition to half-open
+        5         if time() - cb.last_failure_time > cb.recovery_timeout
+        2             cb.state = :half_open
+        2             @info "Circuit breaker transitioning to half-open"
+        2             return false
+        -         end
+        3         return true
+        -     end
+       25     return false
+        - end
+        - 
+       20 function record_success(cb::CircuitBreaker)
+       20     if cb.state == :half_open
+        2         cb.state = :closed
+        2         cb.failure_count = 0
+        2         @info "Circuit breaker closed after successful recovery"
+        -     end
+        - end
+        - 
+       12 function record_failure(cb::CircuitBreaker)
+       12     cb.failure_count += 1
+       12     cb.last_failure_time = time()
+        -     
+       12     if cb.failure_count >= cb.failure_threshold
+        5         cb.state = :open
+        5         @warn "Circuit breaker opened" failures=cb.failure_count threshold=cb.failure_threshold
+        -     end
+        - end
+        - 
+       52 function with_circuit_breaker(f::Function, cb::CircuitBreaker; context::String = "operation")
+       26     if is_open(cb)
+        1         error("Circuit breaker is open for $context. Service unavailable.")
+        -     end
+        -     
+       25     try
+       25         result = f()
+       19         record_success(cb)
+       22         return result
+        -     catch e
+        6         record_failure(cb)
+        6         rethrow(e)
+        -     end
+        - end
+        - 
+        - export CircuitBreaker, with_circuit_breaker, with_graphql_retry, with_download_retry
+        - 
+        - end # module

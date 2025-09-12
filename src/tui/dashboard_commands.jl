@@ -75,7 +75,7 @@ function submit_predictions_command(dashboard)
     @async begin
         try
             config = dashboard.config
-            data_dir = get(config, "data_dir", "data")
+            data_dir = config.data_dir
             
             # Find the latest predictions file
             predictions_files = filter(f -> startswith(f, "predictions_") && endswith(f, ".csv"), 
@@ -158,7 +158,7 @@ function download_data_command(dashboard)
     @async begin
         try
             config = dashboard.config
-            data_dir = get(config, "data_dir", "data")
+            data_dir = config.data_dir
             
             # Create data directory if it doesn't exist
             if !isdir(data_dir)

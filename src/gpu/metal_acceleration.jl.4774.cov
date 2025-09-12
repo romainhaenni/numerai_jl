@@ -1,0 +1,777 @@
+        - module MetalAcceleration
+        - 
+        - using Metal
+        - using LinearAlgebra
+        - using Statistics
+        - using DataFrames
+        - using Random
+        - using Logging
+        - using LoggingExtras
+        - using Printf
+        - 
+        - # Core GPU functionality
+        - export MetalDevice, GPUArray, cpu, gpu
+        - export has_metal_gpu, get_gpu_info, configure_metal_device
+        - export gpu_memory_info, gpu_memory_status, clear_gpu_cache!, gpu_synchronize
+        - 
+        - # GPU-accelerated operations
+        - export gpu_matrix_multiply, gpu_vector_add, gpu_element_wise_ops
+        - export gpu_standardize!, gpu_normalize!, gpu_feature_engineering
+        - 
+        - # ML-specific acceleration
+        - export gpu_compute_correlations
+        - export gpu_feature_selection, gpu_ensemble_predictions
+        - 
+        - # Benchmarking utilities
+        - export GPUBenchmark, benchmark_gpu_operations, compare_cpu_gpu_performance
+        - 
+        - # Fallback mechanisms
+        - export with_gpu_fallback, @gpu_fallback
+        - 
+        - """
+        - GPU device management and configuration
+        - """
+        - mutable struct MetalDevice
+        2     device::Union{Nothing, Any}  # Use Any instead of MTLDevice for compatibility
+        -     is_available::Bool
+        -     memory_total::Int64
+        -     memory_free::Int64
+        -     compute_units::Int
+        -     max_threads_per_group::Int
+        -     supports_unified_memory::Bool
+        - end
+        - 
+        - # Global device instance
+        - const METAL_DEVICE = Ref{Union{Nothing, MetalDevice}}(nothing)
+        - 
+        - """
+        - Check if Metal GPU is available on the current system
+        - """
+       69 function has_metal_gpu()::Bool
+       69     try
+       69         return Metal.functional()
+        -     catch
+        0         return false
+        -     end
+        - end
+        - 
+        - """
+        - Initialize and configure Metal device
+        - """
+        8 function configure_metal_device()::MetalDevice
+        8     if METAL_DEVICE[] !== nothing
+        6         return METAL_DEVICE[]
+        -     end
+        -     
+        2     if !has_metal_gpu()
+        0         @warn "Metal GPU not available, falling back to CPU operations"
+        0         return MetalDevice(nothing, false, 0, 0, 0, 0, false)
+        -     end
+        -     
+        2     try
+        2         device = Metal.device()
+        -         
+        -         # Get system memory as proxy for unified memory
+        -         # Apple Silicon shares memory between CPU and GPU
+        4         total_memory_gb = Sys.total_memory() / (1024^3)
+        -         
+        -         # Estimate GPU-available memory (typically ~75% of system memory on Apple Silicon)
+        2         gpu_memory_bytes = round(Int, Sys.total_memory() * 0.75)
+        -         
+        -         # Estimate free memory based on current system state
+        -         # This is an approximation since Metal doesn't expose direct memory queries
+        2         free_memory_bytes = round(Int, Sys.free_memory() * 0.75)
+        -         
+        -         # Apple Silicon GPU compute units (typical values)
+        -         # M1: 7-8 cores, M1 Pro: 14-16, M1 Max: 24-32, M2 series similar
+        -         # We'll use a conservative estimate
+        2         compute_units = 16  # Reasonable default for M-series chips
+        -         
+        -         # Maximum threads per threadgroup (typical for Apple Silicon)
+        2         max_threads = 1024
+        -         
+        2         metal_device = MetalDevice(
+        -             device,
+        -             true,
+        -             gpu_memory_bytes,
+        -             free_memory_bytes,
+        -             compute_units,
+        -             max_threads,
+        -             true  # Apple Silicon supports unified memory
+        -         )
+        -         
+        2         METAL_DEVICE[] = metal_device
+        2         @info "Metal GPU configured successfully"
+        -         
+        2         return metal_device
+        -     catch e
+        0         @error "Failed to configure Metal device" exception=e
+        0         return MetalDevice(nothing, false, 0, 0, 0, 0, false)
+        -     end
+        - end
+        - 
+        - """
+        - Get GPU device information
+        - """
+        4 function get_gpu_info()::Dict{String, Any}
+        4     device = configure_metal_device()
+        -     
+        4     if !device.is_available
+        0         return Dict("available" => false, "reason" => "Metal GPU not available")
+        -     end
+        -     
+        4     try
+        -         # Get current memory state
+        4         memory_used = device.memory_total - device.memory_free
+        4         memory_gb = device.memory_total / (1024^3)
+        -         
+        -         # Determine GPU model based on compute units
+        4         gpu_name = if device.compute_units <= 8
+        0             "Apple M1 GPU"
+        4         elseif device.compute_units <= 16
+        4             "Apple M1 Pro/M2 GPU"
+        0         elseif device.compute_units <= 32
+        0             "Apple M1 Max/M2 Max GPU"
+        -         else
+        8             "Apple M-series Ultra GPU"
+        -         end
+        -         
+        4         return Dict(
+        -             "available" => true,
+        -             "device_name" => gpu_name,
+        -             "memory_total" => device.memory_total,
+        -             "memory_free" => device.memory_free,
+        -             "memory_used" => memory_used,
+        -             "memory_gb" => memory_gb,
+        -             "compute_units" => device.compute_units,
+        -             "max_threads_per_group" => device.max_threads_per_group,
+        -             "supports_unified_memory" => device.supports_unified_memory
+        -         )
+        -     catch e
+        0         @error "Failed to get GPU info" exception=e
+        0         return Dict("available" => false, "error" => string(e))
+        -     end
+        - end
+        - 
+        - """
+        - Get current GPU memory information
+        - 
+        - Returns a dictionary with:
+        - - total: Total GPU memory available (recommended working set)
+        - - used: Currently allocated GPU memory
+        - - free: Available GPU memory
+        - """
+        5 function gpu_memory_info()::Dict{String, Int64}
+        5     if !has_metal_gpu()
+        0         return Dict("total" => 0, "free" => 0, "used" => 0)
+        -     end
+        -     
+        5     try
+        5         device = Metal.current_device()
+        -         
+        -         # Get memory information from Metal device
+        5         total_memory = Int64(device.recommendedMaxWorkingSetSize)
+        5         used_memory = Int64(device.currentAllocatedSize)
+        5         free_memory = max(0, total_memory - used_memory)
+        -         
+        5         return Dict(
+        -             "total" => total_memory,
+        -             "used" => used_memory,
+        -             "free" => free_memory
+        -         )
+        -     catch e
+        0         @error "Failed to get GPU memory info" exception=e
+        0         return Dict("total" => 0, "free" => 0, "used" => 0)
+        -     end
+        - end
+        - 
+        - """
+        - Get formatted GPU memory information string
+        - 
+        - Returns a human-readable string with memory usage information.
+        - """
+        1 function gpu_memory_status()::String
+        1     info = gpu_memory_info()
+        -     
+        1     if info["total"] == 0
+        0         return "GPU memory not available"
+        -     end
+        -     
+        -     # Convert bytes to GB for readability
+        1     total_gb = info["total"] / (1024^3)
+        1     used_gb = info["used"] / (1024^3)
+        1     free_gb = info["free"] / (1024^3)
+        1     usage_percent = (info["used"] / info["total"]) * 100
+        -     
+        1     return @sprintf("GPU Memory: %.2f/%.2f GB used (%.1f%%), %.2f GB free", 
+        -                     used_gb, total_gb, usage_percent, free_gb)
+        - end
+        - 
+        - """
+        - Clear GPU memory cache
+        - """
+        1 function clear_gpu_cache!()
+        1     if has_metal_gpu()
+        1         try
+        1             Metal.reclaim()
+        0             @info "GPU memory cache cleared"
+        -         catch e
+        1             @warn "Failed to clear GPU cache" exception=e
+        -         end
+        -     end
+        - end
+        - 
+        - """
+        - Synchronize GPU operations
+        - """
+        1 function gpu_synchronize()
+        1     if has_metal_gpu()
+        1         try
+        1             Metal.synchronize()
+        -         catch e
+        0             @warn "Failed to synchronize GPU" exception=e
+        -         end
+        -     end
+        - end
+        - 
+        - """
+        - Convert array to GPU if available, otherwise return original
+        - """
+       31 function gpu(x::AbstractArray)
+       31     if has_metal_gpu()
+       31         try
+       31             return MtlArray(x)
+        -         catch e
+       25             @warn "Failed to transfer to GPU, using CPU" exception=e
+       25             return x
+        -         end
+        -     else
+        0         return x
+        -     end
+        - end
+        - 
+        - """
+        - Convert array to CPU
+        - """
+        - function cpu(x::MtlArray)
+        -     try
+        -         return Array(x)
+        -     catch e
+        -         @warn "Failed to transfer from GPU to CPU" exception=e
+        -         return x
+        -     end
+        - end
+        - 
+       13 function cpu(x::AbstractArray)
+       13     return x
+        - end
+        - 
+        - """
+        - GPU-accelerated matrix multiplication
+        - """
+        4 function gpu_matrix_multiply(A::AbstractMatrix, B::AbstractMatrix)
+        4     if !has_metal_gpu()
+        0         return A * B
+        -     end
+        -     
+        4     try
+        4         A_gpu = gpu(A)
+        4         B_gpu = gpu(B)
+        8         result_gpu = A_gpu * B_gpu
+        4         return cpu(result_gpu)
+        -     catch e
+        1         @warn "GPU matrix multiplication failed, falling back to CPU" exception=e
+        1         return A * B
+        -     end
+        - end
+        - 
+        - """
+        - GPU-accelerated vector addition
+        - """
+        4 function gpu_vector_add(a::AbstractVector, b::AbstractVector)
+        4     if !has_metal_gpu()
+        0         return a .+ b
+        -     end
+        -     
+        4     try
+        4         a_gpu = gpu(a)
+        4         b_gpu = gpu(b)
+        7         result_gpu = a_gpu .+ b_gpu
+        4         return cpu(result_gpu)
+        -     catch e
+        1         @warn "GPU vector addition failed, falling back to CPU" exception=e
+        1         return a .+ b
+        -     end
+        - end
+        - 
+        - """
+        - GPU-accelerated element-wise operations
+        - """
+        6 function gpu_element_wise_ops(x::AbstractArray, operation::Function)
+        6     if !has_metal_gpu()
+        0         return operation.(x)
+        -     end
+        -     
+        6     try
+        6         x_gpu = gpu(x)
+        6         result_gpu = operation.(x_gpu)
+        6         return cpu(result_gpu)
+        -     catch e
+        0         @warn "GPU element-wise operation failed, falling back to CPU" exception=e
+        0         return operation.(x)
+        -     end
+        - end
+        - 
+        - """
+        - GPU-accelerated standardization (z-score normalization)
+        - """
+        4 function gpu_standardize!(X::AbstractMatrix{Float64})
+        4     if !has_metal_gpu()
+        -         # CPU fallback
+        0         for j in 1:size(X, 2)
+        0             col = view(X, :, j)
+        0             μ = mean(col)
+        0             σ = std(col)
+        0             if σ > 0
+        0                 col .= (col .- μ) ./ σ
+        -             end
+        0         end
+        0         return X
+        -     end
+        -     
+        4     try
+        -         # Convert to Float32 for GPU operations
+        8         X_f32 = Float32.(X)
+        4         X_gpu = gpu(X_f32)
+        -         
+        -         # Batch compute mean and std for all columns at once
+        -         # This is much more efficient on GPU than column-by-column processing
+        8         μ = mean(X_gpu, dims=1)  # Row vector of means
+        8         σ = std(X_gpu, dims=1, corrected=true)  # Row vector of stds
+        -         
+        -         # Create a mask for columns with non-zero std (non-constant columns)
+        -         # Only standardize columns where std > threshold
+        4         threshold = Float32(1e-10)
+        -         
+        -         # For constant columns (σ ≈ 0), replace σ with 1 to preserve values
+        -         # For non-constant columns, use actual σ for standardization
+        8         σ_safe = ifelse.(σ .> threshold, σ, ones(Float32, size(σ)))
+        -         
+        -         # Standardize all columns using safe σ values
+        -         # Constant columns: (X - μ) / 1 = X - μ (centered but not scaled)
+        -         # Non-constant columns: (X - μ) / σ (properly standardized)
+        -         # Actually for constant columns, X - μ = 0, so result is 0 / 1 = 0
+        -         # To preserve constant values, we need a different approach
+        -         
+        -         # Create standardized version
+        0         X_standardized = (X_gpu .- μ) ./ σ_safe
+        -         
+        -         # For constant columns, restore original values
+        0         mask = σ .> threshold
+        0         X_gpu = ifelse.(mask, X_standardized, X_gpu)
+        -         
+        -         # Convert back to Float64 and copy to original array
+        0         X .= Float64.(cpu(X_gpu))
+        4         return X
+        -     catch e
+        4         @warn "GPU standardization failed, falling back to CPU" exception=e
+        -         # CPU fallback
+        3         for j in 1:size(X, 2)
+       35             col = view(X, :, j)
+       35             μ = mean(col)
+       70             σ = std(col)
+       35             if σ > 0
+       35                 col .= (col .- μ) ./ σ
+        -             end
+       67         end
+        3         return X
+        -     end
+        - end
+        - 
+        - """
+        - GPU-accelerated min-max normalization
+        - """
+        - function gpu_normalize!(X::AbstractMatrix{Float64})
+        -     if !has_metal_gpu()
+        -         # CPU fallback
+        -         for j in 1:size(X, 2)
+        -             col = view(X, :, j)
+        -             min_val = minimum(col)
+        -             max_val = maximum(col)
+        -             if max_val > min_val
+        -                 col .= (col .- min_val) ./ (max_val - min_val)
+        -             end
+        -         end
+        -         return X
+        -     end
+        -     
+        -     try
+        -         # Convert to Float32 for GPU operations
+        -         X_f32 = Float32.(X)
+        -         X_gpu = gpu(X_f32)
+        -         
+        -         # Batch compute min and max for all columns at once
+        -         # This is much more efficient on GPU than column-by-column processing
+        -         min_vals = minimum(X_gpu, dims=1)  # Row vector of minimums
+        -         max_vals = maximum(X_gpu, dims=1)  # Row vector of maximums
+        -         
+        -         # Compute range for each column
+        -         range_vals = max_vals .- min_vals
+        -         
+        -         # Create a mask for columns with non-zero range (non-constant columns)
+        -         # Only normalize columns where range > threshold
+        -         threshold = Float32(1e-10)
+        -         
+        -         # For constant columns (range ≈ 0), replace range with 1 to preserve values
+        -         # For non-constant columns, use actual range for normalization
+        -         range_safe = ifelse.(range_vals .> threshold, range_vals, ones(Float32, size(range_vals)))
+        -         
+        -         # Create normalized version
+        -         X_normalized = (X_gpu .- min_vals) ./ range_safe
+        -         
+        -         # For constant columns, restore original values
+        -         mask = range_vals .> threshold
+        -         X_gpu = ifelse.(mask, X_normalized, X_gpu)
+        -         
+        -         # Convert back to Float64 and copy to original array
+        -         X .= Float64.(cpu(X_gpu))
+        -         return X
+        -     catch e
+        -         @warn "GPU normalization failed, falling back to CPU" exception=e
+        -         # CPU fallback
+        -         for j in 1:size(X, 2)
+        -             col = view(X, :, j)
+        -             min_val = minimum(col)
+        -             max_val = maximum(col)
+        -             if max_val > min_val
+        -                 col .= (col .- min_val) ./ (max_val - min_val)
+        -             end
+        -         end
+        -         return X
+        -     end
+        - end
+        - 
+        - """
+        - GPU-accelerated feature engineering operations
+        - """
+        - function gpu_feature_engineering(X::AbstractMatrix{Float64}, operations::Vector{Symbol})
+        -     result_matrices = Vector{Matrix{Float64}}()
+        -     push!(result_matrices, copy(X))  # Original features
+        -     
+        -     for op in operations
+        -         if op == :square
+        -             if has_metal_gpu()
+        -                 try
+        -                     X_f32 = Float32.(X)
+        -                     X_gpu = gpu(X_f32)
+        -                     X_squared = Float64.(cpu(X_gpu .^ 2))
+        -                     push!(result_matrices, X_squared)
+        -                     continue
+        -                 catch e
+        -                     @warn "GPU square operation failed, using CPU" exception=e
+        -                 end
+        -             end
+        -             # CPU fallback
+        -             push!(result_matrices, X .^ 2)
+        -             
+        -         elseif op == :sqrt
+        -             if has_metal_gpu()
+        -                 try
+        -                     X_f32 = Float32.(abs.(X))  # Ensure non-negative values
+        -                     X_gpu = gpu(X_f32)
+        -                     X_sqrt = Float64.(cpu(sqrt.(X_gpu)))
+        -                     push!(result_matrices, X_sqrt)
+        -                     continue
+        -                 catch e
+        -                     @warn "GPU sqrt operation failed, using CPU" exception=e
+        -                 end
+        -             end
+        -             # CPU fallback
+        -             push!(result_matrices, sqrt.(abs.(X)))
+        -             
+        -         elseif op == :log
+        -             if has_metal_gpu()
+        -                 try
+        -                     X_f32 = Float32.(abs.(X) .+ 1e-8)  # Avoid log(0)
+        -                     X_gpu = gpu(X_f32)
+        -                     X_log = Float64.(cpu(log.(X_gpu)))
+        -                     push!(result_matrices, X_log)
+        -                     continue
+        -                 catch e
+        -                     @warn "GPU log operation failed, using CPU" exception=e
+        -                 end
+        -             end
+        -             # CPU fallback
+        -             push!(result_matrices, log.(abs.(X) .+ 1e-8))
+        -         end
+        -     end
+        -     
+        -     return hcat(result_matrices...)
+        - end
+        - 
+        - """
+        - GPU-accelerated correlation computation
+        - """
+        - function gpu_compute_correlations(predictions::AbstractVector{Float64}, targets::AbstractVector{Float64})
+        -     if !has_metal_gpu()
+        -         return cor(predictions, targets)
+        -     end
+        -     
+        -     try
+        -         # Convert to Float32 for GPU operations
+        -         pred_f32 = Float32.(predictions)
+        -         targ_f32 = Float32.(targets)
+        -         pred_gpu = gpu(pred_f32)
+        -         targ_gpu = gpu(targ_f32)
+        -         
+        -         # Compute correlation on GPU
+        -         correlation = cor(pred_gpu, targ_gpu)
+        -         return Float64(correlation)
+        -     catch e
+        -         @warn "GPU correlation computation failed, falling back to CPU" exception=e
+        -         return cor(predictions, targets)
+        -     end
+        - end
+        - 
+        - """
+        - GPU-accelerated ensemble predictions
+        - """
+        - function gpu_ensemble_predictions(predictions_matrix::AbstractMatrix{Float64}, weights::AbstractVector{Float64})
+        -     if !has_metal_gpu()
+        -         return predictions_matrix * weights
+        -     end
+        -     
+        -     try
+        -         # Convert to Float32 for GPU operations
+        -         pred_f32 = Float32.(predictions_matrix)
+        -         weights_f32 = Float32.(weights)
+        -         pred_gpu = gpu(pred_f32)
+        -         weights_gpu = gpu(weights_f32)
+        -         
+        -         ensemble_pred = pred_gpu * weights_gpu
+        -         return Float64.(cpu(ensemble_pred))
+        -     catch e
+        -         @warn "GPU ensemble prediction failed, falling back to CPU" exception=e
+        -         return predictions_matrix * weights
+        -     end
+        - end
+        - 
+        - """
+        - Benchmarking structure for GPU operations
+        - """
+        - struct GPUBenchmark
+        -     operation_name::String
+        -     cpu_time::Float64
+        -     gpu_time::Float64
+        -     speedup::Float64
+        -     memory_used::Int64
+        -     success::Bool
+        - end
+        - 
+        - """
+        - Benchmark GPU operations against CPU
+        - """
+        - function benchmark_gpu_operations(data_size::Int=10000, num_features::Int=100)::Vector{GPUBenchmark}
+        -     @info "Starting GPU benchmark" data_size=data_size num_features=num_features
+        -     
+        -     # Generate test data
+        -     Random.seed!(42)
+        -     X = randn(Float64, data_size, num_features)
+        -     y = randn(Float64, data_size)
+        -     
+        -     benchmarks = GPUBenchmark[]
+        -     
+        -     # Matrix multiplication benchmark
+        -     A = randn(Float64, num_features, num_features)
+        -     
+        -     # CPU timing
+        -     cpu_time = @elapsed begin
+        -         for _ in 1:10
+        -             result_cpu = X * A
+        -         end
+        -     end
+        -     
+        -     # GPU timing
+        -     gpu_time = if has_metal_gpu()
+        -         @elapsed begin
+        -             for _ in 1:10
+        -                 result_gpu = gpu_matrix_multiply(X, A)
+        -             end
+        -         end
+        -     else
+        -         Inf
+        -     end
+        -     
+        -     speedup = cpu_time / gpu_time
+        -     push!(benchmarks, GPUBenchmark("Matrix Multiplication", cpu_time, gpu_time, speedup, 0, true))
+        -     
+        -     # Standardization benchmark
+        -     X_test = copy(X)
+        -     cpu_time = @elapsed begin
+        -         X_cpu = copy(X_test)
+        -         gpu_standardize!(X_cpu)  # This will use CPU fallback
+        -     end
+        -     
+        -     gpu_time = if has_metal_gpu()
+        -         @elapsed begin
+        -             X_gpu_test = copy(X_test)
+        -             gpu_standardize!(X_gpu_test)
+        -         end
+        -     else
+        -         Inf
+        -     end
+        -     
+        -     speedup = cpu_time / gpu_time
+        -     push!(benchmarks, GPUBenchmark("Standardization", cpu_time, gpu_time, speedup, 0, true))
+        -     
+        -     # Feature engineering benchmark
+        -     cpu_time = @elapsed begin
+        -         result_cpu = gpu_feature_engineering(X, [:square, :sqrt])  # Will fallback to CPU
+        -     end
+        -     
+        -     gpu_time = if has_metal_gpu()
+        -         @elapsed begin
+        -             result_gpu = gpu_feature_engineering(X, [:square, :sqrt])
+        -         end
+        -     else
+        -         Inf
+        -     end
+        -     
+        -     speedup = cpu_time / gpu_time
+        -     push!(benchmarks, GPUBenchmark("Feature Engineering", cpu_time, gpu_time, speedup, 0, true))
+        -     
+        -     return benchmarks
+        - end
+        - 
+        - """
+        - Compare CPU vs GPU performance for various operations
+        - """
+        - function compare_cpu_gpu_performance(data_sizes::Vector{Int}=[1000, 5000, 10000, 50000])
+        -     results = Dict{Int, Vector{GPUBenchmark}}()
+        -     
+        -     for size in data_sizes
+        -         @info "Benchmarking data size: $size"
+        -         results[size] = benchmark_gpu_operations(size)
+        -     end
+        -     
+        -     # Print results
+        -     println("\n=== GPU Performance Benchmark Results ===")
+        -     println("Data Size | Operation | CPU Time | GPU Time | Speedup")
+        -     println("-" ^ 60)
+        -     
+        -     for size in data_sizes
+        -         benchmarks = results[size]
+        -         for benchmark in benchmarks
+        -             println("$(lpad(size, 8)) | $(rpad(benchmark.operation_name, 20)) | $(rpad(round(benchmark.cpu_time, digits=4), 8)) | $(rpad(round(benchmark.gpu_time, digits=4), 8)) | $(round(benchmark.speedup, digits=2))x")
+        -         end
+        -     end
+        -     
+        -     return results
+        - end
+        - 
+        - """
+        - Macro for automatic CPU fallback on GPU operation failure
+        - """
+        2 macro gpu_fallback(gpu_expr, cpu_expr)
+        2     quote
+        -         if has_metal_gpu()
+        -             try
+        -                 $(esc(gpu_expr))
+        -             catch e
+        -                 @warn "GPU operation failed, falling back to CPU" exception=e
+        -                 $(esc(cpu_expr))
+        -             end
+        -         else
+        -             $(esc(cpu_expr))
+        -         end
+        -     end
+        - end
+        - 
+        - """
+        - Execute function with automatic GPU fallback
+        - """
+        - function with_gpu_fallback(gpu_func::Function, cpu_func::Function, args...)
+        -     if has_metal_gpu()
+        -         try
+        -             return gpu_func(args...)
+        -         catch e
+        -             @warn "GPU operation failed, falling back to CPU" exception=e
+        -             return cpu_func(args...)
+        -         end
+        -     else
+        -         return cpu_func(args...)
+        -     end
+        - end
+        - 
+        - """
+        - GPU-accelerated feature selection based on correlation
+        - """
+        - function gpu_feature_selection(X::AbstractMatrix{Float64}, y::AbstractVector{Float64}, 
+        -                              k::Int=100)::Vector{Int}
+        -     n_features = size(X, 2)
+        -     correlations = Vector{Float64}(undef, n_features)
+        -     
+        -     @info "Computing feature correlations" n_features=n_features
+        -     
+        -     if has_metal_gpu()
+        -         try
+        -             # Convert to Float32 for GPU operations
+        -             X_f32 = Float32.(X)
+        -             y_f32 = Float32.(y)
+        -             X_gpu = gpu(X_f32)
+        -             y_gpu = gpu(y_f32)
+        -             
+        -             # Standardize for correlation computation
+        -             X_mean = mean(X_gpu, dims=1)
+        -             X_std = std(X_gpu, dims=1, corrected=true)
+        -             X_std_safe = max.(X_std, Float32(1e-10))
+        -             X_standardized = (X_gpu .- X_mean) ./ X_std_safe
+        -             
+        -             y_mean = mean(y_gpu)
+        -             y_std = std(y_gpu, corrected=true)
+        -             y_std_safe = max(y_std, Float32(1e-10))
+        -             y_standardized = (y_gpu .- y_mean) ./ y_std_safe
+        -             
+        -             # Compute correlations for all features at once using matrix multiplication
+        -             # correlation = (X'y) / n for standardized variables
+        -             n = Float32(size(X, 1))
+        -             correlations_gpu = abs.(vec(X_standardized' * y_standardized) ./ n)
+        -             
+        -             # Copy back to CPU
+        -             correlations .= Float64.(cpu(correlations_gpu))
+        -         catch e
+        -             @warn "GPU feature selection failed, falling back to CPU" exception=e
+        -             for i in 1:n_features
+        -                 correlations[i] = abs(cor(X[:, i], y))
+        -             end
+        -         end
+        -     else
+        -         for i in 1:n_features
+        -             correlations[i] = abs(cor(X[:, i], y))
+        -         end
+        -     end
+        -     
+        -     # Return indices of top k features
+        -     top_indices = sortperm(correlations, rev=true)[1:min(k, n_features)]
+        -     return top_indices
+        - end
+        - 
+        - """
+        - Initialize Metal acceleration system
+        - """
+        2 function __init__()
+        2     @info "Initializing Metal acceleration system"
+        -     
+        2     if has_metal_gpu()
+        2         device = configure_metal_device()
+        2         if device.is_available
+        2             @info "Metal GPU acceleration ready" device_info=get_gpu_info()
+        -         else
+        0             @info "Metal GPU not available, CPU fallback will be used"
+        -         end
+        -     else
+        0         @info "Metal not functional on this system, CPU fallback will be used"
+        -     end
+        - end
+        - 
+        - end  # module MetalAcceleration

@@ -467,7 +467,7 @@ function update_model_performances!(dashboard::TournamentDashboard)
         ))
         
         # Keep only configured number of entries to manage memory
-        max_history = get(dashboard.config.tui_config["limits"], "performance_history_max", 100)
+        max_history = get(get(dashboard.config.tui_config, "limits", Dict()), "performance_history_max", 100)
         if length(dashboard.performance_history) > max_history
             popfirst!(dashboard.performance_history)
         end
@@ -746,7 +746,7 @@ function add_event!(dashboard::TournamentDashboard, type::Symbol, message::Strin
         
         push!(dashboard.last_api_errors, categorized_error)
         # Keep only configured number of errors
-        max_errors = get(dashboard.config.tui_config["limits"], "api_error_history_max", 50)
+        max_errors = get(get(dashboard.config.tui_config, "limits", Dict()), "api_error_history_max", 50)
         if length(dashboard.last_api_errors) > max_errors
             popfirst!(dashboard.last_api_errors)
         end
@@ -772,7 +772,7 @@ function add_event!(dashboard::TournamentDashboard, type::Symbol, message::Strin
     push!(dashboard.events, event)
     
     # Keep only configured number of events
-    max_events = get(dashboard.config.tui_config["limits"], "events_history_max", 100)
+    max_events = get(get(dashboard.config.tui_config, "limits", Dict()), "events_history_max", 100)
     if length(dashboard.events) > max_events
         popfirst!(dashboard.events)
     end
@@ -794,7 +794,7 @@ function start_training(dashboard::TournamentDashboard)
     dashboard.training_info[:model_name] = dashboard.model[:name]
     dashboard.training_info[:progress] = 0
     # Get default epochs from config
-    default_epochs = get(dashboard.config.tui_config["training"], "default_epochs", 100)
+    default_epochs = get(get(dashboard.config.tui_config, "training", Dict()), "default_epochs", 100)
     dashboard.training_info[:total_epochs] = default_epochs
     
     add_event!(dashboard, :info, "Starting training for $(dashboard.training_info[:model_name])")

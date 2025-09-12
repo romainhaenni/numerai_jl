@@ -1,0 +1,339 @@
+        - module Logger
+        - 
+        - using Logging
+        - using LoggingExtras
+        - using Dates
+        - using Term
+        - 
+        - export init_logger, @log_debug, @log_info, @log_warn, @log_error, @log_critical
+        - export log_model_performance, log_api_call, log_submission, log_training_progress
+        - export set_log_level, get_logger, close_logger, flush_logger
+        - 
+        - mutable struct NumeraiLogger
+        -     logger::AbstractLogger
+        -     log_file::String
+        -     log_level::LogLevel
+        -     file_handle::Union{IO, Nothing}
+        -     
+       36     function NumeraiLogger(logger::AbstractLogger, log_file::String, log_level::LogLevel, file_handle::Union{IO, Nothing})
+       36         instance = new(logger, log_file, log_level, file_handle)
+        -         # Add finalizer to ensure cleanup when garbage collected
+       36         if !isnothing(file_handle)
+       36             finalizer(instance) do x
+       47                 if !isnothing(x.file_handle) && isopen(x.file_handle)
+        0                     try
+        0                         close(x.file_handle)
+        0                     catch
+        -                         # Silently ignore errors during finalization
+        -                     end
+        -                 end
+        -             end
+        -         end
+       36         return instance
+        -     end
+        - end
+        - 
+        - const GLOBAL_LOGGER = Ref{NumeraiLogger}()
+        - 
+        - const LOG_COLORS = Dict(
+        -     Logging.Debug => :blue,
+        -     Logging.Info => :green,
+        -     Logging.Warn => :yellow,
+        -     Logging.Error => :red
+        - )
+        - 
+        - # Custom file logger that uses our formatting
+        - struct CustomFileLogger <: AbstractLogger
+       36     io::IO
+        -     min_level::LogLevel
+        - end
+        - 
+     6717 function Logging.min_enabled_level(logger::CustomFileLogger)
+     6717     return logger.min_level
+        - end
+        - 
+     1092 function Logging.shouldlog(logger::CustomFileLogger, level, _module, group, id)
+     1092     return level >= logger.min_level
+        - end
+        - 
+     2130 function Logging.handle_message(logger::CustomFileLogger, level, message, _module, group, id, file, line; kwargs...)
+     1065     formatted_msg = format_log_message(level, message, _module, group, id, file, line; kwargs...)
+     1065     println(logger.io, formatted_msg)
+     1065     flush(logger.io)
+        - end
+        - 
+     2136 function format_log_message(level, message, _module, group, id, file, line; kwargs...)
+     1068     timestamp = Dates.format(now(), "yyyy-mm-dd HH:MM:SS.sss")
+     1068     level_str = uppercase(string(level))
+     2136     color = get(LOG_COLORS, level, :default)
+        -     
+     1068     formatted_msg = if !isempty(kwargs)
+     1035         pairs = [string(k, "=", v) for (k, v) in kwargs]
+     1035         "$message | " * join(pairs, ", ")
+        -     else
+       33         message
+        -     end
+        -     
+     1068     return "[$timestamp] [$level_str] $formatted_msg"
+        - end
+        - 
+       74 function init_logger(; 
+        -     log_file::String = "logs/numerai_$(Dates.format(now(), "yyyymmdd_HHMMSS")).log",
+        -     console_level::LogLevel = Logging.Info,
+        -     file_level::LogLevel = Logging.Debug,
+        -     append::Bool = false
+        - )
+        -     # Create logs directory if it doesn't exist
+       37     log_dir = dirname(log_file)
+       37     if !isdir(log_dir) && !isempty(log_dir)
+        1         mkpath(log_dir)
+        -     end
+        -     
+        -     # Create file logger with proper handle management
+       36     file_handle = if append && isfile(log_file)
+        1         open(log_file, "a")
+        -     else
+       71         open(log_file, "w")
+        -     end
+        -     
+        -     # Create a custom file logger that uses our formatting
+       36     file_logger = CustomFileLogger(file_handle, file_level)
+        -     
+        -     # Create console logger with formatting
+       36     console_logger = ConsoleLogger(stdout, console_level)
+        -     
+        -     # Combine loggers
+       36     combined_logger = TeeLogger(console_logger, file_logger)
+        -     
+        -     # Close any existing logger before creating new one
+       48     if isassigned(GLOBAL_LOGGER) && !isnothing(GLOBAL_LOGGER[].file_handle)
+       12         close(GLOBAL_LOGGER[].file_handle)
+        -     end
+        -     
+        -     # Store global logger
+       36     GLOBAL_LOGGER[] = NumeraiLogger(combined_logger, log_file, min(console_level, file_level), file_handle)
+        -     
+        -     # Set as global logger
+       36     global_logger(combined_logger)
+        -     
+       36     @info "Logging initialized" log_file=log_file console_level=console_level file_level=file_level
+        -     
+       36     return combined_logger
+        - end
+        - 
+        2 function set_log_level(level::LogLevel)
+        2     if !isassigned(GLOBAL_LOGGER)
+        0         init_logger()
+        -     end
+        2     GLOBAL_LOGGER[].log_level = level
+        - end
+        - 
+        5 function get_logger()
+        5     if !isassigned(GLOBAL_LOGGER)
+        0         init_logger()
+        -     end
+        5     return GLOBAL_LOGGER[].logger
+        - end
+        - 
+        - """
+        -     close_logger()
+        - 
+        - Properly close the logger and release file handles to prevent resource leaks.
+        - Should be called when the logger is no longer needed.
+        - """
+       28 function close_logger()
+       52     if isassigned(GLOBAL_LOGGER) && !isnothing(GLOBAL_LOGGER[].file_handle)
+       24         try
+       24             close(GLOBAL_LOGGER[].file_handle)
+       24             GLOBAL_LOGGER[].file_handle = nothing
+       24             @debug "Logger file handle closed successfully"
+        -         catch e
+        0             @warn "Error closing logger file handle" error=string(e)
+        -         end
+        -     end
+        - end
+        - 
+        - """
+        -     flush_logger()
+        - 
+        - Flush the logger file handle to ensure all pending log messages are written to disk.
+        - This is particularly useful in tests where immediate file availability is needed.
+        - """
+       15 function flush_logger()
+       29     if isassigned(GLOBAL_LOGGER) && !isnothing(GLOBAL_LOGGER[].file_handle)
+       14         try
+       14             flush(GLOBAL_LOGGER[].file_handle)
+        -         catch e
+        0             @warn "Error flushing logger file handle" error=string(e)
+        -         end
+        -     end
+        - end
+        - 
+        - # Convenience macros
+        1 macro log_debug(msg, kwargs...)
+        -     # Process kwargs to extract key-value pairs
+        1     kw_exprs = []
+        1     for kw in kwargs
+        2         if isa(kw, Expr) && kw.head == :(=)
+        2             push!(kw_exprs, Expr(:(=), kw.args[1], esc(kw.args[2])))
+        -         else
+        0             push!(kw_exprs, esc(kw))
+        -         end
+        2     end
+        1     quote
+        -         @debug $(esc(msg)) $(kw_exprs...)
+        -     end
+        - end
+        - 
+       12 macro log_info(msg, kwargs...)
+        -     # Process kwargs to extract key-value pairs
+       12     kw_exprs = []
+       12     for kw in kwargs
+       12         if isa(kw, Expr) && kw.head == :(=)
+       12             push!(kw_exprs, Expr(:(=), kw.args[1], esc(kw.args[2])))
+        -         else
+        0             push!(kw_exprs, esc(kw))
+        -         end
+       12     end
+       12     quote
+      146         @info $(esc(msg)) $(kw_exprs...)
+        -     end
+        - end
+        - 
+        2 macro log_warn(msg, kwargs...)
+        -     # Process kwargs to extract key-value pairs
+        2     kw_exprs = []
+        2     for kw in kwargs
+        1         if isa(kw, Expr) && kw.head == :(=)
+        1             push!(kw_exprs, Expr(:(=), kw.args[1], esc(kw.args[2])))
+        -         else
+        0             push!(kw_exprs, esc(kw))
+        -         end
+        1     end
+        2     quote
+        1         @warn $(esc(msg)) $(kw_exprs...)
+        -     end
+        - end
+        - 
+        1 macro log_error(msg, kwargs...)
+        -     # Process kwargs to extract key-value pairs
+        1     kw_exprs = []
+        1     for kw in kwargs
+        1         if isa(kw, Expr) && kw.head == :(=)
+        1             push!(kw_exprs, Expr(:(=), kw.args[1], esc(kw.args[2])))
+        -         else
+        0             push!(kw_exprs, esc(kw))
+        -         end
+        1     end
+        1     quote
+        -         @error $(esc(msg)) $(kw_exprs...)
+        -     end
+        - end
+        - 
+        1 macro log_critical(msg, kwargs...)
+        -     # Process kwargs to extract key-value pairs
+        1     kw_exprs = []
+        1     for kw in kwargs
+        1         if isa(kw, Expr) && kw.head == :(=)
+        1             push!(kw_exprs, Expr(:(=), kw.args[1], esc(kw.args[2])))
+        -         else
+        0             push!(kw_exprs, esc(kw))
+        -         end
+        1     end
+        1     quote
+        -         @error "[CRITICAL] " * $(esc(msg)) $(kw_exprs...)
+        -     end
+        - end
+        - 
+        - # Specialized logging functions for tournament operations
+        - 
+        1 function log_model_performance(model_name::String, metrics::Dict)
+        1     @info "Model performance update" model=model_name corr=get(metrics, :corr, NaN) mmc=get(metrics, :mmc, NaN) tc=get(metrics, :tc, NaN) sharpe=get(metrics, :sharpe, NaN)
+        - end
+        - 
+        3 function log_api_call(endpoint::String, method::String, status::Integer, duration::Float64=0.0)
+        3     if status >= 200 && status < 300
+        1         @debug "API call successful" endpoint=endpoint method=method status=status duration_ms=round(duration*1000, digits=2)
+        2     elseif status >= 400 && status < 500
+        1         @warn "API client error" endpoint=endpoint method=method status=status duration_ms=round(duration*1000, digits=2)
+        1     elseif status >= 500
+        1         @error "API server error" endpoint=endpoint method=method status=status duration_ms=round(duration*1000, digits=2)
+        -     else
+        0         @info "API call completed" endpoint=endpoint method=method status=status duration_ms=round(duration*1000, digits=2)
+        -     end
+        - end
+        - 
+        4 function log_submission(model_name::String, round::Int, success::Bool; error_msg::String="")
+        2     if success
+        1         @info "Submission successful" model=model_name round=round
+        -     else
+        1         @error "Submission failed" model=model_name round=round error=error_msg
+        -     end
+        - end
+        - 
+        2 function log_training_progress(model_name::String, epoch::Int, total_epochs::Int; 
+        -                               metrics::Dict=Dict(), eta_seconds::Float64=0.0)
+        1     progress_pct = round(100 * epoch / total_epochs, digits=1)
+        1     eta_str = if eta_seconds > 0
+        1         mins, secs = divrem(Int(floor(eta_seconds)), 60)
+        1         "$(mins)m $(secs)s"
+        -     else
+        1         "unknown"
+        -     end
+        -     
+        -     # Convert metrics to keyword arguments with Symbol keys
+        1     metric_kwargs = []
+        2     for (k, v) in metrics
+        2         push!(metric_kwargs, Symbol(k) => v)
+        3     end
+        -     
+        1     @info "Training progress" model=model_name epoch=epoch total=total_epochs progress_pct=progress_pct eta=eta_str metric_kwargs...
+        - end
+        - 
+        - # Log rotation functionality
+       36 function rotate_logs(; max_size_mb::Float64=100.0, max_files::Int=10)
+       18     if !isassigned(GLOBAL_LOGGER)
+        0         return
+        -     end
+        -     
+       18     log_file = GLOBAL_LOGGER[].log_file
+       18     if !isfile(log_file)
+        1         return
+        -     end
+        -     
+       17     file_size_mb = filesize(log_file) / (1024 * 1024)
+       17     if file_size_mb > max_size_mb
+        -         # Close current log file properly
+       20         if !isnothing(GLOBAL_LOGGER[].file_handle)
+       10             close(GLOBAL_LOGGER[].file_handle)
+        -         end
+        -         
+        -         # Rotate files
+       10         base_name = splitext(log_file)[1]
+       10         ext = splitext(log_file)[2]
+        -         
+        -         # Remove oldest file if at max
+       10         oldest_file = "$(base_name).$(max_files)$(ext)"
+       10         if isfile(oldest_file)
+        3             rm(oldest_file)
+        -         end
+        -         
+        -         # Shift existing files
+       13         for i in (max_files-1):-1:1
+       13             old_file = "$(base_name).$(i)$(ext)"
+       13             new_file = "$(base_name).$(i+1)$(ext)"
+       13             if isfile(old_file)
+        6                 mv(old_file, new_file)
+        -             end
+       16         end
+        -         
+        -         # Move current to .1
+       10         mv(log_file, "$(base_name).1$(ext)")
+        -         
+        -         # Reinitialize logger
+       10         init_logger(log_file=log_file, append=false)
+       10         @info "Log rotation completed" old_size_mb=round(file_size_mb, digits=2)
+        -     end
+        - end
+        - 
+        - end # module

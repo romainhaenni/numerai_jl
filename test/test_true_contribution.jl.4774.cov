@@ -1,0 +1,634 @@
+        - using Test
+        - using Statistics
+        - using Random
+        - using LinearAlgebra
+        - using DataFrames
+        - 
+        - # Import the main module and its submodules
+        - using NumeraiTournament
+        - using NumeraiTournament.Metrics
+        - 
+        1 @testset "True Contribution (TC) Comprehensive Tests" begin
+        -     
+        1     @testset "Basic TC Calculation Tests" begin
+        1         @testset "Perfect correlation" begin
+        -             # When predictions perfectly match returns and meta-model is different
+        6             returns = [1.0, 2.0, 3.0, 4.0, 5.0]
+        1             predictions = copy(returns)
+        5             meta_model = [0.5, 1.5, 2.5, 3.5, 4.5]  # Shifted but correlated meta-model
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        1             @test -1.0 <= tc <= 1.0
+        -             # TC behavior depends on the orthogonalization result
+        -             # Just ensure it's a valid number
+        1             @test abs(tc) >= 0
+        -         end
+        -         
+        0         @testset "Perfect anti-correlation" begin
+        -             # When predictions are perfectly anti-correlated with returns
+        6             returns = [1.0, 2.0, 3.0, 4.0, 5.0]
+        1             predictions = -returns  # Perfect anti-correlation
+        5             meta_model = zeros(length(returns))  # No contribution from meta-model
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        1             @test tc < 0  # Should be negative due to anti-correlation
+        -         end
+        -         
+        0         @testset "Zero correlation" begin
+        -             # When predictions are uncorrelated with returns
+        6             returns = [1.0, 2.0, 3.0, 4.0, 5.0]
+        5             predictions = [1.0, 1.0, 1.0, 1.0, 1.0]  # Constant predictions
+        5             meta_model = zeros(length(returns))
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        -             # Constant predictions after gaussianization can have unexpected behavior
+        -             # Just ensure it's a valid number
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        -         end
+        -         
+        0         @testset "Identical to meta-model" begin
+        -             # When predictions are identical to meta-model (no unique contribution)
+        6             meta_model = [1.0, 2.0, 3.0, 4.0, 5.0]
+        5             returns = [2.0, 3.0, 4.0, 5.0, 6.0]  # Different from meta-model
+        1             predictions = copy(meta_model)  # Identical to meta-model
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        -             # When returns are orthogonalized against meta-model, and predictions = meta-model,
+        -             # the correlation should be zero
+        1             @test abs(tc) < 1e-10
+        -         end
+        -     end
+        -     
+        0     @testset "Edge Cases and Error Conditions" begin
+        1         @testset "Single element vectors" begin
+        2             tc = Metrics.calculate_tc([1.0], [1.0], [1.0])
+        1             @test tc == 0.0
+        -         end
+        -         
+        0         @testset "Empty vectors" begin
+        2             tc = Metrics.calculate_tc(Float64[], Float64[], Float64[])
+        1             @test tc == 0.0
+        -         end
+        -         
+        0         @testset "Mismatched vector lengths" begin
+        4             @test_throws ArgumentError Metrics.calculate_tc([1.0, 2.0], [1.0], [1.0, 2.0])
+        3             @test_throws ArgumentError Metrics.calculate_tc([1.0], [1.0, 2.0], [1.0, 2.0])
+        3             @test_throws ArgumentError Metrics.calculate_tc([1.0, 2.0], [1.0, 2.0], [1.0])
+        -         end
+        -         
+        0         @testset "Constant predictions" begin
+        2             n = 100
+        1             returns = randn(n)
+        1             meta_model = randn(n)
+      100             predictions = fill(42.0, n)  # All predictions are the same
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        -             # Constant predictions after gaussianization should have some variance,
+        -             # but TC should be close to zero due to lack of meaningful signal
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        -         end
+        -         
+        0         @testset "Constant returns" begin
+        2             n = 50
+       50             returns = fill(5.0, n)  # All returns are the same
+        1             meta_model = randn(n)
+        1             predictions = randn(n)
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        -             # Constant returns after orthogonalization might have zero variance
+        2             @test tc == 0.0 || (!isnan(tc) && !isinf(tc))
+        -         end
+        -         
+        0         @testset "Constant meta-model" begin
+        2             n = 50
+        1             returns = randn(n)
+       50             meta_model = fill(10.0, n)  # Constant meta-model
+        1             predictions = randn(n)
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        -             # With constant meta-model, orthogonalization should leave returns mostly unchanged
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        1             @test -1.0 <= tc <= 1.0
+        -         end
+        -         
+        0         @testset "NaN values in inputs" begin
+        6             returns = [1.0, 2.0, NaN, 4.0, 5.0]
+        5             meta_model = [1.0, 2.0, 3.0, 4.0, 5.0]
+        5             predictions = [1.0, 2.0, 3.0, 4.0, 5.0]
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        -             # Function should handle NaN gracefully and return 0 or NaN
+        4             @test isnan(tc) || tc == 0.0
+        -         end
+        -         
+        0         @testset "Infinite values in inputs" begin
+        6             returns = [1.0, 2.0, Inf, 4.0, 5.0]
+        5             meta_model = [1.0, 2.0, 3.0, 4.0, 5.0]
+        5             predictions = [1.0, 2.0, 3.0, 4.0, 5.0]
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        -             # Function should handle Inf gracefully
+        2             @test !isinf(tc) || tc == 0.0
+        -         end
+        -     end
+        -     
+        0     @testset "Numerical Stability Tests" begin
+        1         @testset "Very large values" begin
+        2             n = 100
+        1             scale = 1e10
+        1             returns = scale * randn(n)
+        1             meta_model = scale * randn(n)
+        1             predictions = scale * randn(n)
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        1             @test -1.0 <= tc <= 1.0
+        -         end
+        -         
+        0         @testset "Very small values" begin
+        2             n = 100
+        1             scale = 1e-10
+        1             returns = scale * randn(n)
+        1             meta_model = scale * randn(n) 
+        1             predictions = scale * randn(n)
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        1             @test -1.0 <= tc <= 1.0
+        -         end
+        -         
+        0         @testset "Mixed scales" begin
+        6             returns = [1e10, 1e-10, 1.0, -1e10, -1e-10]
+        5             meta_model = [5e9, 5e-11, 0.5, -5e9, -5e-11]
+        5             predictions = [8e9, 8e-11, 0.8, -8e9, -8e-11]
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        -         end
+        -         
+        0         @testset "High precision requirements" begin
+        -             # Test numerical stability with values that could cause precision issues
+        2             Random.seed!(42)
+        1             n = 1000
+        -             
+        -             # Create data with subtle differences that require high precision
+        1             base = randn(n)
+        1             returns = base + 1e-12 * randn(n)
+        1             meta_model = base + 1e-12 * randn(n)
+        1             predictions = base + 1e-12 * randn(n)
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        -         end
+        -     end
+        -     
+        0     @testset "Correlation Fallback Method Tests" begin
+        -         # The current implementation uses correlation-based method only
+        -         # These tests verify the correlation-based approach is working correctly
+        -         
+        1         @testset "Correlation method consistency" begin
+        2             Random.seed!(123)
+        1             n = 500
+        -             
+        -             # Create test data with known relationships
+        1             base_signal = randn(n)
+        1             returns = 0.8 * base_signal + 0.2 * randn(n)
+        1             meta_model = 0.6 * base_signal + 0.4 * randn(n)
+        1             predictions = 0.7 * base_signal + 0.3 * randn(n)
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        -             
+        -             # Manual calculation to verify
+        -             # 1. Gaussianize predictions
+        1             p = Metrics.gaussianize(Metrics.tie_kept_rank(predictions))
+        -             # 2. Orthogonalize returns w.r.t. meta-model
+        1             orthogonal_returns = Metrics.orthogonalize(returns, meta_model)
+        -             # 3. Calculate correlation
+        1             expected_tc = cor(p, orthogonal_returns)
+        2             if std(orthogonal_returns) == 0.0
+        0                 expected_tc = 0.0
+        -             end
+        -             
+        1             @test abs(tc - expected_tc) < 1e-10
+        -         end
+        -         
+        0         @testset "Zero variance orthogonal returns" begin
+        2             n = 100
+        1             meta_model = randn(n)
+        1             returns = copy(meta_model)  # Returns identical to meta-model
+        1             predictions = randn(n)
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        1             @test tc == 0.0  # Should handle zero variance case
+        -         end
+        -         
+        0         @testset "Correlation method vs manual calculation" begin
+        6             returns = [1.0, 2.0, 3.0, 4.0, 5.0]
+        5             meta_model = [1.5, 2.5, 3.5, 4.5, 5.5]
+        5             predictions = [0.8, 1.8, 2.8, 3.8, 4.8]
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        -             
+        -             # Manual step-by-step calculation
+        1             p = Metrics.gaussianize(Metrics.tie_kept_rank(predictions))
+        1             orthogonal_returns = Metrics.orthogonalize(returns, meta_model)
+        -             
+        2             if std(orthogonal_returns) == 0.0
+        1                 manual_tc = 0.0
+        -             else
+        0                 manual_tc = cor(p, orthogonal_returns)
+        0                 if isnan(manual_tc)
+        0                     manual_tc = 0.0
+        -                 end
+        -             end
+        -             
+        1             @test abs(tc - manual_tc) < 1e-10
+        -         end
+        -     end
+        -     
+        0     @testset "Real-world Like Data Distribution Tests" begin
+        1         @testset "Tournament-like data simulation" begin
+        2             Random.seed!(456)
+        1             n_eras = 20
+        1             n_per_era = 50
+        1             n_total = n_eras * n_per_era
+        -             
+        -             # Simulate era-based structure like Numerai tournament
+        1             era_effects = randn(n_eras)
+        1             base_signal = repeat(era_effects, inner=n_per_era) + 0.5 * randn(n_total)
+        -             
+        -             # Create returns with era structure and noise
+        1             returns = 0.1 * base_signal + 0.9 * randn(n_total)
+        -             
+        -             # Create meta-model that captures some of the era effects
+        1             meta_model = 0.15 * base_signal + 0.85 * randn(n_total)
+        -             
+        -             # Create predictions with different signal capture
+        1             predictions = 0.12 * base_signal + 0.88 * randn(n_total)
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        1             @test -1.0 <= tc <= 1.0
+        -         end
+        -         
+        0         @testset "Realistic correlation ranges" begin
+        2             Random.seed!(789)
+        1             n = 2000
+        -             
+        -             # Create data with realistic correlations (low signal-to-noise ratio)
+        1             base_alpha = 0.05 * randn(n)  # Weak alpha signal
+        1             noise = randn(n)
+        -             
+        1             returns = base_alpha + noise
+        1             meta_model = 0.8 * base_alpha + 0.9 * randn(n)
+        1             predictions = 0.6 * base_alpha + 0.95 * randn(n)
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        -             
+        -             # In realistic settings, TC should be small but measurable
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        1             @test abs(tc) < 0.5  # Realistic TC values are typically small
+        -         end
+        -         
+        0         @testset "Skewed and non-normal distributions" begin
+        2             Random.seed!(101112)
+        1             n = 1000
+        -             
+        -             # Create skewed distributions (common in financial data)
+        -             # Using exponential distribution for positive skew
+        2             returns = exp.(0.1 * randn(n)) .- 1  # Positively skewed
+        2             meta_model = -exp.(0.1 * randn(n)) .+ 1  # Negatively skewed
+        2             predictions = randn(n).^3  # Slightly skewed
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        1             @test -1.0 <= tc <= 1.0
+        -         end
+        -         
+        0         @testset "Heavy-tailed distributions" begin
+        2             Random.seed!(131415)
+        1             n = 800
+        -             
+        -             # Create heavy-tailed distributions (t-distribution-like)
+        2             returns = randn(n) ./ abs.(randn(n) .+ 0.1)  # Heavy tails
+        2             meta_model = randn(n) ./ abs.(randn(n) .+ 0.1)
+        2             predictions = randn(n) ./ abs.(randn(n) .+ 0.1)
+        -             
+        -             # Clip extreme values to avoid numerical issues
+        2             returns = clamp.(returns, -10, 10)
+        2             meta_model = clamp.(meta_model, -10, 10)
+        2             predictions = clamp.(predictions, -10, 10)
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        -         end
+        -     end
+        -     
+        0     @testset "Batch TC Calculation Tests" begin
+        1         @testset "Batch vs individual calculation consistency" begin
+        2             Random.seed!(161718)
+        1             n_samples = 300
+        1             n_models = 5
+        -             
+        1             base_signal = randn(n_samples)
+        1             returns = 0.7 * base_signal + 0.3 * randn(n_samples)
+        1             meta_model = 0.6 * base_signal + 0.4 * randn(n_samples)
+        -             
+        -             # Create predictions matrix
+        1             predictions_matrix = Matrix{Float64}(undef, n_samples, n_models)
+        1             for i in 1:n_models
+        5                 predictions_matrix[:, i] = (0.3 + 0.1*i) * base_signal + (0.7 - 0.1*i) * randn(n_samples)
+        9             end
+        -             
+        -             # Calculate batch TC
+        1             tc_scores = Metrics.calculate_tc_batch(predictions_matrix, meta_model, returns)
+        -             
+        1             @test length(tc_scores) == n_models
+        3             @test all(-1.0 .<= tc_scores .<= 1.0)
+        3             @test all(.!isnan.(tc_scores))
+        3             @test all(.!isinf.(tc_scores))
+        -             
+        -             # Verify against individual calculations
+        1             for i in 1:n_models
+     1500                 individual_tc = Metrics.calculate_tc(predictions_matrix[:, i], meta_model, returns)
+        5                 @test abs(tc_scores[i] - individual_tc) < 1e-12
+        9             end
+        -         end
+        -         
+        0         @testset "Batch calculation with edge cases" begin
+        2             n_samples = 100
+        1             n_models = 3
+        -             
+        1             returns = randn(n_samples)
+        1             meta_model = randn(n_samples)
+        -             
+        -             # Create predictions matrix with various edge cases
+        1             predictions_matrix = Matrix{Float64}(undef, n_samples, n_models)
+        1             predictions_matrix[:, 1] = fill(1.0, n_samples)  # Constant predictions
+        1             predictions_matrix[:, 2] = copy(meta_model)      # Identical to meta-model
+        1             predictions_matrix[:, 3] = randn(n_samples)       # Random predictions
+        -             
+        1             tc_scores = Metrics.calculate_tc_batch(predictions_matrix, meta_model, returns)
+        -             
+        1             @test length(tc_scores) == n_models
+        3             @test all(.!isinf.(tc_scores))
+        -             # First model (constant) might have unexpected TC due to gaussianization
+        -             # Just ensure it's a valid finite number
+        2             @test !isnan(tc_scores[1]) && !isinf(tc_scores[1])
+        -             # Second model (identical to meta-model) should have TC close to zero
+        -             # but might not be exactly zero due to numerical precision
+        1             @test abs(tc_scores[2]) < 0.1
+        -         end
+        -         
+        0         @testset "Batch dimension mismatch errors" begin
+        2             predictions_matrix = randn(100, 3)
+        1             meta_model = randn(50)  # Wrong size
+        1             returns = randn(100)
+        -             
+        2             @test_throws ArgumentError Metrics.calculate_tc_batch(predictions_matrix, meta_model, returns)
+        -             
+        1             meta_model = randn(100)
+        1             returns = randn(50)  # Wrong size
+        -             
+        2             @test_throws ArgumentError Metrics.calculate_tc_batch(predictions_matrix, meta_model, returns)
+        -         end
+        -     end
+        -     
+        0     @testset "Feature Neutralized TC Tests" begin
+        1         @testset "Basic feature neutralization effect" begin
+        2             Random.seed!(192021)
+        1             n_samples = 400
+        1             n_features = 8
+        -             
+        1             base_signal = randn(n_samples)
+        1             returns = 0.6 * base_signal + 0.4 * randn(n_samples)
+        1             meta_model = 0.5 * base_signal + 0.5 * randn(n_samples)
+        -             
+        -             # Create features matrix
+        1             features = randn(n_samples, n_features)
+        -             
+        -             # Create predictions correlated with features
+      400             feature_effect = sum(features[:, 1:3], dims=2)[:, 1]
+        1             predictions = 0.3 * base_signal + 0.4 * feature_effect + 0.3 * randn(n_samples)
+        -             
+        -             # Calculate regular TC
+        1             regular_tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        -             
+        -             # Calculate feature-neutralized TC
+        1             fn_tc = Metrics.calculate_feature_neutralized_tc(predictions, meta_model, returns, features)
+        -             
+        2             @test !isnan(regular_tc) && !isnan(fn_tc)
+        2             @test !isinf(regular_tc) && !isinf(fn_tc)
+        -             
+        -             # Feature neutralization should change the TC
+        -             # (unless predictions were already orthogonal to features)
+        1             @test abs(regular_tc - fn_tc) >= 0  # Could be equal if orthogonal
+        -         end
+        -         
+        0         @testset "Feature neutralization dimension errors" begin
+        2             predictions = randn(100)
+        1             meta_model = randn(100)
+        1             returns = randn(100)
+        1             features = randn(50, 5)  # Wrong number of samples
+        -             
+        2             @test_throws ArgumentError Metrics.calculate_feature_neutralized_tc(predictions, meta_model, returns, features)
+        -         end
+        -         
+        0         @testset "No features matrix (empty)" begin
+        2             n_samples = 50
+        1             predictions = randn(n_samples)
+        1             meta_model = randn(n_samples)
+        1             returns = randn(n_samples)
+        1             features = Matrix{Float64}(undef, n_samples, 0)  # No features
+        -             
+        1             regular_tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        1             fn_tc = Metrics.calculate_feature_neutralized_tc(predictions, meta_model, returns, features)
+        -             
+        -             # With no features, neutralized TC should equal regular TC
+        1             @test abs(regular_tc - fn_tc) < 1e-12
+        -         end
+        -     end
+        -     
+        0     @testset "Performance and Scalability Tests" begin
+        1         @testset "Large dataset performance" begin
+        2             Random.seed!(222324)
+        1             n_large = 50000
+        -             
+        1             returns = randn(n_large)
+        1             meta_model = 0.1 * returns + 0.9 * randn(n_large)
+        1             predictions = 0.08 * returns + 0.92 * randn(n_large)
+        -             
+        -             # Time the calculation (should complete reasonably quickly)
+        1             start_time = time()
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        1             elapsed = time() - start_time
+        -             
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        1             @test elapsed < 5.0  # Should complete within 5 seconds
+        -         end
+        -         
+        0         @testset "Memory efficiency test" begin
+        -             # Test that function doesn't create excessive temporary arrays
+        2             n = 10000
+        1             returns = randn(n)
+        1             meta_model = randn(n)
+        1             predictions = randn(n)
+        -             
+        -             # Function should work without excessive memory allocation
+        -             # (This is more of a smoke test - detailed memory profiling would require more setup)
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        -         end
+        -     end
+        -     
+        0     @testset "Comparison with MMC Tests" begin
+        1         @testset "TC vs MMC conceptual differences" begin
+        2             Random.seed!(252627)
+        1             n_samples = 500
+        -             
+        -             # Create scenario where TC and MMC should differ significantly
+        1             base_signal = randn(n_samples)
+        -             
+        -             # Returns have different correlation structure than targets
+        1             returns = 0.8 * base_signal + 0.2 * randn(n_samples)
+        1             targets = 0.3 * base_signal + 0.7 * randn(n_samples)  # Different from returns
+        -             
+        1             meta_model = 0.6 * base_signal + 0.4 * randn(n_samples)
+        1             predictions = 0.5 * base_signal + 0.5 * randn(n_samples)
+        -             
+        -             # Calculate both metrics
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        1             mmc = Metrics.calculate_mmc(predictions, meta_model, targets)
+        -             
+        2             @test !isnan(tc) && !isnan(mmc)
+        2             @test !isinf(tc) && !isinf(mmc)
+        -             
+        -             # They measure different things and should potentially differ
+        -             # (Though they could be similar in some cases)
+        1             @test -1.0 <= tc <= 1.0
+        1             @test -1.0 <= mmc <= 1.0
+        -         end
+        -         
+        0         @testset "TC and MMC with identical targets and returns" begin
+        2             Random.seed!(282930)
+        1             n_samples = 300
+        -             
+        1             base_signal = randn(n_samples)
+        1             targets_returns = 0.7 * base_signal + 0.3 * randn(n_samples)
+        1             meta_model = 0.5 * base_signal + 0.5 * randn(n_samples)
+        1             predictions = 0.6 * base_signal + 0.4 * randn(n_samples)
+        -             
+        -             # When targets = returns, TC and MMC should be similar (but not necessarily identical
+        -             # due to different processing - MMC uses gaussianized meta-model)
+        1             tc = Metrics.calculate_tc(predictions, meta_model, targets_returns)
+        1             mmc = Metrics.calculate_mmc(predictions, meta_model, targets_returns)
+        -             
+        2             @test !isnan(tc) && !isnan(mmc)
+        2             @test !isinf(tc) && !isinf(mmc)
+        -             
+        -             # Both should be in valid ranges
+        1             @test -1.0 <= tc <= 1.0
+        1             @test -1.0 <= mmc <= 1.0
+        -         end
+        -     end
+        -     
+        0     @testset "Regression Tests for Recent Fixes" begin
+        1         @testset "Handle NaN results from correlation" begin
+        -             # Test case that could previously cause NaN results
+        2             n = 10
+       10             returns = fill(1.0, n)  # Constant returns
+       10             meta_model = fill(1.0, n)  # Constant meta-model
+        1             predictions = randn(n)
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        -             # Should return 0.0 instead of NaN when orthogonalized returns have zero variance
+        1             @test tc == 0.0
+        -         end
+        -         
+        0         @testset "Numerical stability with tie_kept_rank" begin
+        -             # Test that tie_kept_rank produces monotonic results
+        2             n = 100
+        1             Random.seed!(313233)
+        -             
+        -             # Create data with many ties
+       10             base_values = [1, 1, 1, 2, 2, 3, 3, 3, 3, 4]
+        1             predictions = Float64.(repeat(base_values, 10))
+        1             shuffle!(predictions)
+        -             
+        1             returns = randn(n)
+        1             meta_model = randn(n)
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        -         end
+        -         
+        0         @testset "Gaussianization edge cases" begin
+        -             # Test gaussianization with edge cases that could cause issues
+        5             predictions = [1.0, 1.0, 1.0, 2.0]  # Mostly ties
+        4             returns = [1.0, 2.0, 3.0, 4.0]
+        4             meta_model = [0.5, 1.5, 2.5, 3.5]
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        -         end
+        -     end
+        -     
+        0     @testset "Documentation Examples and Use Cases" begin
+        1         @testset "Basic usage example" begin
+        -             # Example from documentation - should work as expected
+        6             returns = [0.1, 0.2, 0.15, 0.25, 0.18]
+        5             predictions = [0.12, 0.18, 0.16, 0.22, 0.20]
+        5             meta_model = [0.11, 0.19, 0.14, 0.24, 0.17]
+        -             
+        1             tc = Metrics.calculate_tc(predictions, meta_model, returns)
+        2             @test !isnan(tc)
+        2             @test !isinf(tc)
+        1             @test -1.0 <= tc <= 1.0
+        -         end
+        -         
+        0         @testset "Multi-model comparison" begin
+        2             Random.seed!(343536)
+        1             n = 200
+        -             
+        1             base_signal = randn(n)
+        1             returns = 0.1 * base_signal + 0.9 * randn(n)
+        1             meta_model = 0.08 * base_signal + 0.92 * randn(n)
+        -             
+        -             # Create several models with different signal strengths
+        4             model_signals = [0.05, 0.07, 0.09, 0.11]
+        2             predictions_matrix = Matrix{Float64}(undef, n, length(model_signals))
+        -             
+        1             for (i, signal_strength) in enumerate(model_signals)
+        4                 predictions_matrix[:, i] = signal_strength * base_signal + (1 - signal_strength) * randn(n)
+        7             end
+        -             
+        1             tc_scores = Metrics.calculate_tc_batch(predictions_matrix, meta_model, returns)
+        -             
+        -             # Models with higher signal strength should generally have higher TC
+        -             # (though this isn't guaranteed due to randomness and orthogonalization)
+        1             @test length(tc_scores) == length(model_signals)
+        2             @test all(!isnan, tc_scores)
+        2             @test all(!isinf, tc_scores)
+        3             @test all(-1.0 .<= tc_scores .<= 1.0)
+        -         end
+        -     end
+        - end

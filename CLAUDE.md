@@ -24,11 +24,15 @@ julia --project=. -e "using Pkg; Pkg.test()"
 # Run tests directly (faster for development)
 julia --project=. test/runtests.jl
 
-# Run specific test file
+# Run individual test files standalone
 julia --project=. test/test_api.jl
+julia --project=. test/test_production_ready.jl
+julia --project=. test/test_gpu_metal.jl
 
 # Run tests with coverage
 julia --project=. -e "using Pkg; Pkg.test(coverage=true)"
+
+# Note: CondaPkg initialization on first run is normal - creates Python dependencies for CatBoost
 ```
 
 ### Main Application

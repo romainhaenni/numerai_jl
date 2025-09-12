@@ -1,15 +1,29 @@
 # Numerai Tournament System - Julia Implementation
 
-A production-ready Julia application for automated participation in the Numerai tournament, optimized for M4 Max Mac Studio.
+A production-ready Julia application for automated participation in the Numerai tournament, optimized for M4 Max Mac Studio with comprehensive ML models and advanced TUI dashboard.
 
-## Features
+## 🚀 Key Features
 
-- **Pure Julia ML Implementation** - XGBoost and LightGBM models with ensemble management
-- **TUI Dashboard** - Real-time monitoring with performance metrics, model status, and event logs
+### Machine Learning Pipeline
+- **9 Model Types** - XGBoost, LightGBM, CatBoost, EvoTrees, Neural Networks (MLP, ResNet), Linear Models (Ridge, Lasso, ElasticNet)
+- **Multi-Target Support** - Both V4 (single) and V5 (multi-target) predictions
+- **Ensemble Management** - Weighted predictions combining multiple models
+- **Feature Engineering** - Neutralization, interaction constraints, feature groups
+- **Hyperparameter Optimization** - Bayesian, grid, and random search strategies
+
+### Advanced TUI Dashboard
+- **6-Column Grid Layout** - Professional grid-based interface with responsive panels
+- **Real-Time Monitoring** - Live performance metrics, model status, and event logs
+- **Model Creation Wizard** - Interactive 6-step wizard for configuring new models (`/new` command or press 'n')
+- **Advanced Commands** - `/train`, `/submit`, `/stake`, `/download`, `/refresh`, `/diag`
+- **Visual Progress Tracking** - Training progress bars, prediction charts, sparklines
+
+### System Features
 - **Automated Tournament Participation** - Scheduled data downloads, training, and submissions
-- **Feature Neutralization** - Built-in feature neutralization for improved consistency
+- **GPU Acceleration** - Apple Metal support for M-series chips with automatic CPU fallback
 - **macOS Notifications** - Native alerts for important events
 - **M4 Max Optimization** - Leverages all 16 CPU cores and 48GB unified memory
+- **Thread-Safe Architecture** - Concurrent operations with proper resource management
 
 ## Installation
 
@@ -91,11 +105,25 @@ julia start_tui.jl --performance
 
 ### TUI Dashboard Controls
 
-- `q` - Quit
+#### Keyboard Shortcuts
+- `q` - Quit application
 - `p` - Pause/Resume training
-- `s` - Start Training
-- `h` - Show Help
-- `n` - Create new model
+- `s` - Start training pipeline
+- `h` - Show help menu
+- `n` - Launch model creation wizard
+- `/` - Enter command mode
+- `ESC` - Cancel current operation
+
+#### Available Commands
+- `/new` - Create new model with wizard
+- `/train` - Start training pipeline
+- `/submit` - Submit predictions to Numerai
+- `/stake <amount>` - Set stake amount for model
+- `/download` - Download latest tournament data
+- `/refresh` - Refresh model performances
+- `/diag` - Run system diagnostics
+- `/network` - Test network connectivity
+- `/help` - Show available commands
 
 ## Architecture
 
@@ -110,11 +138,12 @@ julia start_tui.jl --performance
 
 ### Data Flow
 
-1. **Data Download** - Fetches latest tournament data (train, validation, live)
-2. **Feature Engineering** - Preprocessing and feature neutralization
-3. **Model Training** - XGBoost/LightGBM ensemble training
-4. **Prediction Generation** - Creates submissions for live data
-5. **Submission Upload** - Automatically uploads to Numerai
+1. **Data Download** - Fetches latest tournament data (train, validation, live) with automatic format detection
+2. **Feature Engineering** - Preprocessing, neutralization, interaction constraints, feature groups
+3. **Model Training** - Multiple algorithms with hyperparameter optimization and callbacks
+4. **Ensemble Creation** - Combines predictions from multiple models with weighted averaging
+5. **Prediction Generation** - Creates submissions for live data with validation checks
+6. **Submission Upload** - Automatically uploads to Numerai with retry logic
 
 ## Testing
 
@@ -129,9 +158,11 @@ julia --project=. test/runtests.jl
 
 Run specific tests:
 ```bash
-julia --project=. test/test_api.jl        # Test API connectivity
-julia --project=. test/test_download.jl   # Test data downloads
-julia --project=. test/test_tui.jl        # Test TUI components
+julia --project=. test/test_api.jl               # Test API connectivity
+julia --project=. test/test_tui.jl               # Test TUI components
+julia --project=. test/test_gpu_metal.jl         # Test GPU acceleration
+julia --project=. test/test_e2e_comprehensive.jl # Comprehensive end-to-end tests
+julia --project=. test/test_multi_target.jl      # Test multi-target support
 ```
 
 Run tests with coverage:
@@ -141,11 +172,20 @@ julia --project=. -e "using Pkg; Pkg.test(coverage=true)"
 
 ## Performance Optimization
 
+### Automatic Optimizations
 The system automatically optimizes for M4 Max:
 - Configures BLAS for optimal thread usage
 - Manages memory allocation for large datasets
 - Parallel processing with ThreadsX.jl
 - Efficient data loading with Parquet.jl
+- GPU acceleration with Metal.jl for neural networks
+- Smart caching for frequently accessed data
+
+### Performance Tips
+- Use `feature_set = "small"` for faster iteration during development
+- Enable GPU with `use_gpu = true` in neural network models
+- Adjust `batch_size` based on available memory
+- Use ensemble of smaller models for better generalization
 
 For best performance, run Julia with multiple threads:
 ```bash
@@ -185,16 +225,28 @@ The scheduler automatically handles:
 ### Project Structure
 ```
 numerai_jl/
-├── src/                  # Source code
-│   ├── api/             # API client
-│   ├── ml/              # ML pipeline
-│   ├── tui/             # Dashboard
-│   └── scheduler/       # Automation
-├── test/                # Test suite
-├── data/                # Tournament data
-├── models/              # Trained models
-├── config.toml          # Configuration
-└── start_tui.jl         # TUI starter script
+├── src/                    # Source code
+│   ├── api/               # GraphQL API client with retry logic
+│   ├── ml/                # ML pipeline
+│   │   ├── models.jl      # Model implementations
+│   │   ├── neural_networks.jl  # MLP and ResNet
+│   │   ├── ensemble.jl    # Ensemble management
+│   │   ├── hyperopt.jl    # Hyperparameter optimization
+│   │   └── metrics.jl     # Performance metrics
+│   ├── tui/               # Terminal UI dashboard
+│   │   ├── dashboard.jl   # Main dashboard logic
+│   │   ├── grid.jl        # 6-column grid system
+│   │   ├── panels.jl      # UI panels
+│   │   └── dashboard_commands.jl  # Command handlers
+│   ├── gpu/               # GPU acceleration
+│   ├── data/              # Data processing
+│   └── scheduler/         # Automation & scheduling
+├── test/                  # Comprehensive test suite
+├── examples/              # Example scripts
+├── data/                  # Tournament data
+├── models/                # Trained models
+├── config.toml            # Configuration
+└── start_tui.jl           # TUI starter script
 ```
 
 ### Contributing

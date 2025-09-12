@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+
+# Numerai Tournament System - Executable Script
+# This script launches the Numerai tournament application with optimal settings
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Default number of threads (optimized for M4 Max)
+THREADS="${JULIA_NUM_THREADS:-16}"
+
+# Check if Julia is installed
+if ! command -v julia &> /dev/null; then
+    echo "Error: Julia is not installed or not in PATH"
+    echo "Please install Julia 1.10 or higher"
+    exit 1
+fi
+
+# Check Julia version
+JULIA_VERSION=$(julia --version | cut -d' ' -f3)
+MAJOR_VERSION=$(echo "$JULIA_VERSION" | cut -d'.' -f1)
+MINOR_VERSION=$(echo "$JULIA_VERSION" | cut -d'.' -f2)
+
+if [ "$MAJOR_VERSION" -lt 1 ] || ([ "$MAJOR_VERSION" -eq 1 ] && [ "$MINOR_VERSION" -lt 10 ]); then
+    echo "Error: Julia version $JULIA_VERSION is too old"
+    echo "Please install Julia 1.10 or higher"
+    exit 1
+fi
+
+# Function to display help
+show_help() {
+    cat << EOF
+Numerai Tournament System
+
+Usage: $0 [OPTIONS]
+
+Options:
+    --help, -h          Show this help message
+    --headless          Run in headless mode (no TUI)
+    --download          Download tournament data
+    --train             Train models
+    --submit            Submit predictions
+    --performance       View model performance
+    --threads N         Set number of threads (default: 16)
+
+TUI Dashboard Controls:
+    q                   Quit application
+    p                   Pause/Resume training
+    s                   Start training pipeline
+    h                   Show help menu
+    n                   Launch model creation wizard
+    /                   Enter command mode
+    ESC                 Cancel current operation
+
+Available Commands in TUI:
+    /new                Create new model with wizard
+    /train              Start training pipeline
+    /submit             Submit predictions to Numerai
+    /stake <amount>     Set stake amount for model
+    /download           Download latest tournament data
+    /refresh            Refresh model performances
+    /diag               Run system diagnostics
+    /network            Test network connectivity
+    /help               Show available commands
+
+Environment Variables:
+    NUMERAI_PUBLIC_ID   Your Numerai public ID
+    NUMERAI_SECRET_KEY  Your Numerai secret key
+    JULIA_NUM_THREADS   Number of threads to use (default: 16)
+
+Configuration:
+    Edit config.toml to configure tournament settings
+    Create .env file for API credentials
+
+Examples:
+    $0                  # Start TUI dashboard with default threads
+    $0 --threads 8      # Start with 8 threads
+    $0 --headless       # Run in headless mode for automation
+    $0 --train          # Train models directly
+    $0 --submit         # Submit predictions directly
+
+EOF
+}
+
+# Parse command line arguments
+JULIA_ARGS=""
+CUSTOM_THREADS=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --help|-h)
+            show_help
+            exit 0
+            ;;
+        --threads)
+            THREADS="$2"
+            CUSTOM_THREADS=true
+            shift 2
+            ;;
+        *)
+            # Pass other arguments to Julia script
+            JULIA_ARGS="$JULIA_ARGS $1"
+            shift
+            ;;
+    esac
+done
+
+# Export environment variable for threads
+export JULIA_NUM_THREADS="$THREADS"
+
+# Change to script directory
+cd "$SCRIPT_DIR" || exit 1
+
+# Check if project dependencies are installed
+if [ ! -d "Manifest.toml" ] && [ ! -f "Manifest.toml" ]; then
+    echo "First time setup: Installing dependencies..."
+    julia --project=. -e "using Pkg; Pkg.instantiate(); Pkg.precompile()" || {
+        echo "Error: Failed to install dependencies"
+        echo "Please run: julia --project=. -e \"using Pkg; Pkg.instantiate()\""
+        exit 1
+    }
+fi
+
+# Display startup information
+if [ "$CUSTOM_THREADS" = false ] && [ -z "$JULIA_ARGS" ]; then
+    echo "Starting Numerai Tournament System with $THREADS threads..."
+    echo "Press 'h' in the TUI for help or use --help for command line options"
+    echo ""
+fi
+
+# Launch the Julia application
+exec julia --project=. -t "$THREADS" start_tui.jl $JULIA_ARGS

@@ -6,6 +6,28 @@ using Distributed
 using ThreadsX
 using TimeZones
 
+# Load environment variables from .env file if it exists
+function load_env_file(path::String = ".env")
+    if isfile(path)
+        lines = readlines(path)
+        for line in lines
+            line = strip(line)
+            # Skip empty lines and comments
+            if !isempty(line) && !startswith(line, "#") && occursin("=", line)
+                key, val = split(line, "=", limit=2)
+                key = strip(key)
+                val = strip(val)
+                # Remove quotes if present
+                if (startswith(val, "\"") && endswith(val, "\"")) || 
+                   (startswith(val, "'") && endswith(val, "'"))
+                    val = val[2:end-1]
+                end
+                ENV[key] = val
+            end
+        end
+    end
+end
+
 include("logger.jl")
 include("utils.jl")
 include("notifications.jl")
@@ -103,6 +125,9 @@ mutable struct TournamentConfig
 end
 
 function load_config(path::String="config.toml")::TournamentConfig
+    # Load .env file first if it exists
+    load_env_file()
+    
     # Get API credentials from environment variables
     default_public_id = get(ENV, "NUMERAI_PUBLIC_ID", "")
     default_secret_key = get(ENV, "NUMERAI_SECRET_KEY", "")

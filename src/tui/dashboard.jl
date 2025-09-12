@@ -586,11 +586,29 @@ function get_staking_info(dashboard::TournamentDashboard)::Dict{Symbol, Any}
 end
 
 function format_time_remaining(time_remaining::Dates.Period)::String
-    hours = Dates.value(Dates.Hour(time_remaining))
-    minutes = Dates.value(Dates.Minute(time_remaining)) % 60
+    # Convert to total seconds safely to avoid precision issues
+    try
+        # Convert to milliseconds first, then to seconds
+        total_milliseconds = Dates.value(Dates.Millisecond(time_remaining))
+        total_seconds = div(total_milliseconds, 1000)  # Integer division
+        
+        # Handle negative or very small values
+        if total_seconds <= 0
+            return "0m"
+        end
+    catch e
+        # If any conversion fails, return safe default
+        if isa(e, InexactError)
+            return "0m"
+        end
+        rethrow(e)
+    end
+    
+    hours = div(total_seconds, 3600)
+    minutes = div(total_seconds % 3600, 60)
     
     if hours > 24
-        days = hours ÷ 24
+        days = div(hours, 24)
         hours_remainder = hours % 24
         return "$(days)d $(hours_remainder)h"
     elseif hours > 0
@@ -795,7 +813,7 @@ function run_real_training(dashboard::TournamentDashboard)
     try
         # Load configuration
         config = dashboard.config
-        data_dir = get(config, "data_dir", "data")
+        data_dir = config.data_dir
         
         # Initialize progress tracking
         dashboard.training_info[:current_epoch] = 0
@@ -806,14 +824,14 @@ function run_real_training(dashboard::TournamentDashboard)
         add_event!(dashboard, :info, "Loading training data...")
         train_data = DataLoader.load_training_data(
             joinpath(data_dir, "train.parquet"),
-            sample_pct=get(config, "sample_pct", 0.1)
+            sample_pct=config.sample_pct
         )
         
         dashboard.training_info[:progress] = 25
         
         # Get feature columns
         features_path = joinpath(data_dir, "features.json")
-        feature_set = hasfield(typeof(config), :feature_set) ? config.feature_set : get(config, "feature_set", "medium")
+        feature_set = config.feature_set
         feature_cols = if isfile(features_path)
             features, _ = DataLoader.load_features_json(features_path; feature_set=feature_set)
             features
@@ -837,9 +855,9 @@ function run_real_training(dashboard::TournamentDashboard)
         )
         pipeline = Pipeline.MLPipeline(
             feature_cols=feature_cols,
-            target_col=get(config, "target_col", "target_cyrus_v4_20"),
+            target_col=config.target_col,
             model_config=model_config,
-            neutralize=get(config, "enable_neutralization", false)
+            neutralize=config.enable_neutralization
         )
         
         dashboard.training_info[:progress] = 40
@@ -868,7 +886,7 @@ function run_real_training(dashboard::TournamentDashboard)
         val_data = DataLoader.load_training_data(
             joinpath(data_dir, "validation.parquet"),
             feature_cols=feature_cols,
-            target_col=get(config, "target_col", "target_cyrus_v4_20")
+            target_col=config.target_col
         )
         
         # Actually train the pipeline

@@ -333,9 +333,14 @@ function create_progress_bar(current::Number, total::Number; width::Int=20)::Str
 end
 
 function format_uptime(seconds::Int)::String
-    days = seconds ÷ 86400
-    hours = (seconds % 86400) ÷ 3600
-    minutes = (seconds % 3600) ÷ 60
+    # Handle negative values gracefully
+    if seconds < 0
+        return "0s"
+    end
+    
+    days = div(seconds, 86400)
+    hours = div(seconds % 86400, 3600)
+    minutes = div(seconds % 3600, 60)
     
     if days > 0
         return "$(days)d $(hours)h $(minutes)m"

@@ -111,16 +111,25 @@ max_workers = 16
 
 ## Testing
 
-Run the test suite:
+Run ALL tests:
 ```bash
-julia test/test_main.jl
+# Recommended: Run full test suite with proper project environment
+julia --project=. -e "using Pkg; Pkg.test()"
+
+# Alternative: Direct test runner
+julia --project=. test/runtests.jl
 ```
 
 Run specific tests:
 ```bash
-julia test/test_api.jl        # Test API connectivity
-julia test/test_download.jl   # Test data downloads
-julia test/test_tui.jl        # Test TUI components
+julia --project=. test/test_api.jl        # Test API connectivity
+julia --project=. test/test_download.jl   # Test data downloads
+julia --project=. test/test_tui.jl        # Test TUI components
+```
+
+Run tests with coverage:
+```bash
+julia --project=. -e "using Pkg; Pkg.test(coverage=true)"
 ```
 
 ## Performance Optimization

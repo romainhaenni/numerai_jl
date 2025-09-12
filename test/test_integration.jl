@@ -629,7 +629,10 @@ end
             0.1,   # sample_pct
             "target_cyrus_v4_20", # target_col
             false, # enable_neutralization
-            0.5    # neutralization_proportion
+            0.5,   # neutralization_proportion
+            true,  # enable_dynamic_sharpe
+            52,    # sharpe_history_rounds
+            2      # sharpe_min_data_points
         )
         
         @testset "Scheduler Setup and Configuration" begin

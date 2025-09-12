@@ -37,10 +37,19 @@ mutable struct NumeraiClient
 end
 
 function NumeraiClient(public_id::String, secret_key::String, tournament_id::Int=TOURNAMENT_CLASSIC)
+    # Validate that credentials are not empty
+    if isempty(strip(public_id))
+        throw(ArgumentError("NUMERAI_PUBLIC_ID cannot be empty. Please set your Numerai API public ID."))
+    end
+    
+    if isempty(strip(secret_key))
+        throw(ArgumentError("NUMERAI_SECRET_KEY cannot be empty. Please set your Numerai API secret key."))
+    end
+    
     headers = Dict(
         "Content-Type" => "application/json",
-        "x-public-id" => public_id,
-        "x-secret-key" => secret_key
+        "x-public-id" => strip(public_id),
+        "x-secret-key" => strip(secret_key)
     )
     NumeraiClient(public_id, secret_key, headers, tournament_id)
 end
@@ -73,8 +82,17 @@ function graphql_query(client::NumeraiClient, query::String, variables::Dict=Dic
         data = JSON3.read(response.body)
         
         if haskey(data, :errors)
-            @log_error "GraphQL Error" errors=data.errors query=first(query, 100)
-            error("GraphQL Error: $(data.errors)")
+            errors = data.errors
+            @log_error "GraphQL Error" errors=errors query=first(query, 100)
+            
+            # Check for authentication errors and provide helpful messages
+            error_messages = [error.message for error in errors if haskey(error, :message)]
+            if any(msg -> occursin("Not authenticated", msg) || occursin("authentication", lowercase(msg)), error_messages)
+                @log_error "Authentication failed - check your NUMERAI_PUBLIC_ID and NUMERAI_SECRET_KEY environment variables"
+                error("Authentication Error: Not authenticated. Please verify your NUMERAI_PUBLIC_ID and NUMERAI_SECRET_KEY are set correctly.")
+            else
+                error("GraphQL Error: $(errors)")
+            end
         end
         
         return data.data

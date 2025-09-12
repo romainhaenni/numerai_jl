@@ -4,6 +4,7 @@
 - I have updated the API credentials!!!!!!!! Fix the auth issue once for all!!!!!! you can see in @logs/numerai_20250912_072927.log that some requests are successful with authentication, some are not. seems that sometimes the credentials are missing in the header.
 - remove the panels in the TUI, just show consisely the most important information and system states in a list. ensure that this information is refreshed.
 - we still have the executable, remove that and provide a julia command to start the TUI
+- why do we have two READMEs? @README.md and @examples/README.md
 
 ## CURRENT IMPLEMENTATION STATUS: PRODUCTION READY ✅
 

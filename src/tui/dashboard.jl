@@ -12,6 +12,7 @@ using ..API
 using ..Pipeline
 using ..DataLoader
 using ..Panels
+using ..Panels: format_uptime
 using ..Logger: @log_info, @log_warn, @log_error
 
 # Import UTC utility function
@@ -450,24 +451,8 @@ function render(dashboard::TournamentDashboard)
             println(panel1)
             println(panel2)
         else
-            # Normal dashboard - display panels in sequence
-            panels = [
-                Panels.create_model_performance_panel(dashboard.model, dashboard.config),
-                Panels.create_staking_panel(get_staking_info(dashboard), dashboard.config),
-                Panels.create_predictions_panel(dashboard.predictions_history, dashboard.config),
-                Panels.create_events_panel(dashboard.events, dashboard.config),
-                Panels.create_system_panel(dashboard.system_info, dashboard.network_status, dashboard.config),
-                dashboard.training_info[:is_training] ? 
-                    Panels.create_training_panel(dashboard.training_info, dashboard.config) : 
-                    (dashboard.show_help ? Panels.create_help_panel(dashboard.config) : nothing)
-            ]
-            
-            # Display each panel
-            for panel in panels
-                if !isnothing(panel)
-                    println(panel)
-                end
-            end
+            # Simplified dashboard - display essential information in a clean list
+            render_simple_dashboard(dashboard)
         end
         
         status_line = create_status_line(dashboard)
@@ -475,6 +460,176 @@ function render(dashboard::TournamentDashboard)
     catch e
         # Enhanced recovery mode with comprehensive diagnostics
         render_recovery_mode(dashboard, e)
+    end
+end
+
+function render_simple_dashboard(dashboard::TournamentDashboard)
+    """
+    Render a simplified dashboard with essential information in a clean list format
+    """
+    # Header
+    println("╔══════════════════════════════════════════════════════════════════════════════╗")
+    println("║                        🚀 Numerai Tournament Dashboard                        ║")
+    println("╚══════════════════════════════════════════════════════════════════════════════╝")
+    println()
+    
+    # System Status
+    system_status = dashboard.paused ? "PAUSED" : "RUNNING"
+    system_color = dashboard.paused ? "🟡" : "🟢"
+    println("📊 SYSTEM STATUS")
+    println("   Status: $system_color $system_status")
+    
+    # Network Status
+    network_icon = dashboard.network_status[:is_connected] ? "🟢" : "🔴"
+    network_status_text = dashboard.network_status[:is_connected] ? "Connected" : "Disconnected"
+    latency_info = dashboard.network_status[:is_connected] && dashboard.network_status[:api_latency] > 0 ? 
+        " ($(round(dashboard.network_status[:api_latency], digits=0))ms)" : ""
+    println("   Network: $network_icon $network_status_text$latency_info")
+    
+    # API Connection
+    api_failures = dashboard.network_status[:consecutive_failures]
+    if api_failures > 0
+        println("   API Status: ⚠️ $(api_failures) consecutive failures")
+    else
+        println("   API Status: ✅ Connected")
+    end
+    println()
+    
+    # Current Round Information
+    println("🏆 TOURNAMENT INFO")
+    try
+        stake_info = get_staking_info(dashboard)
+        println("   Current Round: #$(stake_info[:current_round])")
+        println("   Submission: $(stake_info[:submission_status])")
+        println("   Time Remaining: $(stake_info[:time_remaining])")
+    catch e
+        println("   Current Round: ❌ Failed to fetch round info")
+        println("   Submission: Unknown")
+        println("   Time Remaining: Unknown")
+    end
+    println()
+    
+    # Model Performance
+    println("📈 MODEL PERFORMANCE")
+    model_status = dashboard.model[:is_active] ? "🟢 Active" : "🔴 Inactive"
+    println("   Model: $(dashboard.model[:name]) ($model_status)")
+    println("   CORR: $(round(dashboard.model[:corr], digits=4))")
+    println("   MMC: $(round(dashboard.model[:mmc], digits=4))")
+    println("   FNC: $(round(dashboard.model[:fnc], digits=4))")
+    if haskey(dashboard.model, :stake) && dashboard.model[:stake] > 0
+        println("   Stake: $(dashboard.model[:stake]) NMR")
+    end
+    println()
+    
+    # Training Status
+    println("🚀 TRAINING STATUS")
+    if dashboard.training_info[:is_training]
+        progress = dashboard.training_info[:progress]
+        progress_bar = create_simple_progress_bar(progress, 100, width=30)
+        println("   Status: 🔥 Training in progress")
+        println("   Model: $(dashboard.training_info[:model_name])")
+        println("   Progress: $progress_bar $(progress)%")
+        println("   Epoch: $(dashboard.training_info[:current_epoch])/$(dashboard.training_info[:total_epochs])")
+        println("   ETA: $(dashboard.training_info[:eta])")
+        if dashboard.training_info[:val_score] > 0
+            println("   Validation Score: $(round(dashboard.training_info[:val_score], digits=4))")
+        end
+    else
+        println("   Status: ⏸️ No training in progress")
+    end
+    println()
+    
+    # System Resources
+    println("⚙️ SYSTEM RESOURCES")
+    cpu_bar = create_simple_progress_bar(dashboard.system_info[:cpu_usage], 100, width=20)
+    println("   CPU: $cpu_bar $(dashboard.system_info[:cpu_usage])%")
+    memory_bar = create_simple_progress_bar(dashboard.system_info[:memory_used], dashboard.system_info[:memory_total], width=20)
+    println("   Memory: $memory_bar $(round(dashboard.system_info[:memory_used], digits=1))/$(dashboard.system_info[:memory_total]) GB")
+    println("   Threads: $(dashboard.system_info[:threads])")
+    println("   Uptime: $(format_uptime(dashboard.system_info[:uptime]))")
+    println()
+    
+    # Recent Events (last 5)
+    println("📋 RECENT EVENTS")
+    if isempty(dashboard.events)
+        println("   No recent events")
+    else
+        recent_events = dashboard.events[max(1, end-4):end]
+        for event in reverse(recent_events)
+            timestamp = Dates.format(event[:time], "HH:MM:SS")
+            icon = get_event_icon(event[:type])
+            message = truncate_message(event[:message], 60)
+            println("   [$timestamp] $icon $message")
+        end
+    end
+    println()
+    
+    # Error Summary (if any)
+    error_count = count(e -> e[:type] == :error, dashboard.events)
+    warning_count = count(e -> e[:type] == :warning, dashboard.events)
+    if error_count > 0 || warning_count > 0
+        println("⚠️ ISSUES SUMMARY")
+        if error_count > 0
+            println("   Errors: ❌ $error_count")
+        end
+        if warning_count > 0
+            println("   Warnings: ⚠️ $warning_count")
+        end
+        println()
+    end
+    
+    # Help information if requested
+    if dashboard.show_help
+        println("❓ KEYBOARD SHORTCUTS")
+        println("   q - Quit dashboard")
+        println("   p - Pause/Resume")
+        println("   s - Start training")
+        println("   r - Refresh data")
+        println("   n - Test network")
+        println("   h - Toggle help")
+        println("   / - Command mode")
+        println()
+    end
+end
+
+function create_simple_progress_bar(current::Number, total::Number; width::Int=20)::String
+    """
+    Create a simple text-based progress bar
+    """
+    if total == 0
+        return "─" ^ width
+    end
+    
+    percentage = current / total
+    filled = Int(round(percentage * width))
+    
+    bar = "█" ^ filled * "░" ^ (width - filled)
+    return bar
+end
+
+function get_event_icon(event_type::Symbol)::String
+    """
+    Get icon for event type
+    """
+    if event_type == :error
+        return "❌"
+    elseif event_type == :warning
+        return "⚠️"
+    elseif event_type == :success
+        return "✅"
+    else
+        return "ℹ️"
+    end
+end
+
+function truncate_message(message::String, max_length::Int)::String
+    """
+    Truncate message to fit display width
+    """
+    if length(message) <= max_length
+        return message
+    else
+        return message[1:max_length-3] * "..."
     end
 end
 

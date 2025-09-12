@@ -613,29 +613,26 @@ function save_predictions(conn::DatabaseConnection, df::DataFrame, model_name::S
         # Begin transaction for atomic bulk insert
         SQLite.execute(conn.db, "BEGIN TRANSACTION")
         
-        # Prepare the insert statement
-        stmt = SQLite.Stmt(conn.db, """
-            INSERT INTO predictions_archive 
-            (model_name, round_number, era, prediction_value, actual_target)
-            VALUES (?, ?, ?, ?, ?)
-        """)
-        
         # Insert each prediction
         for row in eachrow(df)
             era = string(get(row, :era, ""))
             prediction = Float64(get(row, :prediction, 0.0))
-            target = haskey(row, :target) ? Float64(row.target) : missing
             
-            SQLite.bind!(stmt, 1, model_name)
-            SQLite.bind!(stmt, 2, round_number)
-            SQLite.bind!(stmt, 3, era)
-            SQLite.bind!(stmt, 4, prediction)
-            SQLite.bind!(stmt, 5, target)
-            
-            SQLite.execute(stmt)
+            if haskey(row, :target)
+                target = Float64(row.target)
+                SQLite.execute(conn.db, """
+                    INSERT INTO predictions_archive 
+                    (model_name, round_number, era, prediction_value, actual_target)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (model_name, round_number, era, prediction, target))
+            else
+                SQLite.execute(conn.db, """
+                    INSERT INTO predictions_archive 
+                    (model_name, round_number, era, prediction_value, actual_target)
+                    VALUES (?, ?, ?, ?, NULL)
+                """, (model_name, round_number, era, prediction))
+            end
         end
-        
-        SQLite.finalize!(stmt)
         
         # Commit transaction on success
         SQLite.execute(conn.db, "COMMIT")

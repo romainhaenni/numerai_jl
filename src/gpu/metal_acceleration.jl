@@ -213,7 +213,9 @@ Clear GPU memory cache
 function clear_gpu_cache!()
     if has_metal_gpu()
         try
-            Metal.reclaim()
+            # Use GC to reclaim memory and synchronize GPU operations
+            Metal.synchronize()
+            GC.gc(true)
             @info "GPU memory cache cleared"
         catch e
             @warn "Failed to clear GPU cache" exception=e
@@ -404,19 +406,16 @@ function gpu_standardize!(X::AbstractMatrix{Float64})
         
         # Handle standardization using vectorized operations to avoid scalar indexing
         # Create safe divisors: use 1.0 for constant columns (σ ≈ 0) to avoid division by zero
-        σ_cpu = cpu(σ)  # Move to CPU for safer indexing
+        σ_cpu = cpu(σ)  # Move to CPU for safer operations
         μ_cpu = cpu(μ)
         
-        σ_safe = similar(σ)
-        μ_safe = similar(μ)
-        
-        # Create safe versions on CPU, then move back to GPU
-        σ_safe_cpu = ifelse.(σ_cpu .> threshold, σ_cpu, ones(Float32, size(σ_cpu)))
-        μ_safe_cpu = μ_cpu
+        # Create safe versions on CPU to avoid scalar indexing on GPU
+        σ_safe_cpu = similar(σ_cpu)
+        σ_safe_cpu .= ifelse.(σ_cpu .> threshold, σ_cpu, one(eltype(σ_cpu)))
         
         # Transfer back to GPU
         σ_safe = gpu(σ_safe_cpu)
-        μ_safe = gpu(μ_safe_cpu)
+        μ_safe = gpu(μ_cpu)  # μ doesn't need modification
         
         # Perform vectorized standardization
         X_gpu = (X_gpu .- μ_safe) ./ σ_safe
@@ -478,16 +477,13 @@ function gpu_normalize!(X::AbstractMatrix{Float64})
         range_cpu = cpu(range_vals)  # Move to CPU for safer operations
         min_cpu = cpu(min_vals)
         
-        range_safe = similar(range_vals)
-        min_safe = similar(min_vals)
-        
-        # Create safe versions on CPU, then move back to GPU
-        range_safe_cpu = ifelse.(range_cpu .> threshold, range_cpu, ones(Float32, size(range_cpu)))
-        min_safe_cpu = min_cpu
+        # Create safe versions on CPU to avoid scalar indexing on GPU
+        range_safe_cpu = similar(range_cpu)
+        range_safe_cpu .= ifelse.(range_cpu .> threshold, range_cpu, one(eltype(range_cpu)))
         
         # Transfer back to GPU
         range_safe = gpu(range_safe_cpu)
-        min_safe = gpu(min_safe_cpu)
+        min_safe = gpu(min_cpu)  # min values don't need modification
         
         # Perform vectorized normalization
         X_gpu = (X_gpu .- min_safe) ./ range_safe
@@ -755,11 +751,13 @@ end
 
 """
 Macro for automatic CPU fallback on GPU operation failure
+Handles Float64 to Float32 conversion automatically
 """
 macro gpu_fallback(gpu_expr, cpu_expr)
     quote
         if has_metal_gpu()
             try
+                # The GPU expression should handle Float32 conversion internally
                 $(esc(gpu_expr))
             catch e
                 @warn "GPU operation failed, falling back to CPU" exception=e
@@ -773,11 +771,30 @@ end
 
 """
 Execute function with automatic GPU fallback
+Ensures proper Float64 to Float32 conversion for Metal compatibility
 """
 function with_gpu_fallback(gpu_func::Function, cpu_func::Function, args...)
     if has_metal_gpu()
         try
-            return gpu_func(args...)
+            # Convert Float64 arrays to Float32 for Metal compatibility
+            converted_args = map(args) do arg
+                if isa(arg, AbstractArray{Float64})
+                    Float32.(arg)
+                elseif isa(arg, Float64)
+                    Float32(arg)
+                else
+                    arg
+                end
+            end
+            result = gpu_func(converted_args...)
+            # Convert result back to Float64 if needed
+            if isa(result, AbstractArray{Float32})
+                return Float64.(result)
+            elseif isa(result, Float32)
+                return Float64(result)
+            else
+                return result
+            end
         catch e
             @warn "GPU operation failed, falling back to CPU" exception=e
             return cpu_func(args...)
@@ -808,7 +825,8 @@ function gpu_feature_selection(X::AbstractMatrix{Float64}, y::AbstractVector{Flo
             # Standardize for correlation computation
             X_mean = mean(X_gpu, dims=1)
             X_std = std(X_gpu, dims=1, corrected=true)
-            X_std_safe = max.(X_std, Float32(1e-10))
+            # Avoid scalar indexing by using vectorized operations
+            X_std_safe = X_std .+ Float32(1e-10)  # Add small constant to avoid division by zero
             X_standardized = (X_gpu .- X_mean) ./ X_std_safe
             
             y_mean = mean(y_gpu)

@@ -19,7 +19,7 @@ include("../utils.jl")
 
 # Import callbacks
 include("../ml/callbacks.jl")
-using .Callbacks
+using .Callbacks: CallbackInfo, CallbackResult, DashboardCallback, CONTINUE
 
 include("dashboard_commands.jl")
 
@@ -162,8 +162,8 @@ end
 """
 Create a dashboard callback that updates training info in real-time
 """
-function create_dashboard_training_callback(dashboard::TournamentDashboard)::DashboardCallback
-    update_fn = function(info::CallbackInfo)::CallbackResult
+function create_dashboard_training_callback(dashboard::TournamentDashboard)
+    update_fn = function(info::CallbackInfo)
         # Update training info in dashboard
         dashboard.training_info[:is_training] = true
         dashboard.training_info[:model_name] = info.model_name

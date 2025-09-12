@@ -3,8 +3,9 @@
 # Comprehensive TUI tests - ensuring quality before delivery
 using Test
 using Dates
+using NumeraiTournament
 
-# NumeraiTournament is already loaded by runtests.jl
+# NumeraiTournament module for testing
 
 @testset "Comprehensive TUI Tests" begin
     

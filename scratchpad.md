@@ -34,6 +34,35 @@
 - when i press "h" for "help", or "p" for pause in the TUI, then nothing happens, ensure that the program runs without issues, write tests and test extensively:
 - my editor shows me 526 "Missing reference" warnings, ensure that the code has no reference warnings
 - how do i run ALL tests? update the @README.md. ensure that there is a command to run ALL tests. Ensure that ALL tests are successful, and fix the production code when not. dont take shortcuts!
+- i see this error, when i start the program, but i have put my credentials in @.env:
+```
+┌ Error: GraphQL Error
+│   errors =
+│    1-element JSON3.Array{JSON3.Object, Vector{UInt8}, SubArray{UInt64, 1, Vector{UInt64}, Tuple{UnitRange{Int64}}, true}}:
+│     {
+│           "error": "Not authenticated",
+│            "code": "not_authenticated",
+│         "message": "You must be authenticated to perform this action.",
+│            "path": [
+│                      "account"
+│                    ],
+│       "locations": [
+│                      {
+│                           "line": 2,
+│                         "column": 5
+│                      }
+│                    ]
+│    }
+│   query = "query {\n    account {\n        models {\n            name\n            latestSubmission {\n             "
+└ @ NumeraiTournament.API ~/src/Numerai/numerai_jl/src/logger.jl:229
+┌ Error: Non-retryable error encountered
+│   context = "GraphQL query"
+│   error = "ErrorException(\"GraphQL Error: JSON3.Object[{\\n       \\\"error\\\": \\\"Not authenticated\\\",\\n        \\\"code\\\": \\\"not_authenticated\\\",\\n     \\\"message\\\": \\\"You must be authenticated to perform this action.\\\",\\n        \\\"path\\\": [\\n                  \\\"account\\\"\\n                ],\\n   \\\"locations\\\": [\\n                  {\\n                       \\\"line\\\": 2,\\n                     \\\"column\\\": 5\\n                  }\\n                ]\\n}]\")"
+└ @ NumeraiTournament.API.Retry ~/src/Numerai/numerai_jl/src/api/retry.jl:76
+┌ Warning: Failed to fetch latest submission: ErrorException("GraphQL Error: JSON3.Object[{\n       \"error\": \"Not authenticated\",\n        \"code\": \"not_authenticated\",\n     \"message\": \"You must be authenticated to perform this action.\",\n        \"path\": [\n                  \"account\"\n                ],\n   \"locations\": [\n                  {\n                       \"line\": 2,\n                     \"column\": 5\n                  }\n                ]\n}]")
+└ @ NumeraiTournament.API ~/src/Numerai/numerai_jl/src/api/client.jl:1219
+```
+- when i start the program, i see the status RUNNING, but as a user, i have no idea what is exactly happening. provide more information and progress indicators to let the user know what is happening.
 
 ## ✅ CRITICAL PRIORITY (P0) - ALL RESOLVED
 

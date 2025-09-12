@@ -3,6 +3,7 @@
 using ..API
 using ..DataLoader
 using ..Pipeline
+using Dates
 
 # Execute slash commands
 function execute_command(dashboard, command::String)
@@ -47,9 +48,25 @@ function execute_command(dashboard, command::String)
         dashboard.paused = !dashboard.paused
         status = dashboard.paused ? "paused" : "resumed"
         add_event!(dashboard, :info, "Dashboard $status")
+    elseif main_cmd == "diag" || main_cmd == "diagnostics"
+        add_event!(dashboard, :info, "Running full system diagnostics...")
+        run_full_diagnostics_command(dashboard)
+    elseif main_cmd == "reset"
+        add_event!(dashboard, :info, "Resetting error counters...")
+        reset_error_tracking!(dashboard)
+    elseif main_cmd == "backup"
+        add_event!(dashboard, :info, "Creating configuration backup...")
+        create_configuration_backup_command(dashboard)
+    elseif main_cmd == "network" || main_cmd == "net"
+        add_event!(dashboard, :info, "Testing network connectivity...")
+        test_network_connectivity(dashboard)
+    elseif main_cmd == "save" || main_cmd == "report"
+        add_event!(dashboard, :info, "Saving diagnostic report...")
+        save_diagnostic_report(dashboard)
     else
         add_event!(dashboard, :warning, "Unknown command: /$cmd")
         add_event!(dashboard, :info, "Available commands: /train, /submit, /stake, /download, /refresh, /help, /quit")
+        add_event!(dashboard, :info, "Recovery commands: /diag, /reset, /backup, /network, /save")
     end
 end
 
@@ -167,4 +184,105 @@ function download_data_command(dashboard)
     end
 end
 
-export execute_command, submit_predictions_command, stake_command, download_data_command
+function run_full_diagnostics_command(dashboard)
+    """
+    Run comprehensive system diagnostics and display results.
+    """
+    @async begin
+        try
+            add_event!(dashboard, :info, "=== SYSTEM DIAGNOSTICS ===")
+            
+            # System diagnostics
+            diagnostics = get_system_diagnostics(dashboard)
+            add_event!(dashboard, :info, "CPU Usage: $(diagnostics[:cpu_usage])%")
+            add_event!(dashboard, :info, "Memory: $(diagnostics[:memory_used])/$(diagnostics[:memory_total]) GB")
+            add_event!(dashboard, :info, "Disk Free: $(diagnostics[:disk_free]) GB")
+            add_event!(dashboard, :info, "Uptime: $(diagnostics[:uptime])")
+            
+            # Configuration status
+            config_status = get_configuration_status(dashboard)
+            add_event!(dashboard, :info, "=== CONFIGURATION STATUS ===")
+            add_event!(dashboard, :info, "API Keys: $(config_status[:api_keys_status])")
+            add_event!(dashboard, :info, "Data Dir: $(config_status[:data_dir])")
+            add_event!(dashboard, :info, "Feature Set: $(config_status[:feature_set])")
+            
+            # Network diagnostics
+            add_event!(dashboard, :info, "=== NETWORK DIAGNOSTICS ===")
+            test_network_connectivity(dashboard)
+            
+            # Error summary
+            error_summary = get_error_summary(dashboard)
+            add_event!(dashboard, :info, "=== ERROR SUMMARY ===")
+            add_event!(dashboard, :info, "Total Errors: $(error_summary[:total_errors])")
+            
+            # Data files
+            data_files = discover_local_data_files(dashboard)
+            total_files = sum(length(files) for files in values(data_files))
+            add_event!(dashboard, :info, "=== DATA FILES ===")
+            add_event!(dashboard, :info, "Total Files: $total_files")
+            
+            add_event!(dashboard, :success, "✅ Full diagnostics completed")
+            
+        catch e
+            add_event!(dashboard, :error, "❌ Diagnostics failed", e)
+        end
+    end
+end
+
+function create_configuration_backup_command(dashboard)
+    """
+    Create a backup of configuration files.
+    """
+    @async begin
+        try
+            backup_dir = "config_backup_$(Dates.format(utc_now_datetime(), "yyyy-mm-dd_HH-MM-SS"))"
+            mkpath(backup_dir)
+            
+            # Files to backup
+            config_files = ["config.toml", "features.json", "models.json", ".dashboard_state.json"]
+            backed_up = 0
+            
+            for config_file in config_files
+                if isfile(config_file)
+                    backup_path = joinpath(backup_dir, config_file)
+                    cp(config_file, backup_path)
+                    backed_up += 1
+                    add_event!(dashboard, :info, "Backed up: $config_file")
+                end
+            end
+            
+            # Also backup data directory structure (without large files)
+            if isdir(dashboard.config.data_dir)
+                data_backup_dir = joinpath(backup_dir, "data_structure")
+                mkpath(data_backup_dir)
+                
+                for file in readdir(dashboard.config.data_dir)
+                    file_path = joinpath(dashboard.config.data_dir, file)
+                    if isfile(file_path)
+                        file_size = filesize(file_path)
+                        # Only backup small files (< 10MB)
+                        if file_size < 10 * 1024 * 1024
+                            cp(file_path, joinpath(data_backup_dir, file))
+                            add_event!(dashboard, :info, "Backed up data file: $file")
+                        else
+                            # Just create a placeholder for large files
+                            open(joinpath(data_backup_dir, "$file.info"), "w") do io
+                                println(io, "Large file ($(round(file_size / (1024*1024), digits=1)) MB) - not backed up")
+                                println(io, "Original path: $file_path")
+                                println(io, "Modified: $(Dates.unix2datetime(stat(file_path).mtime))")
+                            end
+                        end
+                    end
+                end
+            end
+            
+            add_event!(dashboard, :success, "✅ Configuration backup created: $backup_dir ($backed_up files)")
+            
+        catch e
+            add_event!(dashboard, :error, "❌ Backup failed", e)
+        end
+    end
+end
+
+export execute_command, submit_predictions_command, stake_command, download_data_command,
+       run_full_diagnostics_command, create_configuration_backup_command

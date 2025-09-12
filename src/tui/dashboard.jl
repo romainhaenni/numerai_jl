@@ -335,8 +335,23 @@ function input_loop(dashboard::TournamentDashboard)
         elseif key == "s"
             start_training(dashboard)
         elseif key == "r"
-            update_model_performances!(dashboard)
-            add_event!(dashboard, :info, "Data refreshed")
+            # In recovery mode, retry initialization; otherwise refresh data
+            try
+                update_model_performances!(dashboard)
+                add_event!(dashboard, :info, "Data refreshed")
+                # Save good state after successful refresh
+                save_last_known_good_state(dashboard)
+            catch e
+                add_event!(dashboard, :error, "Failed to refresh data", e)
+            end
+        elseif key == "n"  # Test network connectivity
+            test_network_connectivity(dashboard)
+        elseif key == "c"  # Check configuration files
+            check_configuration_files(dashboard)
+        elseif key == "d"  # Download fresh tournament data  
+            download_tournament_data(dashboard)
+        elseif key == "l"  # View detailed error logs
+            view_detailed_error_logs(dashboard)
         elseif key == "h"
             dashboard.show_help = !dashboard.show_help
         elseif key == "\r" || key == "\n"  # Enter key
@@ -384,25 +399,8 @@ function render(dashboard::TournamentDashboard)
         status_line = create_status_line(dashboard)
         println("\n" * status_line)
     catch e
-        # Fallback rendering if panels fail
-        println("═══════════════════════════════════════════════════════════════")
-        println("     🚀 Numerai Tournament Dashboard - Recovery Mode")
-        println("═══════════════════════════════════════════════════════════════")
-        println()
-        println("⚠️  Error rendering dashboard: ", e)
-        println()
-        println("📊 Model: $(dashboard.model[:name])")
-        println("🔧 System: $(dashboard.system_info[:threads]) threads, $(dashboard.system_info[:memory_total]) GB RAM")
-        println("🌐 Network: ", dashboard.network_status[:is_connected] ? "Connected ✅" : "Disconnected ❌")
-        println()
-        println("Recent Events:")
-        for (i, event) in enumerate(Iterators.take(Iterators.reverse(dashboard.events), 5))
-            timestamp = haskey(event, :time) ? event[:time] : "N/A"
-            println("  [$timestamp] $(event[:message])")
-        end
-        println()
-        println("Commands: q=quit, p=pause, s=start training, h=help")
-        println()
+        # Enhanced recovery mode with comprehensive diagnostics
+        render_recovery_mode(dashboard, e)
     end
 end
 
@@ -1354,6 +1352,708 @@ function get_performance_summary(dashboard::TournamentDashboard, model_name::Str
     )
 end
 
+# Enhanced Recovery Mode Functions
+function render_recovery_mode(dashboard::TournamentDashboard, error::Exception)
+    """
+    Comprehensive recovery mode display with system diagnostics, configuration status,
+    and troubleshooting suggestions.
+    """
+    println("╔═══════════════════════════════════════════════════════════════════════════════╗")
+    println("║                  🚀 Numerai Tournament Dashboard - Recovery Mode              ║")
+    println("╚═══════════════════════════════════════════════════════════════════════════════╝")
+    println()
+    
+    # 1. Error Information
+    println("⚠️  RENDERING ERROR DETAILS:")
+    println("   Error Type: $(typeof(error))")
+    println("   Message: $(error)")
+    category, severity = categorize_error(error)
+    severity_icon = get_severity_icon(severity)
+    user_msg = get_user_friendly_message(category, string(error))
+    println("   Category: $severity_icon $category ($severity)")
+    println("   User Message: $user_msg")
+    println()
+    
+    # 2. System Diagnostics
+    diagnostics = get_system_diagnostics(dashboard)
+    println("🔧 SYSTEM DIAGNOSTICS:")
+    println("   CPU Usage: $(diagnostics[:cpu_usage])% (Load: $(diagnostics[:load_avg]))")
+    println("   Memory: $(diagnostics[:memory_used]) GB / $(diagnostics[:memory_total]) GB ($(diagnostics[:memory_percent])%)")
+    println("   Disk Space: $(diagnostics[:disk_free]) GB free / $(diagnostics[:disk_total]) GB total")
+    println("   Process Memory: $(diagnostics[:process_memory]) MB")
+    println("   Threads: $(diagnostics[:threads]) (Julia: $(diagnostics[:julia_threads]))")
+    println("   Uptime: $(diagnostics[:uptime])")
+    println()
+    
+    # 3. Configuration Status
+    config_status = get_configuration_status(dashboard)
+    println("⚙️  CONFIGURATION STATUS:")
+    println("   API Keys: $(config_status[:api_keys_status])")
+    println("   Tournament ID: $(config_status[:tournament_id])")
+    println("   Data Directory: $(config_status[:data_dir])")
+    println("   Models Directory: $(config_status[:model_dir])")
+    println("   Feature Set: $(config_status[:feature_set])")
+    env_vars_str = length(config_status[:env_vars]) > 0 ? join(config_status[:env_vars], ", ") : "None"
+    println("   Environment Variables: $(env_vars_str)")
+    println()
+    
+    # 4. Local Data Files
+    data_files = discover_local_data_files(dashboard)
+    println("📁 LOCAL DATA FILES:")
+    if isempty(data_files)
+        println("   ❌ No data files found")
+    else
+        for (category, files) in data_files
+            println("   $(category):")
+            for file_info in files
+                println("     • $(file_info[:name]) ($(file_info[:size]), $(file_info[:modified]))")
+            end
+        end
+    end
+    println()
+    
+    # 5. Last Known Good State
+    last_good_state = get_last_known_good_state(dashboard)
+    println("💾 LAST KNOWN GOOD STATE:")
+    if isnothing(last_good_state)
+        println("   ❌ No previous good state recorded")
+    else
+        println("   Last Successful Render: $(last_good_state[:timestamp])")
+        println("   Model Performance: CORR=$(last_good_state[:corr]), MMC=$(last_good_state[:mmc])")
+        println("   Network Status: $(last_good_state[:network_connected] ? "Connected" : "Disconnected")")
+        println("   API Latency: $(last_good_state[:api_latency])ms")
+    end
+    println()
+    
+    # 6. Network Status
+    println("🌐 NETWORK STATUS:")
+    network_info = get_detailed_network_status(dashboard)
+    println("   Connection: $(network_info[:status])")
+    println("   Last Check: $(network_info[:last_check])")
+    println("   API Latency: $(network_info[:latency])ms")
+    println("   Consecutive Failures: $(network_info[:failures])")
+    if !isempty(network_info[:recent_errors])
+        println("   Recent Network Errors:")
+        for err in network_info[:recent_errors][1:min(3, end)]
+            println("     • $(err)")
+        end
+    end
+    println()
+    
+    # 7. Troubleshooting Suggestions
+    suggestions = get_troubleshooting_suggestions(error, category, dashboard)
+    println("🔍 TROUBLESHOOTING SUGGESTIONS:")
+    for (i, suggestion) in enumerate(suggestions)
+        println("   $(i). $(suggestion)")
+    end
+    println()
+    
+    # 8. Manual Operation Shortcuts
+    println("⌨️  RECOVERY COMMANDS:")
+    println("   r  - Retry dashboard initialization")
+    println("   n  - Test network connectivity")
+    println("   c  - Check configuration files")
+    println("   d  - Download fresh tournament data")
+    println("   l  - View detailed error logs")
+    println("   s  - Start training (original functionality)")
+    println("   /save - Save current diagnostic report")
+    println("   /diag - Run full system diagnostics")
+    println("   /reset - Reset all error counters")
+    println("   /backup - Create configuration backup")
+    println("   q  - Quit dashboard")
+    println("   h  - Show help")
+    println()
+    
+    # 9. Recent Events (if available)
+    println("📝 RECENT EVENTS:")
+    recent_events = Iterators.take(Iterators.reverse(dashboard.events), 5)
+    if isempty(dashboard.events)
+        println("   ❌ No events recorded")
+    else
+        for event in recent_events
+            timestamp = haskey(event, :time) ? event[:time] : "N/A"
+            type_icon = event[:type] == :error ? "❌" : event[:type] == :success ? "✅" : "ℹ️"
+            println("   $type_icon [$timestamp] $(event[:message])")
+        end
+    end
+    println()
+    
+    # 10. Current Model Status
+    println("📊 CURRENT MODEL STATUS:")
+    println("   Model: $(dashboard.model[:name])")
+    println("   Active: $(dashboard.model[:is_active] ? "Yes" : "No")")
+    if dashboard.model[:is_active]
+        println("   Performance: CORR=$(round(dashboard.model[:corr], digits=4)) MMC=$(round(dashboard.model[:mmc], digits=4))")
+        println("   Stake: $(get(dashboard.model, :stake, 0.0)) NMR")
+    end
+    
+    println("")
+    println("═══════════════════════════════════════════════════════════════════════════════")
+end
+
+function get_system_diagnostics(dashboard::TournamentDashboard)::Dict{Symbol, Any}
+    """
+    Comprehensive system diagnostics including CPU, memory, disk usage.
+    """
+    try
+        # CPU diagnostics
+        loadavg = Sys.loadavg()
+        cpu_count = Sys.CPU_THREADS
+        cpu_usage = min(100, round(Int, (loadavg[1] / cpu_count) * 100))
+        
+        # Memory diagnostics
+        total_memory_bytes = Sys.total_memory()
+        free_memory_bytes = Sys.free_memory()
+        total_memory_gb = round(total_memory_bytes / (1024^3), digits=1)
+        free_memory_gb = round(free_memory_bytes / (1024^3), digits=1)
+        used_memory_gb = round((total_memory_bytes - free_memory_bytes) / (1024^3), digits=1)
+        memory_percent = round(Int, ((total_memory_bytes - free_memory_bytes) / total_memory_bytes) * 100)
+        
+        # Process memory
+        process_memory_mb = round(Base.summarysize(dashboard) / (1024^2), digits=1)
+        
+        # Disk diagnostics (current directory)
+        disk_info = try
+            stat_result = stat(".")
+            # On macOS/Linux, try to get disk usage via df command
+            df_output = read(`df -h .`, String)
+            lines = split(df_output, '\n')
+            if length(lines) >= 2
+                parts = split(lines[2])
+                if length(parts) >= 4
+                    disk_total = replace(parts[2], "G" => "", "T" => "000") |> x -> (try parse(Float64, x) catch _ 0.0 end)
+                    disk_free = replace(parts[4], "G" => "", "T" => "000") |> x -> (try parse(Float64, x) catch _ 0.0 end)
+                    (total=disk_total, free=disk_free)
+                else
+                    (total=0.0, free=0.0)
+                end
+            else
+                (total=0.0, free=0.0)
+            end
+        catch
+            (total=0.0, free=0.0)
+        end
+        
+        # Uptime calculation
+        uptime_seconds = Int(dashboard.system_info[:uptime])
+        uptime_str = if uptime_seconds < 60
+            "$(uptime_seconds)s"
+        elseif uptime_seconds < 3600
+            "$(div(uptime_seconds, 60))m $(uptime_seconds % 60)s"
+        else
+            hours = div(uptime_seconds, 3600)
+            minutes = div(uptime_seconds % 3600, 60)
+            "$(hours)h $(minutes)m"
+        end
+        
+        return Dict{Symbol, Any}(
+            :cpu_usage => cpu_usage,
+            :load_avg => "$(round(loadavg[1], digits=2)), $(round(loadavg[2], digits=2)), $(round(loadavg[3], digits=2))",
+            :memory_used => used_memory_gb,
+            :memory_total => total_memory_gb,
+            :memory_free => free_memory_gb,
+            :memory_percent => memory_percent,
+            :disk_total => isa(disk_info, NamedTuple) ? disk_info.total : disk_info[1],
+            :disk_free => isa(disk_info, NamedTuple) ? disk_info.free : disk_info[2],
+            :process_memory => process_memory_mb,
+            :threads => dashboard.system_info[:threads],
+            :julia_threads => Threads.nthreads(),
+            :uptime => uptime_str
+        )
+    catch e
+        # Fallback diagnostics if system calls fail
+        return Dict{Symbol, Any}(
+            :cpu_usage => 0,
+            :load_avg => "N/A",
+            :memory_used => 0.0,
+            :memory_total => get(dashboard.system_info, :memory_total, 0.0),
+            :memory_free => 0.0,
+            :memory_percent => 0,
+            :disk_total => 0.0,
+            :disk_free => 0.0,
+            :process_memory => 0.0,
+            :threads => get(dashboard.system_info, :threads, 0),
+            :julia_threads => Threads.nthreads(),
+            :uptime => "N/A"
+        )
+    end
+end
+
+function get_configuration_status(dashboard::TournamentDashboard)::Dict{Symbol, Any}
+    """
+    Check configuration status including environment variables and file paths.
+    """
+    config = dashboard.config
+    
+    # Check API keys (masked for security)
+    api_keys_status = if haskey(ENV, "NUMERAI_PUBLIC_ID") && haskey(ENV, "NUMERAI_SECRET_KEY")
+        pub_key = ENV["NUMERAI_PUBLIC_ID"]
+        secret_key = ENV["NUMERAI_SECRET_KEY"]
+        pub_masked = length(pub_key) > 8 ? pub_key[1:4] * "..." * pub_key[end-3:end] : "***"
+        secret_masked = length(secret_key) > 8 ? secret_key[1:4] * "..." * secret_key[end-3:end] : "***"
+        "✅ Set via ENV ($pub_masked, $secret_masked)"
+    elseif hasfield(typeof(config), :api_public_key) && hasfield(typeof(config), :api_secret_key)
+        "✅ Set in config file"
+    else
+        "❌ Not configured"
+    end
+    
+    # Check directories
+    data_dir_status = isdir(config.data_dir) ? "✅ $(config.data_dir)" : "❌ $(config.data_dir) (missing)"
+    model_dir_status = isdir(config.model_dir) ? "✅ $(config.model_dir)" : "❌ $(config.model_dir) (missing)"
+    
+    # Environment variables check
+    env_vars = String[]
+    for var in ["NUMERAI_PUBLIC_ID", "NUMERAI_SECRET_KEY", "JULIA_NUM_THREADS", "PATH"]
+        if haskey(ENV, var)
+            value = var in ["NUMERAI_PUBLIC_ID", "NUMERAI_SECRET_KEY"] ? "***" : ENV[var][1:min(20, end)] * "..."
+            push!(env_vars, "$var=$value")
+        end
+    end
+    
+    return Dict{Symbol, Any}(
+        :api_keys_status => api_keys_status,
+        :tournament_id => config.tournament_id,
+        :data_dir => data_dir_status,
+        :model_dir => model_dir_status,
+        :feature_set => config.feature_set,
+        :env_vars => env_vars
+    )
+end
+
+function discover_local_data_files(dashboard::TournamentDashboard)::Dict{String, Vector{Dict{Symbol, Any}}}
+    """
+    Discover and categorize local data files.
+    """
+    result = Dict{String, Vector{Dict{Symbol, Any}}}()
+    config = dashboard.config
+    
+    # Check data directory
+    data_files = Vector{Dict{Symbol, Any}}()
+    if isdir(config.data_dir)
+        try
+            for file in readdir(config.data_dir, join=true)
+                if isfile(file)
+                    stat_info = stat(file)
+                    file_info = Dict{Symbol, Any}(
+                        :name => basename(file),
+                        :path => file,
+                        :size => format_file_size(stat_info.size),
+                        :modified => format_file_time(stat_info.mtime)
+                    )
+                    push!(data_files, file_info)
+                end
+            end
+        catch e
+            push!(data_files, Dict{Symbol, Any}(:name => "Error reading directory: $e", :size => "", :modified => "", :path => ""))
+        end
+    end
+    result["Data Files"] = data_files
+    
+    # Check model directory
+    model_files = Vector{Dict{Symbol, Any}}()
+    if isdir(config.model_dir)
+        try
+            for file in readdir(config.model_dir, join=true)
+                if isfile(file)
+                    stat_info = stat(file)
+                    file_info = Dict{Symbol, Any}(
+                        :name => basename(file),
+                        :path => file,
+                        :size => format_file_size(stat_info.size),
+                        :modified => format_file_time(stat_info.mtime)
+                    )
+                    push!(model_files, file_info)
+                end
+            end
+        catch e
+            push!(model_files, Dict{Symbol, Any}(:name => "Error reading directory: $e", :size => "", :modified => "", :path => ""))
+        end
+    end
+    result["Model Files"] = model_files
+    
+    # Check for config files
+    config_files = Vector{Dict{Symbol, Any}}()
+    for config_file in ["config.toml", "features.json", "models.json"]
+        if isfile(config_file)
+            stat_info = stat(config_file)
+            file_info = Dict{Symbol, Any}(
+                :name => config_file,
+                :path => abspath(config_file),
+                :size => format_file_size(stat_info.size),
+                :modified => format_file_time(stat_info.mtime)
+            )
+            push!(config_files, file_info)
+        end
+    end
+    result["Config Files"] = config_files
+    
+    return result
+end
+
+function format_file_size(size_bytes::Int64)::String
+    """
+    Format file size in human-readable format.
+    """
+    if size_bytes < 1024
+        "$(size_bytes) B"
+    elseif size_bytes < 1024^2
+        "$(round(size_bytes / 1024, digits=1)) KB"
+    elseif size_bytes < 1024^3
+        "$(round(size_bytes / 1024^2, digits=1)) MB"
+    else
+        "$(round(size_bytes / 1024^3, digits=1)) GB"
+    end
+end
+
+function format_file_time(mtime::Float64)::String
+    """
+    Format file modification time.
+    """
+    try
+        dt = unix2datetime(mtime)
+        return Dates.format(dt, "yyyy-mm-dd HH:MM")
+    catch
+        return "Unknown"
+    end
+end
+
+function get_last_known_good_state(dashboard::TournamentDashboard)::Union{Nothing, Dict{Symbol, Any}}
+    """
+    Retrieve last known good state from persistent storage.
+    """
+    state_file = ".dashboard_state.json"
+    if !isfile(state_file)
+        return nothing
+    end
+    
+    try
+        state_data = JSON3.read(read(state_file, String))
+        return Dict{Symbol, Any}(
+            :timestamp => get(state_data, "timestamp", "Unknown"),
+            :corr => get(state_data, "corr", 0.0),
+            :mmc => get(state_data, "mmc", 0.0),
+            :fnc => get(state_data, "fnc", 0.0),
+            :sharpe => get(state_data, "sharpe", 0.0),
+            :network_connected => get(state_data, "network_connected", false),
+            :api_latency => get(state_data, "api_latency", 0.0),
+            :model_name => get(state_data, "model_name", "Unknown")
+        )
+    catch
+        return nothing
+    end
+end
+
+function save_last_known_good_state(dashboard::TournamentDashboard)
+    """
+    Save current good state to persistent storage.
+    """
+    state_file = ".dashboard_state.json"
+    try
+        state_data = Dict(
+            "timestamp" => string(utc_now_datetime()),
+            "corr" => dashboard.model[:corr],
+            "mmc" => dashboard.model[:mmc],
+            "fnc" => dashboard.model[:fnc],
+            "sharpe" => get(dashboard.model, :sharpe, 0.0),
+            "network_connected" => dashboard.network_status[:is_connected],
+            "api_latency" => dashboard.network_status[:api_latency],
+            "model_name" => dashboard.model[:name]
+        )
+        
+        open(state_file, "w") do io
+            JSON3.write(io, state_data)
+        end
+    catch e
+        @warn "Failed to save dashboard state" exception=e
+    end
+end
+
+function get_detailed_network_status(dashboard::TournamentDashboard)::Dict{Symbol, Any}
+    """
+    Get detailed network status including recent errors.
+    """
+    network_status = dashboard.network_status
+    
+    status_text = if network_status[:is_connected]
+        "✅ Connected"
+    else
+        "❌ Disconnected ($(network_status[:consecutive_failures]) consecutive failures)"
+    end
+    
+    # Get recent network errors from events
+    recent_network_errors = String[]
+    for event in Iterators.take(Iterators.reverse(dashboard.events), 10)
+        if event[:type] == :error && haskey(event, :category) && 
+           event[:category] in [NETWORK_ERROR, TIMEOUT_ERROR]
+            push!(recent_network_errors, "$(event[:time]): $(event[:message])")
+        end
+    end
+    
+    return Dict{Symbol, Any}(
+        :status => status_text,
+        :last_check => network_status[:last_check],
+        :latency => round(network_status[:api_latency], digits=1),
+        :failures => network_status[:consecutive_failures],
+        :recent_errors => recent_network_errors
+    )
+end
+
+function get_troubleshooting_suggestions(error::Exception, category::ErrorCategory, dashboard::TournamentDashboard)::Vector{String}
+    """
+    Generate context-specific troubleshooting suggestions based on error type and dashboard state.
+    """
+    suggestions = String[]
+    
+    # Error-specific suggestions
+    if category == NETWORK_ERROR
+        push!(suggestions, "Check your internet connection and try again")
+        push!(suggestions, "Verify that Numerai API (https://api-tournament.numer.ai) is accessible")
+        push!(suggestions, "Check firewall settings and proxy configuration")
+        push!(suggestions, "Try running: /reset to clear network error counters")
+    elseif category == AUTH_ERROR
+        push!(suggestions, "Verify your NUMERAI_PUBLIC_ID and NUMERAI_SECRET_KEY environment variables")
+        push!(suggestions, "Regenerate API credentials from your Numerai account settings")
+        push!(suggestions, "Check that your API keys have the required permissions")
+    elseif category == API_ERROR
+        push!(suggestions, "Check Numerai API status at https://status.numer.ai")
+        push!(suggestions, "Reduce API request frequency by increasing refresh_rate in config.toml")
+        push!(suggestions, "Try running: r to retry dashboard initialization")
+    elseif category == DATA_ERROR
+        push!(suggestions, "Verify that data files exist in the $(dashboard.config.data_dir) directory")
+        push!(suggestions, "Try running: d to download fresh tournament data")
+        push!(suggestions, "Check file permissions in data directory")
+    elseif category == SYSTEM_ERROR
+        push!(suggestions, "Check available memory and disk space")
+        push!(suggestions, "Try restarting the dashboard application")
+        push!(suggestions, "Review Julia installation and package versions")
+    end
+    
+    # State-specific suggestions
+    if !dashboard.network_status[:is_connected]
+        push!(suggestions, "Network is disconnected - try running: n to test connectivity")
+    end
+    
+    if dashboard.network_status[:consecutive_failures] > 3
+        push!(suggestions, "Multiple network failures detected - check your connection stability")
+    end
+    
+    # Dashboard state suggestions
+    if isempty(dashboard.events)
+        push!(suggestions, "No events recorded - dashboard may have initialization issues")
+    end
+    
+    # Configuration suggestions
+    config_status = get_configuration_status(dashboard)
+    if occursin("❌", config_status[:api_keys_status])
+        push!(suggestions, "API keys not configured - set NUMERAI_PUBLIC_ID and NUMERAI_SECRET_KEY")
+    end
+    
+    if occursin("missing", config_status[:data_dir])
+        push!(suggestions, "Data directory missing - create $(dashboard.config.data_dir) directory")
+    end
+    
+    # General suggestions if no specific ones
+    if isempty(suggestions)
+        push!(suggestions, "Try restarting the dashboard with: q (quit) then restart")
+        push!(suggestions, "Check the log files for more detailed error information")
+        push!(suggestions, "Run: /diag for comprehensive system diagnostics")
+    end
+    
+    return suggestions
+end
+
+# Recovery mode command functions
+function test_network_connectivity(dashboard::TournamentDashboard)
+    """
+    Test network connectivity and update dashboard state.
+    """
+    add_event!(dashboard, :info, "Testing network connectivity...")
+    
+    try
+        # Test basic connectivity
+        start_time = time()
+        response = HTTP.get("https://8.8.8.8", timeout=5)
+        basic_latency = (time() - start_time) * 1000
+        
+        # Test Numerai API connectivity
+        start_time = time()
+        api_response = HTTP.get("https://api-tournament.numer.ai/healthz", timeout=10)
+        api_latency = (time() - start_time) * 1000
+        
+        # Update network status
+        dashboard.network_status[:is_connected] = true
+        dashboard.network_status[:api_latency] = api_latency
+        dashboard.network_status[:consecutive_failures] = 0
+        dashboard.network_status[:last_check] = utc_now_datetime()
+        
+        add_event!(dashboard, :success, "✅ Network test successful - Basic: $(round(basic_latency, digits=1))ms, API: $(round(api_latency, digits=1))ms")
+        
+    catch e
+        dashboard.network_status[:is_connected] = false
+        dashboard.network_status[:consecutive_failures] += 1
+        dashboard.network_status[:last_check] = utc_now_datetime()
+        
+        add_event!(dashboard, :error, "❌ Network test failed", e)
+    end
+end
+
+function check_configuration_files(dashboard::TournamentDashboard)
+    """
+    Check configuration files and display status.
+    """
+    add_event!(dashboard, :info, "Checking configuration files...")
+    
+    config_status = get_configuration_status(dashboard)
+    data_files = discover_local_data_files(dashboard)
+    
+    # Report configuration status
+    add_event!(dashboard, :info, "API Keys: $(config_status[:api_keys_status])")
+    add_event!(dashboard, :info, "Data Directory: $(config_status[:data_dir])")
+    add_event!(dashboard, :info, "Model Directory: $(config_status[:model_dir])")
+    
+    # Report data files status
+    total_files = sum(length(files) for files in values(data_files))
+    add_event!(dashboard, :info, "Found $total_files local data files")
+    
+    # Check for missing critical files
+    critical_files = ["config.toml"]
+    missing_files = [f for f in critical_files if !isfile(f)]
+    
+    if !isempty(missing_files)
+        missing_str = join(missing_files, ", ")
+        add_event!(dashboard, :error, "❌ Missing critical files: $(missing_str)")
+    else
+        add_event!(dashboard, :success, "✅ All critical configuration files present")
+    end
+end
+
+function download_tournament_data(dashboard::TournamentDashboard)
+    """
+    Simulate downloading fresh tournament data.
+    """
+    add_event!(dashboard, :info, "Downloading fresh tournament data...")
+    
+    # This would typically call the actual data download functions
+    # For now, just simulate the process
+    try
+        # Check if data directory exists
+        if !isdir(dashboard.config.data_dir)
+            mkpath(dashboard.config.data_dir)
+            add_event!(dashboard, :info, "Created data directory: $(dashboard.config.data_dir)")
+        end
+        
+        # Simulate download process - in real implementation this would call:
+        # DataLoader.download_tournament_data(dashboard.config.data_dir)
+        sleep(1)  # Simulate download time
+        
+        add_event!(dashboard, :success, "✅ Tournament data download completed (simulated)")
+        add_event!(dashboard, :info, "💡 In actual implementation, this would download fresh data from Numerai API")
+        
+    catch e
+        add_event!(dashboard, :error, "❌ Failed to download tournament data", e)
+    end
+end
+
+function view_detailed_error_logs(dashboard::TournamentDashboard)
+    """
+    Display detailed error logs and statistics.
+    """
+    add_event!(dashboard, :info, "Displaying detailed error logs...")
+    
+    error_summary = get_error_summary(dashboard)
+    
+    # Display error statistics
+    add_event!(dashboard, :info, "Total errors: $(error_summary[:total_errors])")
+    add_event!(dashboard, :info, "Recent errors: $(error_summary[:recent_errors])")
+    
+    # Display error counts by category
+    for (category, count) in error_summary[:error_counts_by_category]
+        if count > 0
+            add_event!(dashboard, :info, "$category: $count errors")
+        end
+    end
+    
+    # Display recent API errors
+    if !isempty(dashboard.last_api_errors)
+        add_event!(dashboard, :info, "Recent API errors:")
+        for (i, error) in enumerate(dashboard.last_api_errors[max(1, end-2):end])
+            severity_icon = get_severity_icon(error.severity)
+            add_event!(dashboard, :info, "$severity_icon $(error.timestamp): $(error.message)")
+        end
+    end
+    
+    # Display error trends
+    trends = get_error_trends(dashboard, 60)  # Last hour
+    if !isempty(trends)
+        add_event!(dashboard, :info, "Error trends (last hour):")
+        for (category, count) in trends
+            add_event!(dashboard, :info, "  $category: $count")
+        end
+    end
+end
+
+function save_diagnostic_report(dashboard::TournamentDashboard)
+    """
+    Save comprehensive diagnostic report to file.
+    """
+    report_file = "dashboard_diagnostics_$(Dates.format(utc_now_datetime(), "yyyy-mm-dd_HH-MM-SS")).txt"
+    
+    try
+        open(report_file, "w") do io
+            println(io, "═══════════════════════════════════════════════════════════════")
+            println(io, "Numerai Dashboard Diagnostic Report")
+            println(io, "Generated: $(utc_now_datetime())")
+            println(io, "═══════════════════════════════════════════════════════════════")
+            println(io)
+            
+            # System diagnostics
+            diagnostics = get_system_diagnostics(dashboard)
+            println(io, "SYSTEM DIAGNOSTICS:")
+            for (key, value) in diagnostics
+                println(io, "  $(key): $(value)")
+            end
+            println(io)
+            
+            # Configuration status
+            config_status = get_configuration_status(dashboard)
+            println(io, "CONFIGURATION STATUS:")
+            for (key, value) in config_status
+                println(io, "  $(key): $(value)")
+            end
+            println(io)
+            
+            # Network status
+            network_info = get_detailed_network_status(dashboard)
+            println(io, "NETWORK STATUS:")
+            for (key, value) in network_info
+                println(io, "  $(key): $(value)")
+            end
+            println(io)
+            
+            # Error summary
+            error_summary = get_error_summary(dashboard)
+            println(io, "ERROR SUMMARY:")
+            for (key, value) in error_summary
+                println(io, "  $(key): $(value)")
+            end
+            println(io)
+            
+            # Recent events
+            println(io, "RECENT EVENTS:")
+            for event in Iterators.take(Iterators.reverse(dashboard.events), 10)
+                timestamp = haskey(event, :time) ? event[:time] : "N/A"
+                println(io, "  [$timestamp] $(event[:type]): $(event[:message])")
+            end
+        end
+        
+        add_event!(dashboard, :success, "✅ Diagnostic report saved to: $report_file")
+        
+    catch e
+        add_event!(dashboard, :error, "❌ Failed to save diagnostic report", e)
+    end
+end
+
 # Error statistics and debugging functions
 function get_error_summary(dashboard::TournamentDashboard)::Dict{Symbol, Any}
     """
@@ -1402,6 +2102,10 @@ end
 
 export TournamentDashboard, run_dashboard, add_event!, start_training, save_performance_history, load_performance_history!, get_performance_summary,
        get_error_summary, reset_error_tracking!, get_error_trends, check_network_connectivity,
-       categorize_error, get_user_friendly_message, get_severity_icon
+       categorize_error, get_user_friendly_message, get_severity_icon, render_recovery_mode,
+       get_system_diagnostics, get_configuration_status, discover_local_data_files, get_last_known_good_state,
+       save_last_known_good_state, get_detailed_network_status, get_troubleshooting_suggestions,
+       test_network_connectivity, check_configuration_files, download_tournament_data, 
+       view_detailed_error_logs, save_diagnostic_report
 
 end

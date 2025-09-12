@@ -709,16 +709,16 @@ function save_model_metadata(conn::DatabaseConnection, model_name::String, round
         # Also save round-specific metadata in training_runs if needed
         if round_number > 0
             save_training_run(conn, Dict(
-                "model_name" => model_name,
-                "model_type" => get(metadata, "model_type", "unknown"),
-                "round_number" => round_number,
-                "training_time_seconds" => get(metadata, "duration_seconds", 0),
-                "validation_score" => get(metadata, "validation_score", nothing),
-                "test_score" => get(metadata, "test_score", nothing),
-                "hyperparameters" => metadata,
-                "num_samples" => get(metadata, "num_samples", 0),
-                "num_features" => get(metadata, "num_features", nothing),
-                "dataset_version" => get(metadata, "dataset_version", nothing)
+                :model_name => model_name,
+                :model_type => get(metadata, "model_type", "unknown"),
+                :round_number => round_number,
+                :training_time_seconds => get(metadata, "duration_seconds", 0),
+                :validation_score => get(metadata, "validation_score", nothing),
+                :test_score => get(metadata, "test_score", nothing),
+                :hyperparameters => metadata,
+                :num_samples => get(metadata, "num_samples", 0),
+                :num_features => get(metadata, "num_features", nothing),
+                :dataset_version => get(metadata, "dataset_version", nothing)
             ))
         end
         

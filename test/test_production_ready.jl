@@ -4,13 +4,14 @@
 # This test verifies that the NumeraiTournament.jl package is production-ready
 # by checking all critical components and functionality
 
-# NumeraiTournament is already loaded by runtests.jl
+# Load NumeraiTournament when running standalone
 using Test
 using DataFrames
 using Random
 using JSON3
 using CSV
 using Logging
+using NumeraiTournament
 # Metrics functions accessed via NumeraiTournament.Metrics module
 
 # Access submodules properly

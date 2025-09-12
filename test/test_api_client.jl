@@ -5,7 +5,7 @@ using Test
 using JSON3
 using Dates
 
-# NumeraiTournament is already loaded by runtests.jl
+using NumeraiTournament
 
 # Mock GraphQL responses for testing
 const MOCK_RESPONSES = Dict(

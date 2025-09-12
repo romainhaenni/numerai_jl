@@ -1,4 +1,4 @@
-# NumeraiTournament is already loaded by runtests.jl
+using NumeraiTournament
 using Test
 using Dates
 using TimeZones

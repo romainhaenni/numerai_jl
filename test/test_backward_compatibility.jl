@@ -1,5 +1,5 @@
 #!/usr/bin/env julia
-# NumeraiTournament is already loaded by runtests.jl
+using NumeraiTournament
 using Test
 
 println("Testing backward compatibility...")

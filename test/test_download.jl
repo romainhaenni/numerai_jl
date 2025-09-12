@@ -1,4 +1,4 @@
-# NumeraiTournament is already loaded by runtests.jl
+using NumeraiTournament
 
 # Load environment variables
 if isfile(joinpath(@__DIR__, "..", ".env"))

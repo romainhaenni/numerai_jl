@@ -7,7 +7,7 @@ using Logging
 using Printf
 
 # Import the main module and GPU acceleration module
-# NumeraiTournament is already loaded by runtests.jl
+using NumeraiTournament
 using NumeraiTournament.MetalAcceleration
 
 @testset "GPU Metal Acceleration Tests" begin

@@ -1,5 +1,5 @@
 using Test
-# NumeraiTournament is already loaded by runtests.jl
+using NumeraiTournament
 using NumeraiTournament.Models: RidgeModel, LassoModel, ElasticNetModel
 using NumeraiTournament.Models.LinearModels: train!, predict, save_model, load_model!
 using Random

@@ -1,7 +1,7 @@
 #!/usr/bin/env julia
 
 # Test script to verify dashboard works with fixes
-# NumeraiTournament is already loaded by runtests.jl
+using NumeraiTournament
 
 println("\n=== Testing Dashboard Creation ===")
 

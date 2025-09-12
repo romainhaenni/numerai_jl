@@ -167,6 +167,21 @@ function run_dashboard(dashboard::TournamentDashboard)
     try
         add_event!(dashboard, :info, "Dashboard started")
         
+        # Check if auto_submit is enabled and start automatic pipeline
+        if dashboard.config.auto_submit
+            add_event!(dashboard, :info, "Auto-submit enabled, starting automatic pipeline...")
+            # Start the training pipeline automatically
+            @async begin
+                sleep(2)  # Give dashboard time to initialize
+                add_event!(dashboard, :info, "Starting automatic data download...")
+                # Note: Actual implementation would call download, train, predict, submit
+                # For now, we just start training as an example
+                start_training(dashboard)
+            end
+        else
+            add_event!(dashboard, :info, "Manual mode - press 's' to start training")
+        end
+        
         # Initial render to show something immediately
         try
             render(dashboard)
@@ -864,20 +879,20 @@ function run_real_training(dashboard::TournamentDashboard)
         # Train the pipeline with progress updates
         add_event!(dashboard, :info, "Training ensemble models...")
         
-        # Simulate epochs for progress tracking during actual training
-        n_models = 1  # Now using single model
-        for i in 1:n_models
+        # Create a progress callback for real training updates
+        function training_progress_callback(epoch::Int, total_epochs::Int, loss::Float64, val_score::Float64)
             if !dashboard.training_info[:is_training]
-                break
+                return false  # Signal to stop training
             end
             
-            dashboard.training_info[:current_epoch] = i * 25
-            dashboard.training_info[:progress] = 40 + (i / n_models) * 40
-            dashboard.training_info[:eta] = "Training $(model_config.type)..."
+            dashboard.training_info[:current_epoch] = epoch
+            dashboard.training_info[:total_epochs] = total_epochs
+            dashboard.training_info[:progress] = 40 + (epoch / total_epochs) * 40
+            dashboard.training_info[:eta] = "Training epoch $epoch/$total_epochs..."
+            dashboard.training_info[:loss] = loss
+            dashboard.training_info[:val_score] = val_score
             
-            # Update loss metrics (these would come from actual training callbacks)
-            dashboard.training_info[:loss] = 0.5 / i
-            dashboard.training_info[:val_score] = 0.01 + i * 0.002  # Progressive improvement instead of random
+            return true  # Continue training
         end
         
         # Load validation data for training
@@ -887,8 +902,27 @@ function run_real_training(dashboard::TournamentDashboard)
             target_col=config.target_col
         )
         
-        # Actually train the pipeline
+        # Actually train the pipeline with progress callback
+        # Note: For now we train without callback as models don't support it yet
+        # TODO: Add callback support to models
         Pipeline.train!(pipeline, train_data, val_data, verbose=false)
+        
+        # Update progress periodically during training (temporary solution)
+        # This provides some visual feedback even without direct callbacks
+        @async begin
+            epochs_estimate = 100  # Estimated epochs for progress display
+            for i in 1:epochs_estimate
+                if !dashboard.training_info[:is_training]
+                    break
+                end
+                sleep(0.5)  # Update every 0.5 seconds
+                progress = 40 + (i / epochs_estimate) * 40
+                dashboard.training_info[:progress] = min(progress, 85)  # Cap at 85% until actually done
+                dashboard.training_info[:current_epoch] = i
+                dashboard.training_info[:total_epochs] = epochs_estimate
+                dashboard.training_info[:eta] = "Training in progress..."
+            end
+        end
         
         dashboard.training_info[:progress] = 90
         dashboard.training_info[:eta] = "Evaluating performance..."

@@ -15,6 +15,10 @@ using JSON3
 # Import DataLoader module from parent scope
 using ..DataLoader
 
+# Import Callbacks module
+include("callbacks.jl")
+using .Callbacks
+
 # Access GPU acceleration module from parent scope
 # (already included by main NumeraiTournament module)
 
@@ -194,7 +198,8 @@ function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Union{Ve
                feature_names::Union{Nothing, Vector{String}}=nothing,
                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
                verbose::Bool=false,
-               preprocess_gpu::Bool=true)
+               preprocess_gpu::Bool=true,
+               callbacks::Vector{TrainingCallback}=TrainingCallback[])
     
     # Detect multi-target case and set up appropriate parameters
     is_multitarget = y_train isa Matrix{Float64}
@@ -256,12 +261,28 @@ function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Union{Ve
         end
     end
     
+    # Initialize callback tracking
+    start_time = time()
+    
+    # Add default logging callback if verbose and no callbacks provided
+    if verbose && isempty(callbacks)
+        push!(callbacks, create_logging_callback(frequency=max(1, model.num_rounds ÷ 10)))
+    end
+    
     if is_multitarget
         # For multi-target, train separate models for each target
         models = Booster[]
         
         for target_idx in 1:n_targets
             @info "Training model for target $target_idx/$n_targets"
+            
+            # Call callbacks for target start
+            for callback in callbacks
+                target_name = "$(model.name)_target_$(target_idx)"
+                info = create_callback_info(target_name, 0, n_targets, target_idx, n_targets, start_time)
+                call_callback!(callback, info)
+            end
+            
             y_target = y_train[:, target_idx]
             dtrain = DMatrix(X_train_processed, label=y_target)
             
@@ -318,6 +339,13 @@ function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Union{Ve
                 xgboost(dtrain; params...)
             end
             
+            # Call callbacks for target completion
+            for callback in callbacks
+                target_name = "$(model.name)_target_$(target_idx)"
+                info = create_callback_info(target_name, target_idx, n_targets, model.num_rounds, model.num_rounds, start_time)
+                call_callback!(callback, info)
+            end
+            
             push!(models, target_model)
         end
         
@@ -329,6 +357,12 @@ function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Union{Ve
     end
     
     # Single-target training logic (only reached if not multi-target)
+    # Call callbacks for training start
+    for callback in callbacks
+        info = create_callback_info(model.name, 0, 1, 0, model.num_rounds, start_time)
+        call_callback!(callback, info)
+    end
+    
     if X_val !== nothing && y_val !== nothing
         dval = DMatrix(X_val_processed, label=y_val)
         watchlist = OrderedDict("train" => dtrain, "eval" => dval)
@@ -375,6 +409,12 @@ function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Union{Ve
         model.model = xgboost(dtrain; params...)
     end
     
+    # Call callbacks for training completion
+    for callback in callbacks
+        info = create_callback_info(model.name, 1, 1, model.num_rounds, model.num_rounds, start_time)
+        call_callback!(callback, info)
+    end
+    
     return model
 end
 
@@ -383,7 +423,8 @@ function train!(model::LightGBMModel, X_train::Matrix{Float64}, y_train::Union{V
                y_val::Union{Nothing, Vector{Float64}, Matrix{Float64}}=nothing,
                feature_names::Union{Nothing, Vector{String}}=nothing,
                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
-               verbose::Bool=false)
+               verbose::Bool=false,
+               callbacks::Vector{TrainingCallback}=TrainingCallback[])
     
     # Detect multi-target case and set up appropriate parameters
     is_multitarget = y_train isa Matrix{Float64}
@@ -400,6 +441,14 @@ function train!(model::LightGBMModel, X_train::Matrix{Float64}, y_train::Union{V
         if haskey(model.params, "n_targets")
             delete!(model.params, "n_targets")
         end
+    end
+    
+    # Initialize callback tracking
+    start_time = time()
+    
+    # Add default logging callback if verbose and no callbacks provided
+    if verbose && isempty(callbacks)
+        push!(callbacks, create_logging_callback(frequency=max(1, model.params["n_estimators"] ÷ 10)))
     end
     
     # Prepare interaction constraints for LightGBM if feature groups are provided
@@ -430,6 +479,14 @@ function train!(model::LightGBMModel, X_train::Matrix{Float64}, y_train::Union{V
         
         for target_idx in 1:n_targets
             @info "Training LightGBM model for target $target_idx/$n_targets"
+            
+            # Call callbacks for target start
+            for callback in callbacks
+                target_name = "$(model.name)_target_$(target_idx)"
+                info = create_callback_info(target_name, 0, n_targets, target_idx, n_targets, start_time)
+                call_callback!(callback, info)
+            end
+            
             y_target = y_train[:, target_idx]
             
             # Build parameters dictionary for this target
@@ -486,6 +543,13 @@ function train!(model::LightGBMModel, X_train::Matrix{Float64}, y_train::Union{V
                              truncate_booster=false)
             end
             
+            # Call callbacks for target completion
+            for callback in callbacks
+                target_name = "$(model.name)_target_$(target_idx)"
+                info = create_callback_info(target_name, target_idx, n_targets, model.params["n_estimators"], model.params["n_estimators"], start_time)
+                call_callback!(callback, info)
+            end
+            
             push!(models, estimator)
         end
         
@@ -493,6 +557,12 @@ function train!(model::LightGBMModel, X_train::Matrix{Float64}, y_train::Union{V
         return model
     else
         # Single-target training
+        # Call callbacks for training start
+        for callback in callbacks
+            info = create_callback_info(model.name, 0, 1, 0, model.params["n_estimators"], start_time)
+            call_callback!(callback, info)
+        end
+        
         # Build parameters dictionary
         lgbm_params = Dict{Symbol, Any}(
             :objective => model.params["objective"],
@@ -537,6 +607,12 @@ function train!(model::LightGBMModel, X_train::Matrix{Float64}, y_train::Union{V
                          truncate_booster=false)
         end
         
+        # Call callbacks for training completion
+        for callback in callbacks
+            info = create_callback_info(model.name, 1, 1, model.params["n_estimators"], model.params["n_estimators"], start_time)
+            call_callback!(callback, info)
+        end
+        
         model.model = estimator
         
         return model
@@ -548,7 +624,8 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Union{V
                y_val::Union{Nothing, Vector{Float64}, Matrix{Float64}}=nothing,
                feature_names::Union{Nothing, Vector{String}}=nothing,
                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
-               verbose::Bool=false)
+               verbose::Bool=false,
+               callbacks::Vector{TrainingCallback}=TrainingCallback[])
     
     # Detect multi-target case and set up appropriate parameters
     is_multitarget = y_train isa Matrix{Float64}
@@ -565,6 +642,14 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Union{V
         if haskey(model.params, "n_targets")
             delete!(model.params, "n_targets")
         end
+    end
+    
+    # Initialize callback tracking
+    start_time = time()
+    
+    # Add default logging callback if verbose and no callbacks provided
+    if verbose && isempty(callbacks)
+        push!(callbacks, create_logging_callback(frequency=max(1, model.params["nrounds"] ÷ 10)))
     end
     
     # Process feature groups for EvoTrees if provided
@@ -594,6 +679,14 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Union{V
         
         for target_idx in 1:n_targets
             @info "Training EvoTrees model for target $target_idx/$n_targets"
+            
+            # Call callbacks for target start
+            for callback in callbacks
+                target_name = "$(model.name)_target_$(target_idx)"
+                info = create_callback_info(target_name, 0, n_targets, target_idx, n_targets, start_time)
+                call_callback!(callback, info)
+            end
+            
             y_target = y_train[:, target_idx]
             
             # Prepare configuration for EvoTrees
@@ -634,6 +727,13 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Union{V
                                     print_every_n=100)  # Print progress every 100 iterations
             end
             
+            # Call callbacks for target completion
+            for callback in callbacks
+                target_name = "$(model.name)_target_$(target_idx)"
+                info = create_callback_info(target_name, target_idx, n_targets, model.params["nrounds"], model.params["nrounds"], start_time)
+                call_callback!(callback, info)
+            end
+            
             push!(models, target_model)
         end
         
@@ -641,6 +741,12 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Union{V
         return model
     else
         # Single-target training
+        # Call callbacks for training start
+        for callback in callbacks
+            info = create_callback_info(model.name, 0, 1, 0, model.params["nrounds"], start_time)
+            call_callback!(callback, info)
+        end
+        
         # Prepare configuration for EvoTrees
         config = EvoTrees.EvoTreeRegressor(;
             loss=model.params["loss"],
@@ -673,6 +779,12 @@ function train!(model::EvoTreesModel, X_train::Matrix{Float64}, y_train::Union{V
                                               print_every_n=100)  # Print progress every 100 iterations
         end
         
+        # Call callbacks for training completion
+        for callback in callbacks
+            info = create_callback_info(model.name, 1, 1, model.params["nrounds"], model.params["nrounds"], start_time)
+            call_callback!(callback, info)
+        end
+        
         return model
     end
 end
@@ -682,7 +794,8 @@ function train!(model::CatBoostModel, X_train::Matrix{Float64}, y_train::Union{V
                y_val::Union{Nothing, Vector{Float64}, Matrix{Float64}}=nothing,
                feature_names::Union{Nothing, Vector{String}}=nothing,
                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
-               verbose::Bool=false)
+               verbose::Bool=false,
+               callbacks::Vector{TrainingCallback}=TrainingCallback[])
     
     # Detect multi-target case and set up appropriate parameters
     is_multitarget = y_train isa Matrix{Float64}
@@ -702,6 +815,14 @@ function train!(model::CatBoostModel, X_train::Matrix{Float64}, y_train::Union{V
         if haskey(model.params, "n_targets")
             delete!(model.params, "n_targets")
         end
+    end
+    
+    # Initialize callback tracking
+    start_time = time()
+    
+    # Add default logging callback if verbose and no callbacks provided
+    if verbose && isempty(callbacks)
+        push!(callbacks, create_logging_callback(frequency=max(1, model.params["iterations"] ÷ 10)))
     end
     
     # Process feature groups for CatBoost if provided
@@ -1698,6 +1819,9 @@ export NumeraiModel, XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel, 
        cross_validate, feature_importance, save_model, load_model!,
        ensemble_predict, gpu_feature_selection_for_models, benchmark_model_performance,
        get_models_gpu_status, create_model
+       
+# Export callback functionality
+export Callbacks
 
 # Include linear models
 include("linear_models.jl")

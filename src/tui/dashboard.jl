@@ -17,6 +17,10 @@ using ..Logger: @log_info, @log_warn, @log_error
 # Import UTC utility function
 include("../utils.jl")
 
+# Import callbacks
+include("../ml/callbacks.jl")
+using .Callbacks
+
 include("dashboard_commands.jl")
 
 # Error categorization types
@@ -153,6 +157,61 @@ function TournamentDashboard(config)
         nothing, nothing, nothing, false,  # selected_model_details, selected_model_stats, wizard_state, wizard_active
         error_counts, network_status, Vector{CategorizedError}()  # error tracking fields
     )
+end
+
+"""
+Create a dashboard callback that updates training info in real-time
+"""
+function create_dashboard_training_callback(dashboard::TournamentDashboard)::DashboardCallback
+    update_fn = function(info::CallbackInfo)::CallbackResult
+        # Update training info in dashboard
+        dashboard.training_info[:is_training] = true
+        dashboard.training_info[:model_name] = info.model_name
+        dashboard.training_info[:current_epoch] = info.epoch
+        dashboard.training_info[:total_epochs] = info.total_epochs
+        dashboard.training_info[:progress] = info.total_epochs > 0 ? 
+            round(Int, (info.epoch / info.total_epochs) * 100) : 
+            (info.total_iterations !== nothing && info.total_iterations > 0 ? 
+             round(Int, (info.iteration / info.total_iterations) * 100) : 0)
+        
+        # Update metrics if available
+        if info.loss !== nothing
+            dashboard.training_info[:loss] = info.loss
+        end
+        if info.val_score !== nothing
+            dashboard.training_info[:val_score] = info.val_score
+        end
+        if info.eta !== nothing
+            eta_str = if info.eta < 60
+                "$(round(Int, info.eta))s"
+            elseif info.eta < 3600
+                "$(round(info.eta/60, digits=1))m"
+            else
+                "$(round(info.eta/3600, digits=1))h"
+            end
+            dashboard.training_info[:eta] = eta_str
+        end
+        
+        # Add event for significant progress milestones
+        if info.epoch > 0 && info.epoch % max(1, info.total_epochs ÷ 5) == 0
+            add_event!(dashboard, :info, 
+                "Training $(info.model_name): $(info.epoch)/$(info.total_epochs) epochs ($(dashboard.training_info[:progress])%)")
+        end
+        
+        return CONTINUE
+    end
+    
+    return create_dashboard_callback(update_fn, frequency=1, name="training_progress")
+end
+
+"""
+Mark training as completed in dashboard
+"""
+function complete_training!(dashboard::TournamentDashboard, model_name::String)
+    dashboard.training_info[:is_training] = false
+    dashboard.training_info[:progress] = 100
+    dashboard.training_info[:eta] = "Completed"
+    add_event!(dashboard, :success, "Training completed for $(model_name)")
 end
 
 function run_dashboard(dashboard::TournamentDashboard)
@@ -2140,6 +2199,8 @@ export TournamentDashboard, run_dashboard, add_event!, start_training, save_perf
        get_system_diagnostics, get_configuration_status, discover_local_data_files, get_last_known_good_state,
        save_last_known_good_state, get_detailed_network_status, get_troubleshooting_suggestions,
        test_network_connectivity, check_configuration_files, download_tournament_data, 
-       view_detailed_error_logs, save_diagnostic_report
+       view_detailed_error_logs, save_diagnostic_report,
+       # Callback integration functions
+       create_dashboard_training_callback, complete_training!
 
 end

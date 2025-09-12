@@ -8,6 +8,7 @@ using ..DataLoader
 using ..Preprocessor
 using ..Models
 using ..Models: RidgeModel, LassoModel, ElasticNetModel
+using ..Models.Callbacks
 using ..NeuralNetworks: MLPModel, ResNetModel
 using ..Ensemble
 using ..Neutralization
@@ -417,7 +418,8 @@ function prepare_data(pipeline::MLPipeline, df::DataFrame)
 end
 
 function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
-               verbose::Bool=true, parallel::Bool=true, data_dir::Union{Nothing, String}=nothing)
+               verbose::Bool=true, parallel::Bool=true, data_dir::Union{Nothing, String}=nothing,
+               callbacks::Vector{Callbacks.TrainingCallback}=Callbacks.TrainingCallback[])
     
     if verbose
         println("Preparing training data...")
@@ -458,7 +460,8 @@ function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
                      X_val=X_val, y_val=y_val, 
                      feature_names=pipeline.feature_cols,
                      feature_groups=feature_groups,
-                     verbose=verbose)
+                     verbose=verbose,
+                     callbacks=callbacks)
     else
         # Multi-target mode - train separate model per target
         if verbose
@@ -482,7 +485,8 @@ function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
                          X_val=X_val, y_val=y_val_target, 
                          feature_names=pipeline.feature_cols,
                          feature_groups=feature_groups,
-                         verbose=verbose)
+                         verbose=verbose,
+                         callbacks=callbacks)
             
             # Store model for this target
             pipeline.multi_target_models[target_col] = target_model

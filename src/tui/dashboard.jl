@@ -1116,27 +1116,13 @@ function run_real_training(dashboard::TournamentDashboard)
             target_col=config.target_col
         )
         
-        # Actually train the pipeline with progress callback
-        # Note: For now we train without callback as models don't support it yet
-        # TODO: Add callback support to models
-        Pipeline.train!(pipeline, train_data, val_data, verbose=false)
+        # Create dashboard callback for training progress
+        dashboard_callback = create_dashboard_training_callback(dashboard)
+        callbacks = [dashboard_callback]
         
-        # Update progress periodically during training (temporary solution)
-        # This provides some visual feedback even without direct callbacks
-        @async begin
-            epochs_estimate = 100  # Estimated epochs for progress display
-            for i in 1:epochs_estimate
-                if !dashboard.training_info[:is_training]
-                    break
-                end
-                sleep(0.5)  # Update every 0.5 seconds
-                progress = 40 + (i / epochs_estimate) * 40
-                dashboard.training_info[:progress] = min(progress, 85)  # Cap at 85% until actually done
-                dashboard.training_info[:current_epoch] = i
-                dashboard.training_info[:total_epochs] = epochs_estimate
-                dashboard.training_info[:eta] = "Training in progress..."
-            end
-        end
+        # Train the pipeline with callbacks for real-time progress updates
+        Pipeline.train!(pipeline, train_data, val_data, verbose=false, callbacks=callbacks)
+        
         
         dashboard.training_info[:progress] = 90
         dashboard.training_info[:eta] = "Evaluating performance..."

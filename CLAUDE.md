@@ -35,6 +35,25 @@ julia --project=. -e "using Pkg; Pkg.test(coverage=true)"
 # Note: CondaPkg initialization on first run is normal - creates Python dependencies for CatBoost
 ```
 
+### TUI Dashboard Usage
+```bash
+# Run TUI with new grid layout (default)
+julia -t 16 ./numerai
+
+# Interactive model creation wizard
+# In TUI: Press 'n' to create a new model, follow prompts for:
+# - Model type selection (XGBoost, LightGBM, Neural Network, etc.)
+# - Feature set (small, medium, all)
+# - Hyperparameter configuration
+# - Multi-target support (V4/V5)
+
+# Key TUI controls:
+# 'q' - Quit dashboard
+# 'n' - New model wizard
+# 'r' - Refresh data
+# Arrow keys - Navigate between panels
+```
+
 ### Main Application
 ```bash
 # Run TUI dashboard (recommended: use multiple threads)

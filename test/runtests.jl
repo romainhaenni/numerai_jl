@@ -158,13 +158,44 @@ Random.seed!(123)
     
     @testset "Configuration" begin
         @testset "load_config with env vars" begin
-            ENV["NUMERAI_PUBLIC_ID"] = "test_public"
-            ENV["NUMERAI_SECRET_KEY"] = "test_secret"
+            # Save original environment variables
+            orig_public_id = get(ENV, "NUMERAI_PUBLIC_ID", nothing)
+            orig_secret_key = get(ENV, "NUMERAI_SECRET_KEY", nothing)
             
-            config = NumeraiTournament.load_config("nonexistent.toml")
-            @test config.api_public_key == "test_public"
-            @test config.api_secret_key == "test_secret"
-            @test config.auto_submit == true
+            # Temporarily rename .env file if it exists to prevent it from interfering
+            env_file_exists = isfile(".env")
+            if env_file_exists
+                mv(".env", ".env.test_backup")
+            end
+            
+            try
+                # Set test environment variables
+                ENV["NUMERAI_PUBLIC_ID"] = "test_public"
+                ENV["NUMERAI_SECRET_KEY"] = "test_secret"
+                
+                config = NumeraiTournament.load_config("nonexistent.toml")
+                @test config.api_public_key == "test_public"
+                @test config.api_secret_key == "test_secret"
+                @test config.auto_submit == true
+            finally
+                # Restore original environment variables
+                if orig_public_id !== nothing
+                    ENV["NUMERAI_PUBLIC_ID"] = orig_public_id
+                else
+                    delete!(ENV, "NUMERAI_PUBLIC_ID")
+                end
+                
+                if orig_secret_key !== nothing
+                    ENV["NUMERAI_SECRET_KEY"] = orig_secret_key
+                else
+                    delete!(ENV, "NUMERAI_SECRET_KEY")
+                end
+                
+                # Restore .env file if it existed
+                if env_file_exists
+                    mv(".env.test_backup", ".env")
+                end
+            end
         end
     end
     

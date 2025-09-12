@@ -4,7 +4,7 @@ The source code of the program is in @src/*
 
 First task is to study @scratchpad.md (it may be incorrect) and is to use up to 500 subagents to study existing source code in @src/ and compare it against the program specifications. From that create/update @scratchpad.md which is a bullet point list sorted in priority of the items which have yet to be implemented. Think extra hard and plan in advance. Consider searching for TODO, minimal implementations and placeholders. Study @scratchpad.md to determine starting point for research and keep it up to date with items considered complete/incomplete using subagents.
 
-ULTIMATE GOAL: Your job is to create a production-ready Julia application following the specifications in the reference documents in @specs/. The TUI and data pipeline must work without any issues! Do not take shortcuts, no recovery mode and fakes allowed, deliver working software, test by yourself by writing tests.
+ULTIMATE GOAL: Your job is to create a Julia application following the specifications in the reference documents in @specs/. The TUI and data pipeline must work without any issues! Do not take shortcuts, no recovery mode and fakes allowed, deliver working software, test by yourself by writing and running tests.
 
 Use @scratchpad.md as a scratchpad for your work. Store long term plans and todo lists there. Follow the @scratchpad.md and choose the most important thing. Before making changes search codebase (don't assume not implemented) using subagents. You may use up to 500 parallel subagents for all operations but only 1 subagent for build/tests of Julia. For any bugs you notice, it's important to resolve them or document them in @scratchpad.md to be resolved using a subagent even if it is unrelated to the current piece of work after documenting it in @scratchpad.md. When the issue is resolved, update @scratchpad.md and remove the item using a subagent.
 
@@ -14,7 +14,7 @@ Update @README.md so that the user knows how to use and configure the program.
 
 Make a commit and push your changes after every single file edit. After the commit do a "git push" to push the changes to the remote repository. If you create new branches, make sure to merge them into main and delete them afterwards. Do not leave feature branches open without merging them. Resolve any merge issues.
 
-Do not assume ready for production. We improve the program iteratively, to be production ready is not a goal. The goal is to have a model for the tournament that has maximal return.
+Do not assume the program is production-ready unless: ALL tests run through successfully, no missing references in the code, the data pipeline runs automatically without issues.
 
 Important: We want single sources of truth, no migrations/adapters. If tests unrelated to your work fail then it's your job to resolve these tests as part of the increment of change.
 

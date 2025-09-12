@@ -447,7 +447,10 @@ function hourly_monitoring(scheduler::TournamentScheduler)
     try
         for model in scheduler.config.models
             try
-                perf = API.get_model_performance(scheduler.api_client, model)
+                perf = API.get_model_performance(scheduler.api_client, model;
+                                                 enable_dynamic_sharpe=scheduler.config.enable_dynamic_sharpe,
+                                                 sharpe_history_rounds=scheduler.config.sharpe_history_rounds,
+                                                 sharpe_min_data_points=scheduler.config.sharpe_min_data_points)
                 
                 if perf.corr < -0.05
                     @log_warn "Model performance alert" model=model correlation=perf.corr
@@ -658,7 +661,10 @@ end
 function check_model_performances(scheduler::TournamentScheduler)
     for model in scheduler.config.models
         try
-            perf = API.get_model_performance(scheduler.api_client, model)
+            perf = API.get_model_performance(scheduler.api_client, model;
+                                             enable_dynamic_sharpe=scheduler.config.enable_dynamic_sharpe,
+                                             sharpe_history_rounds=scheduler.config.sharpe_history_rounds,
+                                             sharpe_min_data_points=scheduler.config.sharpe_min_data_points)
             log_event(scheduler, :info, "$model - CORR: $(perf.corr), MMC: $(perf.mmc)")
         catch e
             log_event(scheduler, :error, "Failed to get performance for $model")

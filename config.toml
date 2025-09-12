@@ -58,6 +58,16 @@ neutralization_proportion = 0.5
 correlation_weight = 0.7
 sharpe_weight = 0.3
 
+# API Configuration
+[api]
+# Sharpe ratio calculation settings
+# Number of recent rounds to use for Sharpe calculation (max 52 = ~1 year)
+sharpe_history_rounds = 52
+# Minimum number of data points required for Sharpe calculation
+sharpe_min_data_points = 2
+# Whether to enable dynamic Sharpe calculation (true) or use hardcoded 0.0 (false)
+enable_dynamic_sharpe = true
+
 # TUI Dashboard Configuration
 [tui]
 refresh_rate = 1.0  # Dashboard refresh rate in seconds

@@ -100,6 +100,8 @@ function MLPipeline(;
     neutralize_proportion::Float64=0.5,
     model::Union{Models.NumeraiModel, Nothing}=nothing,
     model_config::Union{ModelConfig, Nothing}=nothing,
+    # Backward compatibility: accept old model_configs parameter
+    model_configs::Union{Vector{ModelConfig}, Nothing}=nothing,
     # Feature groups parameters
     feature_groups::Union{Dict{String, Vector{String}}, Nothing}=nothing,
     features_metadata::Union{Dict{String, Any}, Nothing}=nothing,
@@ -130,6 +132,17 @@ function MLPipeline(;
     # Determine if this is multi-target
     is_multi_target = target_mode == :multi
     n_targets = length(target_cols_vec)
+    
+    # Handle backward compatibility for model_configs parameter
+    if model_configs !== nothing && model_config !== nothing
+        error("Specify either model_config or model_configs, not both")
+    elseif model_configs !== nothing && !isempty(model_configs)
+        # Use first model config for backward compatibility
+        model_config = model_configs[1]
+        if length(model_configs) > 1
+            @warn "Multiple model configs provided but only the first one will be used. Use ensemble functionality for multiple models."
+        end
+    end
     
     config = Dict(
         :neutralize => neutralize,

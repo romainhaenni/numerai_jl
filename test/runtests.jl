@@ -10,6 +10,9 @@ Random.seed!(123)
 
 @testset "NumeraiTournament.jl Tests" begin
     
+    # Quick verification that core systems work
+    include("test_critical.jl")
+    
     # Include HyperOpt tests
     include("test_hyperopt.jl")
     
@@ -270,6 +273,10 @@ Random.seed!(123)
     end
     
     
+    # Core functionality tests
+    include("test_backward_compatibility.jl")
+    include("test_feature_groups.jl")
+    
     # Include MMC metrics tests
     include("test_metrics.jl")
     
@@ -297,6 +304,9 @@ Random.seed!(123)
     # Include Linear Models tests
     include("test_linear_models.jl")
     
+    # Multi-target support tests
+    include("test_multi_target.jl")
+    
     # Include Ensemble tests
     include("test_ensemble.jl")
     
@@ -304,6 +314,7 @@ Random.seed!(123)
     # These were missing from the test suite
     
     # API and networking tests
+    include("test_api.jl")
     include("test_api_client.jl")
     include("test_webhooks.jl")
     include("test_submission_windows.jl")
@@ -314,8 +325,14 @@ Random.seed!(123)
     # Database tests
     include("test_database.jl")
     
+    # Data download tests
+    include("test_download.jl")
+    
     # TUI tests
     include("test_tui_comprehensive.jl")
+    
+    # Dashboard tests
+    include("test_dashboard.jl")
     
     # Production readiness tests
     include("test_production_ready.jl")

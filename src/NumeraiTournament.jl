@@ -89,6 +89,10 @@ mutable struct TournamentConfig
     target_col::String
     enable_neutralization::Bool
     neutralization_proportion::Float64
+    # API configuration for Sharpe calculation
+    enable_dynamic_sharpe::Bool
+    sharpe_history_rounds::Int
+    sharpe_min_data_points::Int
 end
 
 function load_config(path::String="config.toml")::TournamentConfig
@@ -164,7 +168,11 @@ function load_config(path::String="config.toml")::TournamentConfig
             0.1,    # sample_pct default
             "target_cyrus_v4_20",  # target_col default
             false,  # enable_neutralization default
-            0.5     # neutralization_proportion default
+            0.5,    # neutralization_proportion default
+            # API configuration defaults
+            true,   # enable_dynamic_sharpe default
+            52,     # sharpe_history_rounds default
+            2       # sharpe_min_data_points default
         )
     end
     
@@ -212,7 +220,11 @@ function load_config(path::String="config.toml")::TournamentConfig
         get(ml_config, "sample_pct", 0.1),
         get(ml_config, "target_col", "target_cyrus_v4_20"),
         get(ml_config, "enable_neutralization", false),
-        get(ml_config, "neutralization_proportion", 0.5)
+        get(ml_config, "neutralization_proportion", 0.5),
+        # API configuration with defaults
+        get(get(config, "api", Dict()), "enable_dynamic_sharpe", true),
+        get(get(config, "api", Dict()), "sharpe_history_rounds", 52),
+        get(get(config, "api", Dict()), "sharpe_min_data_points", 2)
     )
 end
 
@@ -412,7 +424,10 @@ function show_model_performance(model_name::String, config_file::String="config.
     
     try
         # Get model performance from API
-        performance = get_model_performance(api_client, model_name)
+        performance = get_model_performance(api_client, model_name;
+                                          enable_dynamic_sharpe=config.enable_dynamic_sharpe,
+                                          sharpe_history_rounds=config.sharpe_history_rounds,
+                                          sharpe_min_data_points=config.sharpe_min_data_points)
         
         println("\nModel: $(performance.model_name)")
         println("Stake: $(performance.stake) NMR")
@@ -449,7 +464,10 @@ function show_all_performance(config_file::String="config.toml")
         for model_name in model_names
             println("\n" * "="^50)
             try
-                performance = get_model_performance(api_client, model_name)
+                performance = get_model_performance(api_client, model_name;
+                                                   enable_dynamic_sharpe=config.enable_dynamic_sharpe,
+                                                   sharpe_history_rounds=config.sharpe_history_rounds,
+                                                   sharpe_min_data_points=config.sharpe_min_data_points)
                 
                 println("Model: $(performance.model_name)")
                 println("Stake: $(performance.stake) NMR")

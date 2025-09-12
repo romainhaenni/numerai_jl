@@ -6,6 +6,7 @@ using Dates
 using TimeZones
 using Downloads
 using ProgressMeter
+using Statistics
 using ..Schemas
 using ..Logger: @log_debug, @log_info, @log_warn, @log_error, log_api_call, log_submission
 using ..Logger
@@ -180,9 +181,12 @@ function get_current_round(client::NumeraiClient)::Schemas.Round
     )
 end
 
-function get_model_performance(client::NumeraiClient, model_name::String)::Schemas.ModelPerformance
+function get_model_performance(client::NumeraiClient, model_name::String; 
+                                 enable_dynamic_sharpe::Bool=true,
+                                 sharpe_history_rounds::Int=52,
+                                 sharpe_min_data_points::Int=2)::Schemas.ModelPerformance
     query = """
-    query(\$modelName: String!) {
+    query(\$modelName: String!, \$historyRounds: Int!) {
         v3UserProfile(modelName: \$modelName) {
             latestRanks {
                 corr
@@ -191,11 +195,17 @@ function get_model_performance(client::NumeraiClient, model_name::String)::Schem
                 tc
             }
             nmrStaked
+            roundModelPerformances(last: \$historyRounds) {
+                roundNumber
+                submissionScores {
+                    correlation
+                }
+            }
         }
     }
     """
     
-    result = graphql_query(client, query, Dict("modelName" => model_name))
+    result = graphql_query(client, query, Dict("modelName" => model_name, "historyRounds" => sharpe_history_rounds))
     profile = get(result, :v3UserProfile, Dict())
     ranks = get(profile, :latestRanks, Dict())
     
@@ -207,6 +217,13 @@ function get_model_performance(client::NumeraiClient, model_name::String)::Schem
     nmr_staked = tryparse(Float64, string(get(profile, :nmrStaked, "0")))
     nmr_staked = isnothing(nmr_staked) ? 0.0 : nmr_staked
     
+    # Calculate Sharpe ratio from historical performance data
+    sharpe = if enable_dynamic_sharpe
+        calculate_sharpe_from_performance_history(profile, sharpe_min_data_points)
+    else
+        0.0  # Use hardcoded value when dynamic calculation is disabled
+    end
+    
     return Schemas.ModelPerformance(
         model_name,
         model_name,
@@ -214,9 +231,75 @@ function get_model_performance(client::NumeraiClient, model_name::String)::Schem
         mmc,
         fnc,
         tc,
-        0.0,  # Sharpe not directly available
+        sharpe,
         nmr_staked
     )
+end
+
+"""
+    calculate_sharpe_from_performance_history(profile::Dict, min_data_points::Int=2)
+
+Calculate Sharpe ratio from historical model performance data.
+Uses correlation scores from recent rounds for risk-adjusted performance calculation.
+Fallback to 0.0 if insufficient data is available.
+
+# Arguments
+- `profile`: User profile data containing roundModelPerformances
+- `min_data_points`: Minimum number of correlation data points required (default: 2)
+
+# Returns  
+- Float64: Calculated Sharpe ratio or 0.0 if insufficient data
+"""
+function calculate_sharpe_from_performance_history(profile::Dict, min_data_points::Int=2)
+    round_perfs = get(profile, :roundModelPerformances, [])
+    
+    if isempty(round_perfs)
+        @log_debug "No historical performance data available for Sharpe calculation"
+        return 0.0
+    end
+    
+    # Extract correlation scores from submission scores
+    correlations = Float64[]
+    for round_perf in round_perfs
+        scores = get(round_perf, :submissionScores, [])
+        if !isempty(scores)
+            # Take the latest score for this round (most recent submission)
+            latest_score = scores[end]
+            corr_value = get(latest_score, :correlation, nothing)
+            if !isnothing(corr_value) && !isnan(corr_value)
+                push!(correlations, Float64(corr_value))
+            end
+        end
+    end
+    
+    # Need at least min_data_points to calculate Sharpe ratio
+    if length(correlations) < min_data_points
+        @log_debug "Insufficient correlation data for Sharpe calculation" count=length(correlations) required=min_data_points
+        return 0.0
+    end
+    
+    # Calculate Sharpe ratio using the existing metrics function
+    # Import the calculate_sharpe function from the Metrics module
+    try
+        # Use the existing calculate_sharpe function from Metrics module
+        if isdefined(Main, :NumeraiTournament) && isdefined(Main.NumeraiTournament, :Metrics)
+            return Main.NumeraiTournament.Metrics.calculate_sharpe(correlations)
+        else
+            # Fallback calculation if module not available
+            mean_corr = mean(correlations)
+            std_corr = std(correlations)
+            
+            if std_corr == 0.0
+                return mean_corr > 0.0 ? Inf : (mean_corr < 0.0 ? -Inf : 0.0)
+            end
+            
+            sharpe_ratio = mean_corr / std_corr
+            return isnan(sharpe_ratio) ? 0.0 : sharpe_ratio
+        end
+    catch e
+        @log_error "Error calculating Sharpe ratio from performance history" error=e
+        return 0.0
+    end
 end
 
 function download_dataset(client::NumeraiClient, dataset_type::String, output_path::String; show_progress::Bool=true)

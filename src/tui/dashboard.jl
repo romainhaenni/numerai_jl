@@ -443,7 +443,10 @@ function update_model_performances!(dashboard::TournamentDashboard)
     model_name = dashboard.model[:name]
     try
         start_time = time()
-        perf = API.get_model_performance(dashboard.api_client, model_name)
+        perf = API.get_model_performance(dashboard.api_client, model_name;
+                                         enable_dynamic_sharpe=dashboard.config.enable_dynamic_sharpe,
+                                         sharpe_history_rounds=dashboard.config.sharpe_history_rounds,
+                                         sharpe_min_data_points=dashboard.config.sharpe_min_data_points)
         api_duration = time() - start_time
         
         dashboard.model[:corr] = perf.corr

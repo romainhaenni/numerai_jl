@@ -13,6 +13,10 @@ using ..Pipeline
 using ..DataLoader
 using ..Panels
 using ..Panels: format_uptime
+
+# Import the new grid layout system
+include("grid.jl")
+using .GridLayout
 using ..Logger: @log_info, @log_warn, @log_error
 
 # Import UTC utility function
@@ -52,15 +56,35 @@ struct CategorizedError
 end
 
 mutable struct ModelWizardState
-    step::Int
+    step::Int  # Current wizard step (1-6)
+    total_steps::Int  # Total number of steps
+    # Step 1: Model name
     model_name::String
+    # Step 2: Model type
     model_type::String
+    model_type_options::Vector{String}
+    selected_type_index::Int
+    # Step 3: Basic parameters
     learning_rate::Float64
     max_depth::Int
     feature_fraction::Float64
     num_rounds::Int
+    epochs::Int
+    # Step 4: Feature settings
     neutralize::Bool
     neutralize_proportion::Float64
+    feature_set::String
+    feature_set_options::Vector{String}
+    selected_feature_index::Int
+    # Step 5: Training settings
+    validation_split::Float64
+    early_stopping::Bool
+    gpu_enabled::Bool
+    # Step 6: Confirmation
+    confirmed::Bool
+    # Navigation helpers
+    current_field::Int  # For parameter editing
+    max_fields::Int     # Max fields in current step
 end
 
 mutable struct TournamentDashboard
@@ -373,7 +397,10 @@ function input_loop(dashboard::TournamentDashboard)
     while dashboard.running
         key = read_key()
         
-        if dashboard.show_model_details
+        if dashboard.wizard_active
+            # Handle wizard input
+            handle_wizard_input(dashboard, key)
+        elseif dashboard.show_model_details
             # Handle model details panel input
             if key == "\e" || key == "q"  # ESC or q to close
                 dashboard.show_model_details = false
@@ -419,8 +446,8 @@ function input_loop(dashboard::TournamentDashboard)
             catch e
                 add_event!(dashboard, :error, "Failed to refresh data", e)
             end
-        elseif key == "n"  # Test network connectivity
-            test_network_connectivity(dashboard)
+        elseif key == "n"  # Start new model wizard
+            start_model_wizard(dashboard)
         elseif key == "c"  # Check configuration files
             check_configuration_files(dashboard)
         elseif key == "d"  # Download fresh tournament data  
@@ -443,16 +470,20 @@ function render(dashboard::TournamentDashboard)
     print("\033[2J\033[H")
     
     try
-        # Create and display panels directly without Grid
-        if dashboard.show_model_details
+        # Create and display panels using the new grid system
+        if dashboard.wizard_active
+            # Show model creation wizard
+            wizard_display = render_wizard(dashboard)
+            println(wizard_display)
+        elseif dashboard.show_model_details
             # Show model details interface
             panel1 = render_model_details_panel(dashboard)
             panel2 = Panels.create_events_panel(dashboard.events, dashboard.config)
             println(panel1)
             println(panel2)
         else
-            # Simplified dashboard - display essential information in a clean list
-            render_simple_dashboard(dashboard)
+            # Use new grid-based dashboard layout
+            render_grid_dashboard(dashboard)
         end
         
         status_line = create_status_line(dashboard)
@@ -460,6 +491,56 @@ function render(dashboard::TournamentDashboard)
     catch e
         # Enhanced recovery mode with comprehensive diagnostics
         render_recovery_mode(dashboard, e)
+    end
+end
+
+function render_grid_dashboard(dashboard::TournamentDashboard)
+    """
+    Render dashboard using the 6-column grid system as specified in tui.md
+    Grid layout:
+    - Top row: Model Performance (2 cols), Staking Status (2 cols), System Status (2 cols)
+    - Middle row: Training Progress (3 cols), Predictions Chart (3 cols) 
+    - Bottom row: Events Log (full width - 6 cols)
+    """
+    try
+        # Get terminal dimensions
+        terminal_width, terminal_height = GridLayout.get_terminal_size()
+        
+        # Create all panels with appropriate sizing for grid layout
+        model_panel = Panels.create_model_performance_panel(dashboard.model, dashboard.config)
+        
+        staking_info = get_staking_info(dashboard)
+        staking_panel = Panels.create_staking_panel(staking_info, dashboard.config)
+        
+        system_panel = Panels.create_system_panel(dashboard.system_info, dashboard.network_status, dashboard.config)
+        
+        training_panel = Panels.create_training_panel(dashboard.training_info, dashboard.config)
+        
+        predictions_panel = Panels.create_predictions_panel(dashboard.predictions_history, dashboard.config)
+        
+        events_panel = Panels.create_events_panel(dashboard.events, dashboard.config)
+        
+        # Create panels named tuple for grid layout
+        panels = (
+            model_performance = model_panel,
+            staking = staking_panel,
+            system = system_panel,
+            training = training_panel,
+            predictions = predictions_panel,
+            events = events_panel
+        )
+        
+        # Create and render the grid
+        grid = GridLayout.create_dashboard_grid(panels, terminal_width, terminal_height)
+        grid_output = GridLayout.render_grid(grid)
+        
+        # Display the grid
+        println(grid_output)
+        
+    catch e
+        # Fallback to simple dashboard if grid rendering fails
+        @warn "Grid rendering failed, falling back to simple dashboard" exception=e
+        render_simple_dashboard(dashboard)
     end
 end
 
@@ -637,11 +718,14 @@ function create_status_line(dashboard::TournamentDashboard)::String
     if dashboard.command_mode
         # Show command input line
         return "Command: /$(dashboard.command_buffer)_"
+    elseif dashboard.wizard_active
+        # Show wizard mode status
+        return "🧙 Model Creation Wizard Active | ESC to cancel | Tab/Shift+Tab to navigate | Enter to proceed"
     else
         status = dashboard.paused ? "PAUSED" : "RUNNING"
         model_name = dashboard.model[:name]
         
-        return "Status: $status | Model: $model_name | Press '/' for commands | 'h' for help | 'q' to quit"
+        return "Status: $status | Model: $model_name | Press 'n' for new model | '/' for commands | 'h' for help | 'q' to quit"
     end
 end
 
@@ -1165,25 +1249,6 @@ function run_real_training(dashboard::TournamentDashboard)
     end
 end
 
-function create_new_model_wizard(dashboard::TournamentDashboard)
-    add_event!(dashboard, :info, "Starting new model configuration wizard...")
-    
-    # Initialize wizard state
-    dashboard.wizard_state = ModelWizardState(
-        1,  # step
-        "model_$(length(dashboard.models) + 1)",  # model_name
-        "XGBoost",  # model_type
-        0.01,  # learning_rate
-        5,  # max_depth
-        0.1,  # feature_fraction
-        1000,  # num_rounds
-        true,  # neutralize
-        0.5  # neutralize_proportion
-    )
-    
-    dashboard.wizard_active = true
-    dashboard.show_help = false
-end
 
 function render_model_details_panel(dashboard::TournamentDashboard)
     if isnothing(dashboard.selected_model_details)
@@ -1316,164 +1381,8 @@ function render_wizard_panel(dashboard::TournamentDashboard)
     )
 end
 
-function handle_wizard_input(dashboard::TournamentDashboard, key::Union{Char, String})
-    if isnothing(dashboard.wizard_state)
-        return
-    end
-    
-    ws = dashboard.wizard_state
-    
-    # Handle escape sequences for arrow keys
-    if isa(key, String)
-        if key == "\e[A"  # Up arrow
-            handle_wizard_arrow_key(ws, :up)
-            return
-        elseif key == "\e[B"  # Down arrow
-            handle_wizard_arrow_key(ws, :down)
-            return
-        elseif key == "\e[C"  # Right arrow
-            handle_wizard_arrow_key(ws, :right)
-            return
-        elseif key == "\e[D"  # Left arrow
-            handle_wizard_arrow_key(ws, :left)
-            return
-        elseif key == "\e"  # Just ESC key
-            dashboard.wizard_active = false
-            dashboard.wizard_state = nothing
-            add_event!(dashboard, :info, "Model creation cancelled")
-            return
-        end
-        # If it's a string but not a recognized escape sequence, treat first char
-        if length(key) > 0
-            key = key[1]
-        else
-            return
-        end
-    end
-    
-    # Single character handling
-    if key == '\e'  # Escape
-        dashboard.wizard_active = false
-        dashboard.wizard_state = nothing
-        add_event!(dashboard, :info, "Model creation cancelled")
-        return
-    end
-    
-    if ws.step == 1  # Model name
-        if key == '\r'  # Enter
-            ws.step = 2
-        elseif key == '\b'  # Backspace
-            if length(ws.model_name) > 0
-                ws.model_name = ws.model_name[1:end-1]
-            end
-        elseif isprint(key)
-            ws.model_name *= key
-        end
-    elseif ws.step == 2  # Model type
-        if key == '1'
-            ws.model_type = "XGBoost"
-        elseif key == '2'
-            ws.model_type = "LightGBM"
-        elseif key == '3'
-            ws.model_type = "EvoTrees"
-        elseif key == '4'
-            ws.model_type = "Ensemble"
-        elseif key == '\r'
-            ws.step = 3
-        end
-    elseif ws.step == 3  # Training parameters
-        if key == '\r'
-            ws.step = 4
-        end
-        # Additional parameter adjustment logic could be added here
-    elseif ws.step == 4  # Neutralization
-        if key == ' '
-            ws.neutralize = !ws.neutralize
-        elseif key == '\r'
-            ws.step = 5
-        end
-    elseif ws.step == 5  # Confirm
-        if key == '\r'
-            finalize_model_creation(dashboard)
-        end
-    end
-end
 
-function handle_wizard_arrow_key(ws::ModelWizardState, direction::Symbol)
-    """
-    Handle arrow key input for parameter adjustment in the wizard.
-    """
-    # Only handle arrow keys in step 3 (parameters)
-    if ws.step != 3
-        return
-    end
-    
-    # Define parameter adjustment increments
-    if direction == :up || direction == :right
-        # Increase parameters
-        ws.learning_rate = min(1.0, ws.learning_rate + 0.01)
-        ws.max_depth = min(20, ws.max_depth + 1)
-        ws.feature_fraction = min(1.0, ws.feature_fraction + 0.05)
-        ws.num_rounds = min(2000, ws.num_rounds + 50)
-        ws.neutralize_proportion = min(1.0, ws.neutralize_proportion + 0.05)
-    elseif direction == :down || direction == :left
-        # Decrease parameters
-        ws.learning_rate = max(0.01, ws.learning_rate - 0.01)
-        ws.max_depth = max(1, ws.max_depth - 1)
-        ws.feature_fraction = max(0.1, ws.feature_fraction - 0.05)
-        ws.num_rounds = max(50, ws.num_rounds - 50)
-        ws.neutralize_proportion = max(0.0, ws.neutralize_proportion - 0.05)
-    end
-end
 
-function finalize_model_creation(dashboard::TournamentDashboard)
-    ws = dashboard.wizard_state
-    
-    # Create new model configuration
-    new_model = Dict(
-        :name => ws.model_name,
-        :type => ws.model_type,
-        :status => "configured",
-        :corr => 0.0,
-        :mmc => 0.0,
-        :fnc => 0.0,
-        :sharpe => 0.0,
-        :stake => 0.0,
-        :config => Dict(
-            :learning_rate => ws.learning_rate,
-            :max_depth => ws.max_depth,
-            :feature_fraction => ws.feature_fraction,
-            :num_rounds => ws.num_rounds,
-            :neutralize => ws.neutralize,
-            :neutralize_proportion => ws.neutralize_proportion
-        )
-    )
-    
-    # Save model configuration to file
-    config_dir = joinpath(dirname(@__FILE__), "..", "..", "models")
-    mkpath(config_dir)
-    
-    config_file = joinpath(config_dir, "$(ws.model_name).toml")
-    open(config_file, "w") do io
-        println(io, "[model]")
-        println(io, "name = \"$(ws.model_name)\"")
-        println(io, "type = \"$(ws.model_type)\"")
-        println(io, "")
-        println(io, "[parameters]")
-        println(io, "learning_rate = $(ws.learning_rate)")
-        println(io, "max_depth = $(ws.max_depth)")
-        println(io, "feature_fraction = $(ws.feature_fraction)")
-        println(io, "num_rounds = $(ws.num_rounds)")
-        println(io, "neutralize = $(ws.neutralize)")
-        println(io, "neutralize_proportion = $(ws.neutralize_proportion)")
-    end
-    
-    push!(dashboard.models, new_model)
-    add_event!(dashboard, :success, "Created new model: $(ws.model_name) (config saved to $(config_file))")
-    
-    dashboard.wizard_active = false
-    dashboard.wizard_state = nothing
-end
 
 function show_model_details(dashboard::TournamentDashboard)
     model_name = dashboard.model[:name]
@@ -2334,6 +2243,466 @@ function get_error_trends(dashboard::TournamentDashboard, minutes_back::Int=60):
     return trends
 end
 
+# Model Wizard Functions
+function start_model_wizard(dashboard::TournamentDashboard)
+    """Start the model creation wizard"""
+    model_types = ["XGBoost", "LightGBM", "CatBoost", "EvoTrees", "MLP", "ResNet", "Ridge", "Lasso", "ElasticNet"]
+    feature_sets = ["small", "medium", "all"]
+    
+    dashboard.wizard_state = ModelWizardState(
+        1,  # step
+        6,  # total_steps
+        "",  # model_name
+        "XGBoost",  # model_type
+        model_types,  # model_type_options
+        1,  # selected_type_index
+        0.1,  # learning_rate
+        6,    # max_depth
+        0.8,  # feature_fraction
+        100,  # num_rounds
+        100,  # epochs
+        false,  # neutralize
+        0.5,   # neutralize_proportion
+        "medium",  # feature_set
+        feature_sets,  # feature_set_options
+        2,     # selected_feature_index (medium)
+        0.2,   # validation_split
+        true,  # early_stopping
+        false, # gpu_enabled
+        false, # confirmed
+        1,     # current_field
+        1      # max_fields (varies per step)
+    )
+    
+    dashboard.wizard_active = true
+    add_event!(dashboard, :info, "Model creation wizard started - Press Tab/Shift+Tab to navigate, Enter to proceed")
+end
+
+function handle_wizard_input(dashboard::TournamentDashboard, key::Union{Char, String})
+    if isnothing(dashboard.wizard_state)
+        return
+    end
+    
+    ws = dashboard.wizard_state
+    
+    if key == "\e"  # ESC - cancel wizard
+        dashboard.wizard_active = false
+        dashboard.wizard_state = nothing
+        add_event!(dashboard, :info, "Model wizard cancelled")
+        return
+    end
+    
+    if key == "\t"  # Tab - next field/option
+        navigate_wizard_field(ws, :next)
+    elseif key == "\e[Z"  # Shift+Tab - previous field/option
+        navigate_wizard_field(ws, :prev)
+    elseif key == "\r" || key == "\n"  # Enter - next step or confirm
+        if ws.step < ws.total_steps
+            advance_wizard_step(dashboard, ws)
+        else
+            # Final step - confirm and create model
+            if ws.confirmed
+                create_model_from_wizard(dashboard, ws)
+            else
+                ws.confirmed = true
+                add_event!(dashboard, :info, "Press Enter again to create the model")
+            end
+        end
+    elseif key == "\x08" || key == "\x7f"  # Backspace - go back
+        if ws.step > 1
+            ws.step -= 1
+            update_wizard_fields_for_step(ws)
+            add_event!(dashboard, :info, "Wizard step $(ws.step)/$(ws.total_steps)")
+        end
+    elseif ws.step == 1 && length(key) == 1 && (isalnum(key[1]) || key[1] == '_' || key[1] == '-')
+        # Model name input
+        ws.model_name *= key
+    elseif ws.step == 1 && (key == "\x08" || key == "\x7f")  # Backspace in name field
+        if length(ws.model_name) > 0
+            ws.model_name = ws.model_name[1:end-1]
+        end
+    elseif ws.step == 2  # Model type selection
+        handle_wizard_arrow_key(ws, key)
+    elseif ws.step == 3  # Parameters
+        handle_parameter_input(ws, key)
+    elseif ws.step == 4  # Feature settings
+        handle_feature_input(ws, key)
+    elseif ws.step == 5  # Training settings  
+        handle_training_input(ws, key)
+    end
+end
+
+function navigate_wizard_field(ws::ModelWizardState, direction::Symbol)
+    if direction == :next
+        ws.current_field = min(ws.current_field + 1, ws.max_fields)
+    elseif direction == :prev
+        ws.current_field = max(ws.current_field - 1, 1)
+    end
+end
+
+function advance_wizard_step(dashboard::TournamentDashboard, ws::ModelWizardState)
+    # Validate current step
+    if ws.step == 1 && isempty(strip(ws.model_name))
+        add_event!(dashboard, :warning, "Please enter a model name")
+        return
+    end
+    
+    ws.step += 1
+    update_wizard_fields_for_step(ws)
+    add_event!(dashboard, :info, "Wizard step $(ws.step)/$(ws.total_steps)")
+end
+
+function update_wizard_fields_for_step(ws::ModelWizardState)
+    if ws.step == 1
+        ws.max_fields = 1  # Just the name field
+    elseif ws.step == 2
+        ws.max_fields = length(ws.model_type_options)
+    elseif ws.step == 3
+        # Different parameters based on model type
+        if ws.model_type in ["XGBoost", "LightGBM", "CatBoost", "EvoTrees"]
+            ws.max_fields = 4  # learning_rate, max_depth, feature_fraction, num_rounds
+        elseif ws.model_type in ["MLP", "ResNet"]
+            ws.max_fields = 2  # learning_rate, epochs
+        else  # Linear models
+            ws.max_fields = 1  # just learning_rate (alpha)
+        end
+    elseif ws.step == 4
+        ws.max_fields = 3  # neutralize, neutralize_proportion, feature_set
+    elseif ws.step == 5
+        ws.max_fields = 3  # validation_split, early_stopping, gpu_enabled
+    else
+        ws.max_fields = 1  # confirmation
+    end
+    ws.current_field = 1
+end
+
+function handle_wizard_arrow_key(ws::ModelWizardState, key::String)
+    if ws.step == 2  # Model type selection
+        if key == "\e[A"  # Up arrow
+            ws.selected_type_index = max(1, ws.selected_type_index - 1)
+            ws.model_type = ws.model_type_options[ws.selected_type_index]
+        elseif key == "\e[B"  # Down arrow
+            ws.selected_type_index = min(length(ws.model_type_options), ws.selected_type_index + 1)
+            ws.model_type = ws.model_type_options[ws.selected_type_index]
+        end
+    elseif ws.step == 4 && ws.current_field == 3  # Feature set selection
+        if key == "\e[A"  # Up arrow
+            ws.selected_feature_index = max(1, ws.selected_feature_index - 1)
+            ws.feature_set = ws.feature_set_options[ws.selected_feature_index]
+        elseif key == "\e[B"  # Down arrow
+            ws.selected_feature_index = min(length(ws.feature_set_options), ws.selected_feature_index + 1)
+            ws.feature_set = ws.feature_set_options[ws.selected_feature_index]
+        end
+    end
+end
+
+function handle_parameter_input(ws::ModelWizardState, key::String)
+    # Handle numeric parameter inputs with arrow keys
+    if key == "↑" || key == "\e[A"  # Up arrow - increase value
+        if ws.current_field == 1  # learning_rate
+            ws.learning_rate = min(1.0, ws.learning_rate * 1.5)
+        elseif ws.current_field == 2 && ws.model_type in ["XGBoost", "LightGBM", "CatBoost", "EvoTrees"]  # max_depth
+            ws.max_depth = min(20, ws.max_depth + 1)
+        elseif ws.current_field == 3 && ws.model_type in ["XGBoost", "LightGBM", "CatBoost", "EvoTrees"]  # feature_fraction
+            ws.feature_fraction = min(1.0, round(ws.feature_fraction + 0.1, digits=1))
+        elseif ws.current_field == 4 && ws.model_type in ["XGBoost", "LightGBM", "CatBoost", "EvoTrees"]  # num_rounds
+            ws.num_rounds = min(5000, ws.num_rounds + 50)
+        elseif ws.current_field == 2 && ws.model_type in ["MLP", "ResNet"]  # epochs
+            ws.epochs = min(1000, ws.epochs + 10)
+        end
+    elseif key == "↓" || key == "\e[B"  # Down arrow - decrease value
+        if ws.current_field == 1  # learning_rate
+            ws.learning_rate = max(0.001, ws.learning_rate / 1.5)
+        elseif ws.current_field == 2 && ws.model_type in ["XGBoost", "LightGBM", "CatBoost", "EvoTrees"]  # max_depth
+            ws.max_depth = max(1, ws.max_depth - 1)
+        elseif ws.current_field == 3 && ws.model_type in ["XGBoost", "LightGBM", "CatBoost", "EvoTrees"]  # feature_fraction
+            ws.feature_fraction = max(0.1, round(ws.feature_fraction - 0.1, digits=1))
+        elseif ws.current_field == 4 && ws.model_type in ["XGBoost", "LightGBM", "CatBoost", "EvoTrees"]  # num_rounds
+            ws.num_rounds = max(10, ws.num_rounds - 50)
+        elseif ws.current_field == 2 && ws.model_type in ["MLP", "ResNet"]  # epochs
+            ws.epochs = max(10, ws.epochs - 10)
+        end
+    end
+end
+
+function handle_feature_input(ws::ModelWizardState, key::String)
+    if ws.current_field == 1  # neutralize toggle
+        if key == " "  # Space to toggle
+            ws.neutralize = !ws.neutralize
+        end
+    elseif ws.current_field == 3  # feature set
+        handle_wizard_arrow_key(ws, key)
+    end
+end
+
+function handle_training_input(ws::ModelWizardState, key::String)
+    if ws.current_field == 1  # validation_split
+        if key == "↑" || key == "\e[A"  # Up arrow
+            ws.validation_split = min(0.5, round(ws.validation_split + 0.05, digits=2))
+        elseif key == "↓" || key == "\e[B"  # Down arrow
+            ws.validation_split = max(0.1, round(ws.validation_split - 0.05, digits=2))
+        end
+    elseif ws.current_field == 2  # early_stopping toggle
+        if key == " "  # Space to toggle
+            ws.early_stopping = !ws.early_stopping
+        end
+    elseif ws.current_field == 3  # gpu_enabled toggle
+        if key == " "  # Space to toggle
+            ws.gpu_enabled = !ws.gpu_enabled
+        end
+    end
+end
+
+function create_model_from_wizard(dashboard::TournamentDashboard, ws::ModelWizardState)
+    """Create and save model configuration from wizard state"""
+    try
+        # Create model configuration dictionary
+        model_config = Dict{String, Any}(
+            "name" => ws.model_name,
+            "type" => ws.model_type,
+            "parameters" => create_model_parameters(ws),
+            "feature_settings" => Dict{String, Any}(
+                "feature_set" => ws.feature_set,
+                "neutralize" => ws.neutralize,
+                "neutralize_proportion" => ws.neutralize_proportion
+            ),
+            "training_settings" => Dict{String, Any}(
+                "validation_split" => ws.validation_split,
+                "early_stopping" => ws.early_stopping,
+                "gpu_enabled" => ws.gpu_enabled
+            )
+        )
+        
+        # Save to models.json or similar configuration file
+        save_model_configuration(model_config)
+        
+        # Add the new model to dashboard
+        new_model = Dict(
+            :name => ws.model_name,
+            :type => ws.model_type,
+            :is_active => false,
+            :corr => 0.0,
+            :mmc => 0.0,
+            :fnc => 0.0,
+            :sharpe => 0.0,
+            :tc => 0.0
+        )
+        push!(dashboard.models, new_model)
+        
+        dashboard.wizard_active = false
+        dashboard.wizard_state = nothing
+        
+        add_event!(dashboard, :success, "✅ Model '$(ws.model_name)' created successfully!")
+        add_event!(dashboard, :info, "Use /train command to start training the new model")
+        
+    catch e
+        add_event!(dashboard, :error, "Failed to create model: $e")
+    end
+end
+
+function create_model_parameters(ws::ModelWizardState)
+    """Create parameter dictionary based on model type and wizard settings"""
+    if ws.model_type == "XGBoost"
+        return Dict{String, Any}(
+            "learning_rate" => ws.learning_rate,
+            "max_depth" => ws.max_depth,
+            "subsample" => ws.feature_fraction,
+            "num_boost_round" => ws.num_rounds,
+            "objective" => "reg:squarederror"
+        )
+    elseif ws.model_type == "LightGBM"
+        return Dict{String, Any}(
+            "learning_rate" => ws.learning_rate,
+            "max_depth" => ws.max_depth,
+            "feature_fraction" => ws.feature_fraction,
+            "num_iterations" => ws.num_rounds,
+            "objective" => "regression"
+        )
+    elseif ws.model_type == "CatBoost"
+        return Dict{String, Any}(
+            "learning_rate" => ws.learning_rate,
+            "depth" => ws.max_depth,
+            "rsm" => ws.feature_fraction,
+            "iterations" => ws.num_rounds,
+            "loss_function" => "RMSE"
+        )
+    elseif ws.model_type == "EvoTrees"
+        return Dict{String, Any}(
+            "learning_rate" => ws.learning_rate,
+            "max_depth" => ws.max_depth,
+            "subsample" => ws.feature_fraction,
+            "nrounds" => ws.num_rounds
+        )
+    elseif ws.model_type in ["MLP", "ResNet"]
+        return Dict{String, Any}(
+            "learning_rate" => ws.learning_rate,
+            "epochs" => ws.epochs,
+            "batch_size" => 1024,
+            "hidden_layers" => ws.model_type == "MLP" ? [256, 128, 64] : [512, 256, 128]
+        )
+    else  # Linear models
+        return Dict{String, Any}(
+            "alpha" => ws.learning_rate  # regularization parameter
+        )
+    end
+end
+
+function save_model_configuration(model_config::Dict{String, Any})
+    """Save model configuration to models.json file"""
+    models_file = "models.json"
+    
+    # Load existing models or create new array
+    existing_models = if isfile(models_file)
+        try
+            JSON3.read(read(models_file, String))
+        catch
+            []
+        end
+    else
+        []
+    end
+    
+    # Add new model
+    push!(existing_models, model_config)
+    
+    # Save back to file
+    open(models_file, "w") do io
+        JSON3.pretty(io, existing_models)
+    end
+end
+
+function render_wizard(dashboard::TournamentDashboard)
+    """Render the model creation wizard interface"""
+    if !dashboard.wizard_active || isnothing(dashboard.wizard_state)
+        return ""
+    end
+    
+    ws = dashboard.wizard_state
+    
+    # Create wizard frame
+    wizard_content = []
+    
+    # Title
+    push!(wizard_content, "")
+    push!(wizard_content, "╔═══════════════════════════════════════════════════════════════════╗")
+    push!(wizard_content, "║                    🧙 New Model Creation Wizard                  ║")
+    push!(wizard_content, "║                         Step $(ws.step)/$(ws.total_steps)                           ║")
+    push!(wizard_content, "╠═══════════════════════════════════════════════════════════════════╣")
+    
+    # Step-specific content
+    if ws.step == 1
+        push!(wizard_content, "║ Step 1: Model Name                                               ║")
+        push!(wizard_content, "║ Enter a unique name for your model:                             ║")
+        push!(wizard_content, "║                                                                   ║")
+        name_display = isempty(ws.model_name) ? "_" : ws.model_name
+        push!(wizard_content, "║ Name: $(name_display)$(repeat(" ", 50-length(name_display))) ║")
+        push!(wizard_content, "║                                                                   ║")
+        push!(wizard_content, "║ Press Enter when ready to continue                              ║")
+        
+    elseif ws.step == 2
+        push!(wizard_content, "║ Step 2: Model Type Selection                                     ║")
+        push!(wizard_content, "║ Use ↑/↓ arrows to select model type:                            ║")
+        push!(wizard_content, "║                                                                   ║")
+        
+        for (i, model_type) in enumerate(ws.model_type_options)
+            marker = i == ws.selected_type_index ? "►" : " "
+            push!(wizard_content, "║ $(marker) $(model_type)$(repeat(" ", 60-length(model_type))) ║")
+        end
+        
+    elseif ws.step == 3
+        push!(wizard_content, "║ Step 3: Model Parameters                                         ║")
+        push!(wizard_content, "║ Current model: $(ws.model_type)$(repeat(" ", 50-length(ws.model_type))) ║")
+        push!(wizard_content, "║ Use ↑/↓ arrows to adjust values, Tab to navigate               ║")
+        push!(wizard_content, "║                                                                   ║")
+        
+        if ws.model_type in ["XGBoost", "LightGBM", "CatBoost", "EvoTrees"]
+            lr_marker = ws.current_field == 1 ? "►" : " "
+            depth_marker = ws.current_field == 2 ? "►" : " "
+            frac_marker = ws.current_field == 3 ? "►" : " "
+            rounds_marker = ws.current_field == 4 ? "►" : " "
+            push!(wizard_content, "║$(lr_marker) Learning Rate: $(round(ws.learning_rate, digits=4))$(repeat(" ", 38-length(string(round(ws.learning_rate, digits=4))))) ║")
+            push!(wizard_content, "║$(depth_marker) Max Depth: $(ws.max_depth)$(repeat(" ", 48-length(string(ws.max_depth)))) ║")
+            push!(wizard_content, "║$(frac_marker) Feature Fraction: $(ws.feature_fraction)$(repeat(" ", 41-length(string(ws.feature_fraction)))) ║")
+            push!(wizard_content, "║$(rounds_marker) Num Rounds: $(ws.num_rounds)$(repeat(" ", 46-length(string(ws.num_rounds)))) ║")
+        elseif ws.model_type in ["MLP", "ResNet"]
+            lr_marker = ws.current_field == 1 ? "►" : " "
+            epochs_marker = ws.current_field == 2 ? "►" : " "
+            push!(wizard_content, "║$(lr_marker) Learning Rate: $(round(ws.learning_rate, digits=4))$(repeat(" ", 38-length(string(round(ws.learning_rate, digits=4))))) ║")
+            push!(wizard_content, "║$(epochs_marker) Epochs: $(ws.epochs)$(repeat(" ", 50-length(string(ws.epochs)))) ║")
+        else
+            lr_marker = ws.current_field == 1 ? "►" : " "
+            push!(wizard_content, "║$(lr_marker) Alpha (regularization): $(round(ws.learning_rate, digits=4))$(repeat(" ", 29-length(string(round(ws.learning_rate, digits=4))))) ║")
+        end
+        
+    elseif ws.step == 4
+        push!(wizard_content, "║ Step 4: Feature Settings                                         ║")
+        push!(wizard_content, "║ Use Space to toggle, Tab to navigate, ↑/↓ for feature set        ║")
+        push!(wizard_content, "║                                                                   ║")
+        
+        neutralize_marker = ws.current_field == 1 ? "►" : " "
+        neutralize_status = ws.neutralize ? "✓ Enabled" : "✗ Disabled"
+        push!(wizard_content, "║$(neutralize_marker) Neutralization: $(neutralize_status)$(repeat(" ", 44-length(neutralize_status))) ║")
+        
+        if ws.neutralize
+            prop_marker = ws.current_field == 2 ? "►" : " "
+            push!(wizard_content, "║$(prop_marker) Neutralize Proportion: $(ws.neutralize_proportion)$(repeat(" ", 36-length(string(ws.neutralize_proportion)))) ║")
+        end
+        
+        push!(wizard_content, "║                                                                   ║")
+        feature_set_marker = ws.current_field == 3 ? "►" : " "
+        push!(wizard_content, "║$(feature_set_marker) Feature Set:                                                ║")
+        
+        for (i, feature_set) in enumerate(ws.feature_set_options)
+            marker = i == ws.selected_feature_index ? "►" : " "
+            feature_desc = feature_set == "small" ? "~300 features" : 
+                          feature_set == "medium" ? "~1000 features" : "~5000 features"
+            display_text = "$(feature_set) ($(feature_desc))"
+            push!(wizard_content, "║   $(marker) $(display_text)$(repeat(" ", 58-length(display_text))) ║")
+        end
+        
+    elseif ws.step == 5
+        push!(wizard_content, "║ Step 5: Training Settings                                        ║")
+        push!(wizard_content, "║ Use ↑/↓ to adjust validation split, Space to toggle options       ║")
+        push!(wizard_content, "║                                                                   ║")
+        
+        val_marker = ws.current_field == 1 ? "►" : " "
+        push!(wizard_content, "║$(val_marker) Validation Split: $(ws.validation_split)$(repeat(" ", 42-length(string(ws.validation_split)))) ║")
+        
+        early_marker = ws.current_field == 2 ? "►" : " "
+        early_stop_status = ws.early_stopping ? "✓ Enabled" : "✗ Disabled"
+        push!(wizard_content, "║$(early_marker) Early Stopping: $(early_stop_status)$(repeat(" ", 45-length(early_stop_status))) ║")
+        
+        gpu_marker = ws.current_field == 3 ? "►" : " "
+        gpu_status = ws.gpu_enabled ? "✓ Enabled" : "✗ Disabled"
+        push!(wizard_content, "║$(gpu_marker) GPU Acceleration: $(gpu_status)$(repeat(" ", 43-length(gpu_status))) ║")
+        
+    elseif ws.step == 6
+        push!(wizard_content, "║ Step 6: Confirmation                                            ║")
+        push!(wizard_content, "║                                                                   ║")
+        push!(wizard_content, "║ Model Configuration Summary:                                     ║")
+        push!(wizard_content, "║ • Name: $(ws.model_name)$(repeat(" ", 54-length(ws.model_name))) ║")
+        push!(wizard_content, "║ • Type: $(ws.model_type)$(repeat(" ", 54-length(ws.model_type))) ║")
+        push!(wizard_content, "║ • Feature Set: $(ws.feature_set)$(repeat(" ", 47-length(ws.feature_set))) ║")
+        push!(wizard_content, "║ • Neutralization: $(ws.neutralize ? "Yes" : "No")$(repeat(" ", 46)) ║")
+        push!(wizard_content, "║ • GPU: $(ws.gpu_enabled ? "Yes" : "No")$(repeat(" ", 53)) ║")
+        push!(wizard_content, "║                                                                   ║")
+        
+        if ws.confirmed
+            push!(wizard_content, "║ ✅ Ready to create! Press Enter to confirm                      ║")
+        else
+            push!(wizard_content, "║ Press Enter to create this model                                ║")
+        end
+    end
+    
+    # Footer
+    push!(wizard_content, "╠═══════════════════════════════════════════════════════════════════╣")
+    push!(wizard_content, "║ Controls: Tab/Shift+Tab=Navigate, ↑/↓=Select, Space=Toggle      ║")
+    push!(wizard_content, "║ Enter=Next/Confirm, Backspace=Previous, ESC=Cancel              ║")
+    push!(wizard_content, "╚═══════════════════════════════════════════════════════════════════╝")
+    
+    return join(wizard_content, "\n")
+end
+
 export TournamentDashboard, run_dashboard, add_event!, start_training, save_performance_history, load_performance_history!, get_performance_summary,
        get_error_summary, reset_error_tracking!, get_error_trends, check_network_connectivity,
        categorize_error, get_user_friendly_message, get_severity_icon, render_recovery_mode,
@@ -2342,6 +2711,8 @@ export TournamentDashboard, run_dashboard, add_event!, start_training, save_perf
        test_network_connectivity, check_configuration_files, download_tournament_data, 
        view_detailed_error_logs, save_diagnostic_report,
        # Callback integration functions
-       create_dashboard_training_callback, complete_training!
+       create_dashboard_training_callback, complete_training!,
+       # Model wizard functions
+       start_model_wizard, handle_wizard_input, render_wizard
 
 end

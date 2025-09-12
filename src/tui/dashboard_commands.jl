@@ -63,9 +63,12 @@ function execute_command(dashboard, command::String)
     elseif main_cmd == "save" || main_cmd == "report"
         add_event!(dashboard, :info, "Saving diagnostic report...")
         save_diagnostic_report(dashboard)
+    elseif main_cmd == "new"
+        add_event!(dashboard, :info, "Starting new model wizard...")
+        start_model_wizard(dashboard)
     else
         add_event!(dashboard, :warning, "Unknown command: /$cmd")
-        add_event!(dashboard, :info, "Available commands: /train, /submit, /stake, /download, /refresh, /help, /quit")
+        add_event!(dashboard, :info, "Available commands: /train, /submit, /stake, /download, /refresh, /new, /help, /quit")
         add_event!(dashboard, :info, "Recovery commands: /diag, /reset, /backup, /network, /save")
     end
 end

@@ -84,13 +84,17 @@ function update_download_progress!(tracker::RealTimeTracker, progress::Float64, 
     tracker.download_size = size
     tracker.download_speed = speed
 
-    # Check if download just completed (was active, now at 100%)
-    was_active = tracker.download_active
+    # Check if download just completed
+    was_downloading = tracker.download_active || (tracker.download_progress > 0 && tracker.download_progress < 100)
+    is_complete = progress >= 100.0
+
+    # Update active state
     tracker.download_active = progress < 100.0 && progress > 0.0
     tracker.last_update = time()
 
     # Auto-trigger training when download completes
-    if tracker.auto_train_enabled && progress >= 100.0 && was_active
+    # Trigger when: auto-training is enabled AND download just reached 100% AND was downloading before
+    if tracker.auto_train_enabled && is_complete && (was_downloading || progress == 100.0)
         push!(tracker.events, (now(), :success, "Download complete - Auto-starting training"))
         return true  # Signal to start training
     end

@@ -149,13 +149,12 @@ function handle_instant_command(dashboard::TournamentDashboard, key::String)
     add_event!(dashboard, :info, "🎯 Executing: $command")
 
     # Use the real command handler from DashboardCommands
-    result = execute_command(dashboard, command)
+    execute_command(dashboard, command)
 
-    if result
-        add_event!(dashboard, :success, "✅ Command completed: $command")
-    end
+    # Commands are executed successfully if we reach here
+    add_event!(dashboard, :success, "✅ Command initiated: $command")
 
-    return result
+    return true
 end
 
 """

@@ -5,70 +5,88 @@
 function execute_command(dashboard, command::String)
     # Remove leading slash if present
     cmd = startswith(command, "/") ? command[2:end] : command
-    
+
     parts = split(cmd, " ")
     if isempty(parts)
-        return
+        return false
     end
-    
+
     main_cmd = lowercase(parts[1])
-    
+
     if main_cmd == "train"
         add_event!(dashboard, :info, "Starting training via command...")
         start_training(dashboard)
+        return true
     elseif main_cmd == "submit"
         add_event!(dashboard, :info, "Submitting predictions...")
         submit_predictions_command(dashboard)
+        return true
     elseif main_cmd == "stake"
         if length(parts) >= 2
             amount = tryparse(Float64, parts[2])
             if !isnothing(amount)
                 stake_command(dashboard, amount)
+                return true
             else
                 add_event!(dashboard, :error, "Invalid stake amount: $(parts[2])")
+                return false
             end
         else
             add_event!(dashboard, :error, "Usage: /stake <amount>")
+            return false
         end
     elseif main_cmd == "download"
         add_event!(dashboard, :info, "Downloading latest data...")
         download_data_command(dashboard)
+        return true
     elseif main_cmd == "help"
         dashboard.show_help = true
+        return true
     elseif main_cmd == "quit" || main_cmd == "exit"
         dashboard.running = false
+        return true
     elseif main_cmd == "refresh"
         update_model_performances!(dashboard)
         add_event!(dashboard, :info, "Data refreshed")
+        return true
     elseif main_cmd == "pause" || main_cmd == "resume"
         dashboard.paused = !dashboard.paused
         status = dashboard.paused ? "paused" : "resumed"
         add_event!(dashboard, :info, "Dashboard $status")
+        return true
     elseif main_cmd == "diag" || main_cmd == "diagnostics"
         add_event!(dashboard, :info, "Running full system diagnostics...")
         run_full_diagnostics_command(dashboard)
+        return true
     elseif main_cmd == "reset"
         add_event!(dashboard, :info, "Resetting error counters...")
         reset_error_tracking!(dashboard)
+        return true
     elseif main_cmd == "backup"
         add_event!(dashboard, :info, "Creating configuration backup...")
         create_configuration_backup_command(dashboard)
+        return true
     elseif main_cmd == "network" || main_cmd == "net"
         add_event!(dashboard, :info, "Testing network connectivity...")
         test_network_connectivity(dashboard)
+        return true
     elseif main_cmd == "save" || main_cmd == "report"
         add_event!(dashboard, :info, "Saving diagnostic report...")
         save_diagnostic_report(dashboard)
+        return true
     elseif main_cmd == "new"
         add_event!(dashboard, :info, "Starting new model wizard...")
         start_model_wizard(dashboard)
+        return true
     elseif main_cmd == "pipeline"
         add_event!(dashboard, :info, "Starting full tournament pipeline...")
         run_full_pipeline(dashboard)
+        return true
     else
         add_event!(dashboard, :warning, "Unknown command: /$cmd")
         add_event!(dashboard, :info, "Available commands: /train, /submit, /stake, /download, /refresh, /new, /pipeline, /help, /quit")
         add_event!(dashboard, :info, "Recovery commands: /diag, /reset, /backup, /network, /save")
+        return false
     end
 end
 

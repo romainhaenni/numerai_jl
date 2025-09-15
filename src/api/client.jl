@@ -373,7 +373,7 @@ function download_with_progress(url::String, output_path::String, name::String; 
 
         # Call progress callback if provided
         if progress_callback !== nothing
-            progress_callback(:start, name=name)
+            progress_callback(:start; name=name)
         end
 
         # Create a custom progress function for the download
@@ -389,7 +389,7 @@ function download_with_progress(url::String, output_path::String, name::String; 
                     if progress_callback !== nothing
                         size_mb = round(now / 1024 / 1024, digits=1)
                         total_mb = round(total / 1024 / 1024, digits=1)
-                        progress_callback(:progress, name=name,
+                        progress_callback(:progress; name=name,
                                         progress=current_progress,
                                         current_mb=size_mb,
                                         total_mb=total_mb)
@@ -414,7 +414,7 @@ function download_with_progress(url::String, output_path::String, name::String; 
 
         # Call progress callback with completion
         if progress_callback !== nothing
-            progress_callback(:complete, name=name, size_mb=size_mb)
+            progress_callback(:complete; name=name, size_mb=size_mb)
         end
 
         @log_debug "Download complete" size_mb=size_mb
@@ -463,7 +463,7 @@ function submit_predictions(client::NumeraiClient, model_name::String, predictio
 
     # Call progress callback if provided
     if progress_callback !== nothing
-        progress_callback(:start, file=basename(predictions_path), model=model_name, size_mb=size_mb)
+        progress_callback(:start; file=basename(predictions_path), model=model_name, size_mb=size_mb)
     end
 
     # Validate submission window if requested
@@ -474,7 +474,7 @@ function submit_predictions(client::NumeraiClient, model_name::String, predictio
         if !window_info.is_open
             time_closed = abs(window_info.time_remaining)
             if progress_callback !== nothing
-                progress_callback(:error, message="Submission window closed")
+                progress_callback(:error; message="Submission window closed")
             end
             error("Submission window is closed for round $(current_round.number). Window closed $(round(time_closed, digits=1)) hours ago (at $(window_info.window_end) UTC)")
         end
@@ -487,7 +487,7 @@ function submit_predictions(client::NumeraiClient, model_name::String, predictio
 
     # Update progress: Getting upload URL
     if progress_callback !== nothing
-        progress_callback(:progress, phase="Getting upload URL", progress=10.0)
+        progress_callback(:progress; phase="Getting upload URL", progress=10.0)
     end
 
     # First, get the upload URL
@@ -514,7 +514,7 @@ function submit_predictions(client::NumeraiClient, model_name::String, predictio
 
     # Update progress: Starting upload
     if progress_callback !== nothing
-        progress_callback(:progress, phase="Uploading file", progress=30.0)
+        progress_callback(:progress; phase="Uploading file", progress=30.0)
     end
 
     # Upload the file to S3
@@ -522,7 +522,7 @@ function submit_predictions(client::NumeraiClient, model_name::String, predictio
 
     # Update progress: File read, uploading
     if progress_callback !== nothing
-        progress_callback(:progress, phase="Uploading to S3", progress=50.0)
+        progress_callback(:progress; phase="Uploading to S3", progress=50.0)
     end
 
     upload_response = HTTP.put(
@@ -535,14 +535,14 @@ function submit_predictions(client::NumeraiClient, model_name::String, predictio
 
     if upload_response.status != 200
         if progress_callback !== nothing
-            progress_callback(:error, message="Upload failed with status $(upload_response.status)")
+            progress_callback(:error; message="Upload failed with status $(upload_response.status)")
         end
         error("Failed to upload predictions: $(upload_response.status)")
     end
 
     # Update progress: Complete
     if progress_callback !== nothing
-        progress_callback(:complete, model=model_name, submission_id=submission_id, size_mb=size_mb)
+        progress_callback(:complete; model=model_name, submission_id=submission_id, size_mb=size_mb)
     end
 
     @log_info "Successfully uploaded predictions" model=model_name

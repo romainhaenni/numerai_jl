@@ -135,7 +135,7 @@ function download_data_internal(dashboard::TournamentDashboard)
         end
 
         # Create progress callback for updating dashboard
-        progress_callback = (phase; kwargs...) -> begin
+        progress_callback = function(phase; kwargs...)
             if phase == :start
                 file_name = get(kwargs, :name, "unknown")
                 EnhancedDashboard.update_progress_tracker!(
@@ -178,6 +178,18 @@ function download_data_internal(dashboard::TournamentDashboard)
         EnhancedDashboard.update_progress_tracker!(
             dashboard.progress_tracker, :download, active=false
         )
+
+        # Automatically trigger training if configured
+        if get(dashboard.config, :auto_train_after_download, true)
+            add_event!(dashboard.event_log, "info", "Starting automatic training after download...")
+            # Start training in a background task
+            @async begin
+                sleep(1)  # Small delay to let UI update
+                train_models_internal(dashboard)
+            end
+        else
+            add_event!(dashboard.event_log, "info", "Download complete. Press 's' or use /train to start training")
+        end
 
         return true
     catch e

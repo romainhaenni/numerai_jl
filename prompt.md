@@ -1,47 +1,15 @@
 
 Fix More Issues:
 
-- bug:
-```
-📋 RECENT EVENTS:
-────────────────────────────────────────────────────────────
-   [08:10:11] ℹ️ Auto-submit enabled, starting automatic pipelin...
-   [08:10:11] ℹ️ Dashboard started
-┌ Info: Logging initialized
-│   log_file = "logs/numerai_20250915_101019.log"
-│   console_level = Info
-└   file_level = Debug
-┌ Info: Downloading dataset
-└   type = "train"
-┌ Info: Starting download
-└   file = "train"
-┌ Error: Download failed
-│   file = "train"
-│   error = "MethodError(Core.kwcall, ((name = \"train\",), NumeraiTournament.Dashboard.var\"#5#6\"{TournamentDashboard}(TournamentDashboard(TournamentConfig(\"I3MEFCUZJQ4BEU5TSO7MY7XDIU2UBV7E\", \"337BEF4U2RZO6VOUHJGSOHAIWB7XT2M56PNL66HMS6KVWPZRC4XPMVEIVDLVSBHE\", [\"numeraijl\"], \"data\", \"models\", true, 1.0, 12, 8, \"medium\", false, 1.0, 100.0, 10000.0, Dict{String, Any}(\"training\" => Dict(\"progress_bar_width\" => 20, \"default_epochs\" => 100), \"refresh_rate\" => 1.0, \"network_timeout\" => 5, \"network_check_interval\" => 60.0, \"panels\" => Dict(\"st" ⋯ 2926 bytes ⋯ "ournament.Dashboard.NETWORK_ERROR => 0, NumeraiTournament.Dashboard.DATA_ERROR => 0), Dict{Symbol, Any}(:api_latency => 0.0, :last_check => Dates.DateTime(\"2025-09-15T08:10:09.941\"), :is_connected => true, :consecutive_failures => 0), NumeraiTournament.Dashboard.CategorizedError[], NumeraiTournament.Dashboard.EnhancedDashboard.ProgressTracker(0.0, \"\", 0.0, 0.0, 0.0, \"\", 0.0, 0.0, 0.0, \"\", 0, 0, 0.0, 0.0, 0.0, \"\", 0, 0, false, false, false, false, Dates.DateTime(\"2025-09-15T10:10:09.941\")))), :start), 0x000000000000697b)"
-└ @ NumeraiTournament.API ~/src/Numerai/numerai_jl/src/logger.jl:229
-┌ Error: Download failed
-│   error =
-│    MethodError: no method matching (::NumeraiTournament.Dashboard.var"#5#6"{TournamentDashboard})(::Symbol; name::String)
-│    This method may not support any kwargs.
-│
-│    Closest candidates are:
-│      (::NumeraiTournament.Dashboard.var"#5#6")(::Any, Any...) got unsupported keyword argument "name"
-│       @ NumeraiTournament ~/src/Numerai/numerai_jl/src/tui/dashboard_commands.jl:138
-│
-└ @ NumeraiTournament.Dashboard ~/src/Numerai/numerai_jl/src/tui/dashboard_commands.jl:176
-┌ Error: Dashboard event
-│   message = "Failed to download data. Pipeline aborted."
-└ @ NumeraiTournament.Dashboard ~/src/Numerai/numerai_jl/src/logger.jl:229
-```
-
-
-- The TUI status information (system status, recent events, training progress) are not updating
 - if there is a download running then show a progress bar
 - if there is a upload running then show a progress bar
 - if there is training running show a progress bar or a spinner
 - if there is prediction running show a progress bar or a spinner
 - after the download of live, train and validation data, i can not see the system performing a training
 - typing the commands + Enter -> nothing happens => i want to enter a command key and instantly the program to run this command (without approving it with the Enter key)
+- there is no training after downloads
+- The TUI status information (system status, recent events, training progress) are not updating
+- provide a sticky panel at the top with always up-to-date system information, provide a panel below sticky to the bottom with event logs (show the latest 30 messages)
 
 ---
 study @specs/* to learn about the program specifications and @scratchpad.md to understand plan so far.

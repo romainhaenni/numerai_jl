@@ -41,15 +41,19 @@ function NumeraiClient(public_id::String, secret_key::String, tournament_id::Int
     if isempty(strip(public_id))
         throw(ArgumentError("NUMERAI_PUBLIC_ID cannot be empty. Please set your Numerai API public ID."))
     end
-    
+
     if isempty(strip(secret_key))
         throw(ArgumentError("NUMERAI_SECRET_KEY cannot be empty. Please set your Numerai API secret key."))
     end
-    
+
+    # Use the official Numerai API authentication format
+    # Format: Authorization: Token public_id$secret_key
+    auth_token = "$(strip(public_id))\$$(strip(secret_key))"
+
     headers = Dict(
         "Content-Type" => "application/json",
-        "x-public-id" => strip(public_id),
-        "x-secret-key" => strip(secret_key)
+        "Accept" => "application/json",
+        "Authorization" => "Token $auth_token"
     )
     NumeraiClient(public_id, secret_key, headers, tournament_id)
 end

@@ -126,16 +126,19 @@ function test_api_connection(public_id, secret_key)
             }
         }
         """
-        
+
         println("\nTesting authenticated API...")
-        
+
+        # Use the official Numerai API authentication format
+        auth_token = "$(public_id)\$$(secret_key)"
+
         try
             response = HTTP.post(
                 url,
                 [
                     "Content-Type" => "application/json",
-                    "x-public-id" => public_id,
-                    "x-secret-key" => secret_key
+                    "Accept" => "application/json",
+                    "Authorization" => "Token $auth_token"
                 ],
                 JSON3.write(Dict("query" => query_auth))
             )

@@ -15,8 +15,8 @@ using ..Logger
 include("retry.jl")
 using .Retry: with_retry, with_graphql_retry, with_download_retry, RetryConfig, CircuitBreaker, with_circuit_breaker
 
-# Import UTC utility function
-include("../utils.jl")
+# Import UTC utility function from Utils module
+using ..Utils: utc_now_datetime
 
 const GRAPHQL_ENDPOINT = "https://api-tournament.numer.ai/graphql"
 const DATA_BASE_URL = "https://numerai-public-datasets.s3-us-west-2.amazonaws.com"

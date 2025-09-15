@@ -10,8 +10,8 @@ using ..Compounding
 using ..Notifications
 using ..Logger: @log_info, @log_warn, @log_error
 
-# Import UTC utility function
-include("../utils.jl")
+# Import UTC utility function from Utils module
+using ..Utils: utc_now_datetime
 
 # CronExpression parser and matcher
 struct CronExpression

@@ -95,7 +95,7 @@ include("tui/charts.jl")
 include("tui/panels.jl")
 include("tui/enhanced_dashboard.jl")
 include("tui/dashboard.jl")
-include("tui/tui_fixes.jl")
+include("tui/tui_fixes.jl")  # Must be loaded after dashboard.jl since it uses Dashboard functions
 include("scheduler/cron.jl")
 
 export run_tournament, TournamentConfig, TournamentDashboard, run_dashboard, TournamentScheduler, load_config,
@@ -136,7 +136,10 @@ using .Dashboard: TournamentDashboard, run_dashboard, add_event!, start_training
                   update_system_info!, render_sticky_dashboard, render_top_sticky_panel,
                   render_bottom_sticky_panel
 using .TUIFixes: create_download_callback, create_upload_callback, create_training_callback,
-                 handle_direct_command, download_tournament_data_with_training
+                 handle_direct_command, handle_post_download_training
+using .Utils: utc_now, utc_now_datetime, is_weekend_round,
+             calculate_submission_window_end, is_submission_window_open,
+             get_submission_window_info, get_disk_space_info
 using .API: NumeraiClient, download_dataset, submit_predictions as api_submit_predictions, get_models, get_model_performance
 using .Pipeline: MLPipeline, save_pipeline, load_pipeline
 import .Pipeline: train!, predict

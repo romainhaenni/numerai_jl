@@ -19,14 +19,9 @@ using ..Panels: format_uptime
 include("grid.jl")
 using .GridLayout
 using ..Logger: @log_info, @log_warn, @log_error
-
-# Import the enhanced dashboard
-include("enhanced_dashboard.jl")
-using .EnhancedDashboard
-
-# Import TUI fixes for improved keyboard handling and progress tracking
-include("tui_fixes.jl")
-using .TUIFixes
+using ..Utils  # Import Utils for use in dashboard
+using ..EnhancedDashboard  # Use the module already loaded by NumeraiTournament.jl
+# TUIFixes will be loaded after this module
 
 # Import UTC utility function (already part of parent module)
 # Import callbacks (already part of parent module)
@@ -475,7 +470,9 @@ function input_loop(dashboard::TournamentDashboard)
     last_key_time = time()
 
     while dashboard.running
-        key = TUIFixes.read_key_improved()
+        # Use the improved key reading function from TUIFixes module
+        # This will be available at runtime when the module is loaded
+        key = Main.NumeraiTournament.TUIFixes.read_key_improved()
 
         # Skip empty keys
         if isempty(key)
@@ -531,7 +528,7 @@ function input_loop(dashboard::TournamentDashboard)
             add_event!(dashboard, :info, "Command mode: type command and press Enter")
         else
             # Use TUIFixes instant keyboard command handler (no Enter required)
-            TUIFixes.handle_direct_command(dashboard, key)
+            Main.NumeraiTournament.TUIFixes.handle_direct_command(dashboard, key)
         end
 
         # Small delay to prevent CPU spinning
@@ -2620,7 +2617,7 @@ function download_tournament_data(dashboard::TournamentDashboard)
         add_event!(dashboard, :success, "✅ All tournament data downloaded successfully")
 
         # Trigger automatic training using TUIFixes handler
-        TUIFixes.handle_post_download_training(dashboard)
+        Main.NumeraiTournament.TUIFixes.handle_post_download_training(dashboard)
 
     catch e
         add_event!(dashboard, :error, "❌ Failed to download tournament data: $(sprint(showerror, e))")

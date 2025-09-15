@@ -1,10 +1,15 @@
 """
-Utility functions for the NumeraiTournament package.
+Utility module for the NumeraiTournament package.
 """
+module Utils
 
 using Dates
 using TimeZones
 using Printf
+
+export utc_now, utc_now_datetime, is_weekend_round,
+       calculate_submission_window_end, is_submission_window_open,
+       get_submission_window_info, get_disk_space_info
 
 """
     utc_now() -> ZonedDateTime
@@ -153,3 +158,5 @@ function get_disk_space_info(path::String = pwd())
         used_pct = 0.0
     )
 end
+
+end # module Utils

@@ -39,18 +39,18 @@ using .NumeraiTournament
 
     @testset "TUIFixes module functions exist" begin
         # Check that the module and functions are accessible
-        @test isdefined(NumeraiTournament.Dashboard.TUIFixes, :handle_direct_command)
-        @test isdefined(NumeraiTournament.Dashboard.TUIFixes, :read_key_improved)
-        @test isdefined(NumeraiTournament.Dashboard.TUIFixes, :handle_post_download_training)
-        @test isdefined(NumeraiTournament.Dashboard.TUIFixes, :ensure_realtime_updates!)
-        @test isdefined(NumeraiTournament.Dashboard.TUIFixes, :apply_tui_fixes!)
+        @test isdefined(NumeraiTournament.TUIFixes, :handle_direct_command)
+        @test isdefined(NumeraiTournament.TUIFixes, :read_key_improved)
+        @test isdefined(NumeraiTournament.TUIFixes, :handle_post_download_training)
+        @test isdefined(NumeraiTournament.TUIFixes, :ensure_realtime_updates!)
+        @test isdefined(NumeraiTournament.TUIFixes, :apply_tui_fixes!)
     end
 
     @testset "Progress callback functions exist" begin
-        @test isdefined(NumeraiTournament.Dashboard.TUIFixes, :create_download_callback)
-        @test isdefined(NumeraiTournament.Dashboard.TUIFixes, :create_upload_callback)
-        @test isdefined(NumeraiTournament.Dashboard.TUIFixes, :create_training_callback)
-        @test isdefined(NumeraiTournament.Dashboard.TUIFixes, :create_prediction_callback)
+        @test isdefined(NumeraiTournament.TUIFixes, :create_download_callback)
+        @test isdefined(NumeraiTournament.TUIFixes, :create_upload_callback)
+        @test isdefined(NumeraiTournament.TUIFixes, :create_training_callback)
+        @test isdefined(NumeraiTournament.TUIFixes, :create_prediction_callback)
     end
 
     @testset "Dashboard functions for operations exist" begin
@@ -78,7 +78,7 @@ using .NumeraiTournament
         dashboard = NumeraiTournament.Dashboard.TournamentDashboard(config)
 
         # Apply TUI fixes and check return value
-        fixes_status = NumeraiTournament.Dashboard.TUIFixes.apply_tui_fixes!(dashboard)
+        fixes_status = NumeraiTournament.TUIFixes.apply_tui_fixes!(dashboard)
 
         @test isa(fixes_status, Dict{Symbol, Bool})
         @test haskey(fixes_status, :instant_commands)

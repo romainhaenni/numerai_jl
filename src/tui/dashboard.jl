@@ -471,8 +471,8 @@ function input_loop(dashboard::TournamentDashboard)
 
     while dashboard.running
         # Use the improved key reading function from TUIFixes module
-        # This will be available at runtime when the module is loaded
-        key = Main.NumeraiTournament.TUIFixes.read_key_improved()
+        # Access TUIFixes through NumeraiTournament module
+        key = NumeraiTournament.TUIFixes.read_key_improved()
 
         # Skip empty keys
         if isempty(key)
@@ -528,7 +528,7 @@ function input_loop(dashboard::TournamentDashboard)
             add_event!(dashboard, :info, "Command mode: type command and press Enter")
         else
             # Use TUIFixes instant keyboard command handler (no Enter required)
-            Main.NumeraiTournament.TUIFixes.handle_direct_command(dashboard, key)
+            NumeraiTournament.TUIFixes.handle_direct_command(dashboard, key)
         end
 
         # Small delay to prevent CPU spinning
@@ -2617,7 +2617,7 @@ function download_tournament_data(dashboard::TournamentDashboard)
         add_event!(dashboard, :success, "✅ All tournament data downloaded successfully")
 
         # Trigger automatic training using TUIFixes handler
-        Main.NumeraiTournament.TUIFixes.handle_post_download_training(dashboard)
+        NumeraiTournament.TUIFixes.handle_post_download_training(dashboard)
 
     catch e
         add_event!(dashboard, :error, "❌ Failed to download tournament data: $(sprint(showerror, e))")

@@ -180,15 +180,19 @@ function download_data_internal(dashboard::TournamentDashboard)
         )
 
         # Automatically trigger training if configured
-        if get(dashboard.config, :auto_train_after_download, true)
-            add_event!(dashboard, :info, "Starting automatic training after download...")
+        auto_train = get(dashboard.config, :auto_train_after_download, false) ||
+                     get(ENV, "AUTO_TRAIN", "false") == "true" ||
+                     dashboard.config.auto_submit
+
+        if auto_train
+            add_event!(dashboard, :info, "🚀 Starting automatic training after download...")
             # Start training in a background task
             @async begin
                 sleep(1)  # Small delay to let UI update
                 train_models_internal(dashboard)
             end
         else
-            add_event!(dashboard, :info, "Download complete. Press 's' or use /train to start training")
+            add_event!(dashboard, :info, "Download complete. Press 't' or use /train to start training")
         end
 
         return true

@@ -7,7 +7,6 @@ using ..EnhancedDashboard: render_enhanced_dashboard
 using Dates
 using Printf
 using Term
-using REPL
 
 export apply_unified_fix!, monitor_operations, setup_sticky_panels!
 export read_key_improved, handle_instant_command, unified_input_loop
@@ -69,22 +68,50 @@ end
 Read single key input without requiring Enter (improved version)
 """
 function read_key_improved()
+    local key_pressed = ""
+    local raw_mode_set = false
+
     try
-        # Set terminal to raw mode
-        terminal = REPL.Terminals.TTYTerminal("", stdin, stdout, stderr)
-        REPL.Terminals.raw!(terminal, true)
+        if isa(stdin, Base.TTY)
+            # Set stdin to raw mode for immediate key capture
+            ccall(:jl_tty_set_mode, Int32, (Ptr{Cvoid}, Int32), stdin.handle, 1)
+            raw_mode_set = true
 
-        # Read single character
-        char = read(stdin, Char)
+            if bytesavailable(stdin) > 0
+                first_char = String(read(stdin, 1))
 
-        # Restore normal mode
-        REPL.Terminals.raw!(terminal, false)
-
-        return string(char)
-    catch e
-        @error "Error reading key" exception=e
-        return ""
+                # Handle escape sequences
+                if first_char == "\e"
+                    # Check for multi-character sequences with minimal delay
+                    sleep(0.001)  # Very short delay to catch sequences
+                    if bytesavailable(stdin) > 0
+                        second_char = String(read(stdin, 1))
+                        if second_char == "["
+                            if bytesavailable(stdin) > 0
+                                third_char = String(read(stdin, 1))
+                                key_pressed = "\e[$third_char"
+                            else
+                                key_pressed = "\e["
+                            end
+                        else
+                            # Put back the second char and return just ESC
+                            key_pressed = first_char
+                        end
+                    else
+                        key_pressed = first_char  # Just ESC
+                    end
+                else
+                    key_pressed = first_char
+                end
+            end
+        end
+    finally
+        if raw_mode_set && isa(stdin, Base.TTY)
+            ccall(:jl_tty_set_mode, Int32, (Ptr{Cvoid}, Int32), stdin.handle, 0)
+        end
     end
+
+    return key_pressed
 end
 
 """
@@ -135,13 +162,13 @@ end
 Unified input loop with instant commands
 """
 function unified_input_loop(dashboard::TournamentDashboard)
-    while dashboard.running[]
+    while dashboard.running
         key = read_key_improved()
 
         if !isempty(key)
             # Handle instant command
             if key == "q"
-                dashboard.running[] = false
+                dashboard.running = false
                 break
             else
                 @async handle_instant_command(dashboard, key)
@@ -267,7 +294,7 @@ Monitor operations and update progress tracker in real-time
 function monitor_operations(dashboard::TournamentDashboard)
     @info "Starting operation monitoring for real-time updates"
 
-    while dashboard.running[]
+    while dashboard.running
         try
             # Check if any operations are active
             is_active = dashboard.progress_tracker.is_downloading ||
@@ -276,20 +303,15 @@ function monitor_operations(dashboard::TournamentDashboard)
                        dashboard.progress_tracker.is_predicting
 
             if is_active
-                # Update system status to show activity
-                dashboard.system_status[:level] = :running
-                dashboard.system_status[:message] = "Operations in progress..."
-                dashboard.system_status[:icon] = "🔄"
+                # Update system info to show activity
+                dashboard.system_info[:model_active] = true
 
                 # Force dashboard refresh for real-time updates
-                if isdefined(dashboard, :needs_refresh) && dashboard.needs_refresh isa Ref
-                    dashboard.needs_refresh[] = true
-                end
+                dashboard.refresh_rate = 0.2  # Fast refresh during operations
             else
-                # Update system status to idle when no operations
-                dashboard.system_status[:level] = :ready
-                dashboard.system_status[:message] = "System ready"
-                dashboard.system_status[:icon] = "🟢"
+                # Update system info to idle when no operations
+                dashboard.system_info[:model_active] = false
+                dashboard.refresh_rate = 1.0  # Normal refresh when idle
             end
 
             # Adaptive sleep based on activity
@@ -340,8 +362,8 @@ function render_with_sticky_panels(dashboard::TournamentDashboard)
     print("\033[1;1H")
 
     # Render system status panel
-    status_icon = get(dashboard.system_status, :icon, "🟢")
-    status_level = get(dashboard.system_status, :level, :ready)
+    status_icon = dashboard.system_info[:model_active] ? "🔄" : "🟢"
+    status_level = dashboard.system_info[:model_active] ? "Running" : "Ready"
     status_panel = Panel(
         """
         $(status_icon) Status: $(status_level)

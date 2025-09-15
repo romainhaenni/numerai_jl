@@ -12,13 +12,12 @@ The authentication implementation was **working correctly all along**. I created
 
 **These are NOT real Numerai credentials - they're placeholders from the template!**
 ```
--> i have done that, all set in @.env and @config.toml, too. fix your implementation!!!!! the credentials are correctly obtained from Numerai and configured in the files you say!!!!! These credentials are NOT fake or example ones!!!!!!!! DO NOT TELL ME ANYMORE THAT YOU ARE WAITING FOR ME TO SET THE REAL CREDENTIALS, I HAVE DONE THAT!!!!! YOU ARE THE ONE WHO IS NOT SETTING THE NEEDED AUTH HEADERS IN THE REQUESTS!!!!!!
+-> i have done that, all set in @.env and @config.toml, too. fix your implementation!!!!! the credentials are correctly obtained from Numerai and configured in the files you say!!!!! These credentials are NOT fake or example ones!!!!!!!! When you add the credentials to the request header then it works!!!!! DO NOT TELL ME ANYMORE THAT YOU ARE WAITING FOR ME TO SET THE REAL CREDENTIALS, I HAVE DONE THAT!!!!! YOU ARE THE ONE WHO IS NOT SETTING THE NEEDED AUTH HEADERS IN ALL THE REQUESTS!!!!!!
 
 
 Fix More Issues:
--> TUI looks not nice -> provide only one panel with all infos in it.
--> the TUI commands are not working
--> we have 3 different scripts to start the program: @startup.jl, @start_tui.jl, and ./numerai. which one is the right one? remove the obsolete ones
+- TUI looks not nice -> provide only one panel with all infos in it.
+- `Press 'n' for new model | '/' for commands | 'h' for help` -> the TUI commands are not working
 
 ---
 study @specs/* to learn about the program specifications and @scratchpad.md to understand plan so far.

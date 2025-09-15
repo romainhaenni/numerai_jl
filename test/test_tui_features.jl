@@ -8,22 +8,29 @@ using NumeraiTournament
 # Helper function to create test config
 function create_test_config()
     return NumeraiTournament.TournamentConfig(
-        "test_public_key",  # api_public_key
-        "test_secret_key",  # api_secret_key
-        ["test_model"],     # models
-        tempdir(),          # data_dir
-        tempdir(),          # model_dir
-        false,              # auto_submit
-        0.0,                # stake_amount
-        2,                  # max_workers
-        8,                  # tournament_id (Classic)
-        true,               # auto_train_after_download
-        "small",            # feature_set
-        false,              # compounding_enabled
-        0.0,                # min_compound_amount
-        0.0,                # compound_percentage
-        0.0,                # max_stake_amount
-        Dict{String, Any}() # tui_config
+        "test_public_key",   # api_public_key
+        "test_secret_key",   # api_secret_key
+        ["test_model"],      # models
+        tempdir(),           # data_dir
+        tempdir(),           # model_dir
+        false,               # auto_submit
+        0.0,                 # stake_amount
+        2,                   # max_workers
+        8,                   # tournament_id (Classic)
+        true,                # auto_train_after_download
+        "small",             # feature_set
+        false,               # compounding_enabled
+        0.0,                 # min_compound_amount
+        0.0,                 # compound_percentage
+        0.0,                 # max_stake_amount
+        Dict{String, Any}(), # tui_config
+        0.1,                 # sample_pct
+        "target_cyrus_v4_20",# target_col
+        false,               # enable_neutralization
+        0.5,                 # neutralization_proportion
+        true,                # enable_dynamic_sharpe
+        52,                  # sharpe_history_rounds
+        2                    # sharpe_min_data_points
     )
 end
 

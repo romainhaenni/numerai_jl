@@ -1066,14 +1066,26 @@ function render_simple_dashboard(dashboard::TournamentDashboard)
     
     # Help information if requested
     if dashboard.show_help
-        println("❓ KEYBOARD SHORTCUTS")
+        println("❓ KEYBOARD SHORTCUTS (instant - no Enter required)")
         println("   q - Quit dashboard")
-        println("   p - Pause/Resume")
-        println("   s - Start training")
-        println("   r - Refresh data")
-        println("   n - Test network")
-        println("   h - Toggle help")
-        println("   / - Command mode")
+        println("   p - Pause/Resume updates")
+        println("   s - Start training pipeline")
+        println("   r - Refresh model performances")
+        println("   n - Create new model (wizard)")
+        println("   d - Download tournament data")
+        println("   u - Upload/submit predictions")
+        println("   h - Toggle this help")
+        println("   ESC - Cancel current operation")
+        println("   / - Command mode (requires Enter)")
+        println()
+        println("📝 SLASH COMMANDS (type command + Enter)")
+        println("   /train    - Start training")
+        println("   /submit   - Submit predictions")
+        println("   /download - Download data")
+        println("   /stake    - Set stake amount")
+        println("   /refresh  - Refresh all data")
+        println("   /diag     - Run diagnostics")
+        println("   /help     - Show help")
         println()
     end
 end
@@ -2521,6 +2533,14 @@ function download_tournament_data_and_train(dashboard::TournamentDashboard)
     download_tournament_data(dashboard)
 end
 
+function submit_predictions_to_numerai(dashboard::TournamentDashboard)
+    """
+    Submit predictions to Numerai with progress tracking.
+    """
+    # Delegate to the command implementation
+    submit_predictions_command(dashboard)
+end
+
 function download_tournament_data(dashboard::TournamentDashboard)
     """
     Download fresh tournament data with real progress tracking.
@@ -2600,12 +2620,8 @@ function download_tournament_data(dashboard::TournamentDashboard)
 
         add_event!(dashboard, :success, "✅ All tournament data downloaded successfully")
 
-        # Trigger automatic training
-        add_event!(dashboard, :info, "Starting automatic training pipeline...")
-        @async begin
-            sleep(1)  # Brief pause before training
-            start_training(dashboard)
-        end
+        # Trigger automatic training using TUIFixes handler
+        TUIFixes.handle_post_download_training(dashboard)
 
     catch e
         add_event!(dashboard, :error, "❌ Failed to download tournament data: $(sprint(showerror, e))")

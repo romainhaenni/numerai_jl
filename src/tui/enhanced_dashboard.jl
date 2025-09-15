@@ -425,10 +425,11 @@ function render_enhanced_dashboard(dashboard, progress_tracker::ProgressTracker)
     if dashboard.command_mode
         push!(lines, "💬 Command: /$(dashboard.command_buffer)_")
     elseif dashboard.show_help
-        push!(lines, "❓ HELP")
-        push!(lines, "  [n] New Model     [/] Command Mode  [h] Toggle Help")
-        push!(lines, "  [s] Start Train   [r] Refresh Data   [q] Quit")
-        push!(lines, "  [p] Pause/Resume  [d] Download Data  [c] Check Config")
+        push!(lines, "❓ HELP - Single keys work instantly (no Enter)")
+        push!(lines, "  [n] New Model     [d] Download Data  [h] Toggle Help")
+        push!(lines, "  [s] Start Train   [u] Upload Preds   [q] Quit")
+        push!(lines, "  [p] Pause/Resume  [r] Refresh Data   [ESC] Cancel")
+        push!(lines, "  [/] Command Mode (requires Enter)")
     else
         push!(lines, "Press 'n' for new model │ '/' for commands │ 'h' for help │ 'q' to quit")
     end

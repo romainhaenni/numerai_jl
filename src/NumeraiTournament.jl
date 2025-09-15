@@ -159,6 +159,7 @@ mutable struct TournamentConfig
     max_workers::Int
     # Tournament configuration
     tournament_id::Int  # 8 for Classic, 11 for Signals
+    auto_train_after_download::Bool  # Automatically start training after download completes
     # Feature set configuration
     feature_set::String
     # Compounding configuration
@@ -254,6 +255,7 @@ function load_config(path::String="config.toml")::TournamentConfig
             0.0,
             Sys.CPU_THREADS,
             8,       # tournament_id default (Classic)
+            true,    # auto_train_after_download default
             "medium",  # feature_set default
             false,  # compounding_enabled
             1.0,    # min_compound_amount
@@ -326,6 +328,7 @@ function load_config(path::String="config.toml")::TournamentConfig
         get(config, "stake_amount", 0.0),
         get(config, "max_workers", Sys.CPU_THREADS),
         get(config, "tournament_id", 8),  # Classic by default
+        get(config, "auto_train_after_download", true),  # Auto-train after download default
         get(config, "feature_set", "medium"),
         get(config, "compounding_enabled", false),
         get(config, "min_compound_amount", 1.0),

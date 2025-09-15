@@ -135,23 +135,31 @@ function download_data_internal(dashboard::TournamentDashboard)
         end
 
         # Create progress callback for updating dashboard
-        progress_callback = (phase, kwargs...) -> begin
-            kwargs_dict = Dict(kwargs)
+        progress_callback = (phase; kwargs...) -> begin
             if phase == :start
-                file_name = get(kwargs_dict, :name, "unknown")
+                file_name = get(kwargs, :name, "unknown")
                 EnhancedDashboard.update_progress_tracker!(
                     dashboard.progress_tracker, :download,
                     active=true, file=file_name, progress=0.0
                 )
                 add_event!(dashboard, :info, "📥 Downloading $file_name...")
-            elseif phase == :complete
-                file_name = get(kwargs_dict, :name, "unknown")
-                size_mb = get(kwargs_dict, :size_mb, 0.0)
+            elseif phase == :progress
+                # Real-time progress update
+                progress = get(kwargs, :progress, 0.0)
+                current_mb = get(kwargs, :current_mb, 0.0)
+                total_mb = get(kwargs, :total_mb, 0.0)
                 EnhancedDashboard.update_progress_tracker!(
                     dashboard.progress_tracker, :download,
-                    active=false, progress=1.0, total_mb=size_mb, current_mb=size_mb
+                    progress=progress, current_mb=current_mb, total_mb=total_mb
                 )
-                add_event!(dashboard, :success, "✅ Downloaded $file_name ($(size_mb) MB)")
+            elseif phase == :complete
+                file_name = get(kwargs, :name, "unknown")
+                size_mb = get(kwargs, :size_mb, 0.0)
+                EnhancedDashboard.update_progress_tracker!(
+                    dashboard.progress_tracker, :download,
+                    active=false, progress=100.0, total_mb=size_mb, current_mb=size_mb
+                )
+                add_event!(dashboard, :success, "✅ Downloaded $file_name ($(round(size_mb, digits=1)) MB)")
             end
         end
 
@@ -360,31 +368,61 @@ function submit_predictions_internal(dashboard::TournamentDashboard, predictions
         config = dashboard.config
 
         # Set upload progress tracker
-        dashboard.progress_tracker.is_uploading = true
-        dashboard.progress_tracker.upload_file = basename(predictions_path)
-        dashboard.progress_tracker.upload_progress = 0.0
+        EnhancedDashboard.update_progress_tracker!(
+            dashboard.progress_tracker, :upload,
+            active=true, file=basename(predictions_path), progress=0.0
+        )
 
         # Submit for each model
         total_models = length(config.models)
         for (idx, model_name) in enumerate(config.models)
-            dashboard.progress_tracker.upload_progress = ((idx - 1) / total_models) * 100.0
+            base_progress = ((idx - 1) / total_models) * 100.0
+
             add_event!(dashboard, :info, "Uploading predictions for model: $model_name")
 
-            # Call API with simulated progress updates
-            @async begin
-                # Simulate upload progress increments
-                for i in 1:10
-                    dashboard.progress_tracker.upload_progress = ((idx - 1) / total_models) * 100.0 + (i / 10) * (100.0 / total_models)
-                    sleep(0.1)
+            # Create progress callback for the upload
+            progress_callback = (phase; kwargs...) -> begin
+                if phase == :start
+                    file = get(kwargs, :file, basename(predictions_path))
+                    size_mb = get(kwargs, :size_mb, 0.0)
+                    EnhancedDashboard.update_progress_tracker!(
+                        dashboard.progress_tracker, :upload,
+                        file=file, total_mb=size_mb, progress=base_progress + 5.0
+                    )
+                elseif phase == :progress
+                    progress = get(kwargs, :progress, 0.0)
+                    phase_desc = get(kwargs, :phase, "")
+                    # Scale progress within this model's allocation
+                    segment_progress = base_progress + (progress * 100.0 / (total_models * 100.0))
+                    EnhancedDashboard.update_progress_tracker!(
+                        dashboard.progress_tracker, :upload,
+                        progress=segment_progress
+                    )
+                elseif phase == :complete
+                    submission_id = get(kwargs, :submission_id, "")
+                    size_mb = get(kwargs, :size_mb, 0.0)
+                    segment_progress = base_progress + (100.0 / total_models)
+                    EnhancedDashboard.update_progress_tracker!(
+                        dashboard.progress_tracker, :upload,
+                        progress=segment_progress
+                    )
+                    add_event!(dashboard, :success, "✅ Uploaded for $model_name (ID: $submission_id)")
+                elseif phase == :error
+                    message = get(kwargs, :message, "Unknown error")
+                    add_event!(dashboard, :error, "❌ Upload failed for $model_name: $message")
                 end
             end
 
-            API.submit_predictions(dashboard.api_client, model_name, predictions_path)
-
-            dashboard.progress_tracker.upload_progress = (idx / total_models) * 100.0
+            # Submit with progress callback
+            API.submit_predictions(dashboard.api_client, model_name, predictions_path;
+                                  progress_callback=progress_callback)
         end
 
-        dashboard.progress_tracker.upload_progress = 100.0
+        # Set to 100% completion
+        EnhancedDashboard.update_progress_tracker!(
+            dashboard.progress_tracker, :upload,
+            progress=100.0
+        )
         sleep(0.5)  # Show completion briefly
 
         return true
@@ -395,8 +433,9 @@ function submit_predictions_internal(dashboard::TournamentDashboard, predictions
         # Clear upload progress after a delay
         @async begin
             sleep(2)
-            dashboard.progress_tracker.is_uploading = false
-            dashboard.progress_tracker.upload_progress = 0.0
+            EnhancedDashboard.update_progress_tracker!(
+                dashboard.progress_tracker, :upload, active=false
+            )
             dashboard.progress_tracker.upload_file = ""
         end
     end

@@ -2328,42 +2328,59 @@ function download_tournament_data(dashboard::TournamentDashboard)
 
         # Download each dataset with real progress updates
         datasets = [
-            ("train", "numerai_train.parquet"),
-            ("validation", "numerai_validation.parquet"),
-            ("live", "numerai_live.parquet")
+            ("train", "train.parquet"),
+            ("validation", "validation.parquet"),
+            ("live", "live.parquet"),
+            ("features", "features.json")
         ]
 
         total_datasets = length(datasets)
-        for (idx, (dataset_name, filename)) in enumerate(datasets)
+        for (idx, (dataset_type, filename)) in enumerate(datasets)
             dashboard.progress_tracker.download_file = filename
             base_progress = (idx - 1) * (100.0 / total_datasets)
+            dashboard.progress_tracker.download_progress = base_progress
 
-            add_event!(dashboard, :info, "Downloading $dataset_name data...")
+            add_event!(dashboard, :info, "Downloading $dataset_type data...")
 
             # Create a progress callback for the actual download
-            function update_progress(bytes_downloaded, total_bytes)
-                if total_bytes > 0
-                    file_progress = (bytes_downloaded / total_bytes) * 100.0
-                    segment_progress = file_progress / total_datasets
-                    dashboard.progress_tracker.download_progress = base_progress + segment_progress
+            progress_callback = (phase; kwargs...) -> begin
+                if phase == :start
+                    file_name = get(kwargs, :name, filename)
+                    dashboard.progress_tracker.download_file = file_name
+                    dashboard.progress_tracker.is_downloading = true
+                    segment_progress = base_progress + (0.1 * 100.0 / total_datasets)
+                    dashboard.progress_tracker.download_progress = segment_progress
+                elseif phase == :progress
+                    # Real-time progress update
+                    progress = get(kwargs, :progress, 0.0)
+                    current_mb = get(kwargs, :current_mb, 0.0)
+                    total_mb = get(kwargs, :total_mb, 0.0)
+                    segment_progress = base_progress + (progress * 100.0 / (total_datasets * 100.0))
+                    dashboard.progress_tracker.download_progress = segment_progress
+                    dashboard.progress_tracker.download_current_mb = current_mb
+                    dashboard.progress_tracker.download_total_mb = total_mb
+                elseif phase == :complete
+                    size_mb = get(kwargs, :size_mb, 0.0)
+                    segment_progress = base_progress + (100.0 / total_datasets)
+                    dashboard.progress_tracker.download_progress = segment_progress
+                    dashboard.progress_tracker.download_total_mb = size_mb
+                    dashboard.progress_tracker.download_current_mb = size_mb
+                    add_event!(dashboard, :success, "Downloaded $dataset_type ($(round(size_mb, digits=1)) MB)")
                 end
             end
 
-            # Try to download with the Data module
+            # Try to download with the actual API
             try
                 file_path = joinpath(dashboard.config.data_dir, filename)
 
-                # Simulate download with progress updates (replace with actual API call when available)
-                # In a real implementation, you would call:
-                # API.download_dataset(dashboard.api_client, dataset_name, file_path)
-                for i in 1:20
-                    dashboard.progress_tracker.download_progress = base_progress + (i * 5.0 / total_datasets)
-                    sleep(0.05)
-                end
+                # Use the actual API download function
+                API.download_dataset(dashboard.api_client, dataset_type, file_path;
+                                   progress_callback=progress_callback)
 
-                add_event!(dashboard, :success, "Downloaded $dataset_name data")
             catch e
-                add_event!(dashboard, :warning, "Error downloading $dataset_name: $(sprint(showerror, e))")
+                add_event!(dashboard, :error, "Error downloading $dataset_type: $(sprint(showerror, e))")
+                # Don't continue if download fails
+                throw(e)
             end
         end
 

@@ -4,6 +4,7 @@ Utility functions for the NumeraiTournament package.
 
 using Dates
 using TimeZones
+using Printf
 
 """
     utc_now() -> ZonedDateTime
@@ -85,5 +86,70 @@ function get_submission_window_info(round_open_time::DateTime, current_time::Dat
         is_open = is_open,
         time_remaining = time_diff,
         round_type = round_type
+    )
+end
+
+"""
+    get_disk_space_info(path::String = pwd()) -> NamedTuple
+
+Returns disk space information for the given path.
+Returns a named tuple with:
+- free_gb: Free space in GB
+- total_gb: Total space in GB
+- used_gb: Used space in GB
+- used_pct: Percentage of disk used
+"""
+function get_disk_space_info(path::String = pwd())
+    try
+        # Use df command to get disk space info on Unix systems
+        if Sys.isunix()
+            # Run df command with -k flag for KB output
+            cmd = `df -k $path`
+            output = read(cmd, String)
+            lines = split(output, '\n')
+
+            # Parse the output (second line has the data)
+            if length(lines) >= 2
+                # Handle case where filesystem name is on separate line
+                data_line = if occursin(r"^\s*\d+", lines[2])
+                    lines[2]
+                else
+                    # Filesystem name is on first line, data on second
+                    length(lines) >= 3 ? lines[3] : lines[2]
+                end
+
+                # Parse the data line
+                parts = split(data_line)
+                if length(parts) >= 4
+                    # Values are in KB, convert to GB
+                    total_kb = parse(Float64, parts[2])
+                    used_kb = parse(Float64, parts[3])
+                    avail_kb = parse(Float64, parts[4])
+
+                    total_gb = total_kb / (1024 * 1024)
+                    used_gb = used_kb / (1024 * 1024)
+                    free_gb = avail_kb / (1024 * 1024)
+                    used_pct = total_gb > 0 ? (used_gb / total_gb * 100) : 0.0
+
+                    return (
+                        free_gb = free_gb,
+                        total_gb = total_gb,
+                        used_gb = used_gb,
+                        used_pct = used_pct
+                    )
+                end
+            end
+        end
+    catch e
+        # If anything fails, return zeros
+        @debug "Failed to get disk space info" error=e
+    end
+
+    # Return default values if we couldn't get disk info
+    return (
+        free_gb = 0.0,
+        total_gb = 0.0,
+        used_gb = 0.0,
+        used_pct = 0.0
     )
 end

@@ -3,6 +3,7 @@ module EnhancedDashboard
 using Dates
 using Printf
 using ..API
+using ..Utils
 
 export render_enhanced_dashboard, render_unified_status_panel, render_events_panel,
        create_progress_bar, create_spinner,
@@ -315,8 +316,8 @@ function render_enhanced_dashboard(dashboard, progress_tracker::ProgressTracker)
     model_status = dashboard.model[:is_active] ? "🟢 Active" : "🔴 Inactive"
     push!(lines, "Model: $(dashboard.model[:name]) ($model_status)")
 
-    # Tournament info - simplified without API call for now
-    round_str = "Round #000"  # Will be updated when API is called
+    # Tournament info - get real values from API
+    round_str = "Round #000"
     submission_str = "Pending"
     time_left = "00:00:00"
 
@@ -324,11 +325,27 @@ function render_enhanced_dashboard(dashboard, progress_tracker::ProgressTracker)
     try
         # Get current round info from API if available
         if isdefined(dashboard, :api_client) && dashboard.api_client !== nothing
-            # This would need proper API integration
-            # For now, use placeholder values
+            current_round = API.get_current_round(dashboard.api_client)
+            round_str = "Round #$(current_round.number)"
+
+            # Calculate time remaining
+            current_time = Dates.now()
+            close_time = current_round.close_time
+            if current_time < close_time
+                time_diff = close_time - current_time
+                hours = div(time_diff.value, 3600000)
+                minutes = div(mod(time_diff.value, 3600000), 60000)
+                seconds = div(mod(time_diff.value, 60000), 1000)
+                time_left = @sprintf("%02d:%02d:%02d", hours, minutes, seconds)
+                submission_str = current_round.is_active ? "Open" : "Closed"
+            else
+                time_left = "Closed"
+                submission_str = "Closed"
+            end
         end
-    catch
-        # Keep defaults on any error
+    catch e
+        # Keep defaults on any error - don't spam the user with API errors
+        @debug "Failed to get tournament info" error=e
     end
 
     push!(lines, "Tournament: $round_str │ Submission: $submission_str │ Time Left: $time_left")
@@ -459,8 +476,10 @@ function render_unified_status_panel(dashboard)::String
     push!(lines, "   CPU Usage: $cpu_usage (Load: $load_str)")
     push!(lines, @sprintf("   Memory: %.1f GB / %.1f GB (%.0f%%)", memory_used, memory_total, memory_pct))
 
-    # Disk space (placeholder - would need actual implementation)
-    push!(lines, "   Disk Space: 0.0 GB free / 0.0 GB total")
+    # Disk space - get real values
+    disk_info = Utils.get_disk_space_info(dashboard.config.data_dir)
+    push!(lines, @sprintf("   Disk Space: %.1f GB free / %.1f GB total (%.0f%% used)",
+        disk_info.free_gb, disk_info.total_gb, disk_info.used_pct))
     push!(lines, @sprintf("   Process Memory: %.1f MB", get(sys, :process_memory, 0.0)))
     push!(lines, @sprintf("   Threads: %d (Julia: %d)", get(sys, :threads, 1), Threads.nthreads()))
 

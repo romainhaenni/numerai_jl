@@ -470,6 +470,10 @@ end
 
 function input_loop(dashboard::TournamentDashboard)
     # Use improved keyboard handling from TUIFixes
+    # Initialize debug tracking variables
+    key_press_count = 0
+    last_key_time = time()
+
     while dashboard.running
         key = TUIFixes.read_key_improved()
 
@@ -1556,12 +1560,7 @@ function start_training(dashboard::TournamentDashboard)
 
     add_event!(dashboard, :info, "Starting training for $(dashboard.training_info[:model_name])")
 
-    @async simulate_training(dashboard)
-end
-
-function simulate_training(dashboard::TournamentDashboard)
-    # This function is replaced by run_real_training but kept for backward compatibility
-    run_real_training(dashboard)
+    @async run_real_training(dashboard)
 end
 
 function run_real_training(dashboard::TournamentDashboard)

@@ -285,7 +285,7 @@ function generate_predictions_internal(dashboard::TournamentDashboard)
         )
         
         # Get feature columns
-        dashboard.progress_tracker.prediction_progress = 30.0
+        dashboard.progress_tracker.prediction_progress = 25.0  # Data loaded, now getting features
         features_path = joinpath(data_dir, "features.json")
         feature_cols = if isfile(features_path)
             features, _ = DataLoader.load_features_json(features_path; feature_set=config.feature_set)
@@ -294,7 +294,7 @@ function generate_predictions_internal(dashboard::TournamentDashboard)
             DataLoader.get_feature_columns(live_df)
         end
 
-        dashboard.progress_tracker.prediction_progress = 40.0
+        dashboard.progress_tracker.prediction_progress = 30.0  # Features loaded
 
         # Load the trained model or create a new pipeline
         model_config = Pipeline.ModelConfig(
@@ -314,7 +314,7 @@ function generate_predictions_internal(dashboard::TournamentDashboard)
             neutralize=config.enable_neutralization
         )
 
-        dashboard.progress_tracker.prediction_progress = 50.0
+        dashboard.progress_tracker.prediction_progress = 35.0  # Pipeline created
 
         # Load saved model if available
         model_path = joinpath(model_dir, "model_latest.jld2")
@@ -322,12 +322,12 @@ function generate_predictions_internal(dashboard::TournamentDashboard)
             pipeline = Pipeline.load_pipeline(model_path)
         end
 
-        dashboard.progress_tracker.prediction_progress = 60.0
+        dashboard.progress_tracker.prediction_progress = 40.0  # Model loaded, ready for predictions
 
         # Generate predictions with progress updates
         add_event!(dashboard, :info, "Generating predictions for $(size(live_df, 1)) samples...")
 
-        # Simulate batch processing for progress updates
+        # Real batch processing with accurate progress tracking
         n_samples = size(live_df, 1)
         batch_size = max(1000, n_samples ÷ 10)
         predictions = []
@@ -339,11 +339,12 @@ function generate_predictions_internal(dashboard::TournamentDashboard)
             batch_predictions = Pipeline.predict(pipeline, batch_df)
             append!(predictions, batch_predictions)
 
-            progress = 60.0 + (batch_end / n_samples) * 30.0
+            # Calculate real progress: 40% base + 50% for prediction phase
+            progress = 40.0 + (batch_end / n_samples) * 50.0
             dashboard.progress_tracker.prediction_progress = progress
         end
 
-        dashboard.progress_tracker.prediction_progress = 90.0
+        dashboard.progress_tracker.prediction_progress = 90.0  # Predictions complete, saving...
 
         # Save predictions
         timestamp = Dates.format(Dates.now(), "yyyymmdd_HHMMSS")

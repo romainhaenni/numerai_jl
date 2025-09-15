@@ -288,8 +288,8 @@ function run_dashboard(dashboard::TournamentDashboard)
     try
         add_event!(dashboard, :info, "Dashboard started")
 
-        # Apply unified TUI fix for all features
-        Main.NumeraiTournament.UnifiedTUIFix.apply_unified_fix!(dashboard)
+        # Apply comprehensive TUI fix for all features
+        Main.NumeraiTournament.TUIComprehensiveFix.apply_comprehensive_fix!(dashboard)
 
         # Configure realtime tracker
         if !isnothing(dashboard.realtime_tracker)

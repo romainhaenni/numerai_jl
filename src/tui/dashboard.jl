@@ -274,7 +274,10 @@ function run_dashboard(dashboard::TournamentDashboard)
     
     try
         add_event!(dashboard, :info, "Dashboard started")
-        
+
+        # Apply TUI enhancements for v0.10.11
+        NumeraiTournament.TUIEnhanced.apply_tui_enhancements!(dashboard)
+
         # Check if auto_submit is enabled and start automatic pipeline
         if dashboard.config.auto_submit
             add_event!(dashboard, :info, "Auto-submit enabled, starting automatic pipeline...")
@@ -758,27 +761,28 @@ function render_bottom_sticky_panel(dashboard::TournamentDashboard, height::Int,
 
     # Render event lines with better formatting
     for (idx, event) in enumerate(recent_events)
-        timestamp_str = Dates.format(event.timestamp, "HH:MM:SS")
+        timestamp_str = Dates.format(get(event, :timestamp, now()), "HH:MM:SS")
 
         # Choose icon based on event level
-        icon = if event.level == :error
+        level = get(event, :level, get(event, :type, :info))
+        icon = if level == :error
             "❌"  # Red X
-        elseif event.level == :warning
+        elseif level == :warning
             "⚠️"   # Warning triangle
-        elseif event.level == :success
+        elseif level == :success
             "✅"  # Green checkmark
-        elseif event.level == :info
+        elseif level == :info
             "ℹ️"   # Info symbol
         else
             "•"  # Bullet point for other
         end
 
         # Color code based on level (using ANSI colors)
-        color_start = if event.level == :error
+        color_start = if level == :error
             "\033[31m"  # Red
-        elseif event.level == :warning
+        elseif level == :warning
             "\033[33m"  # Yellow
-        elseif event.level == :success
+        elseif level == :success
             "\033[32m"  # Green
         else
             "\033[36m"  # Cyan for info

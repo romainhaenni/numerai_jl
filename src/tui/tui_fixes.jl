@@ -352,8 +352,8 @@ function handle_post_download_training(dashboard)
     # This function is called from the main download_tournament_data function
     # when all downloads complete successfully
 
-    # Check if auto-training is enabled in config
-    auto_train = dashboard.config.auto_train_after_download
+    # Check if auto-training is enabled in config (default to true if not set)
+    auto_train = get(dashboard.config, :auto_train_after_download, true)
 
     if !auto_train
         add_event!(dashboard, :info, "Auto-training disabled. Press 's' to start training manually.")

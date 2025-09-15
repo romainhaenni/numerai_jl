@@ -1,11 +1,5 @@
 # Slash command implementations for TUI dashboard
-
-using ..API
-using ..DataLoader
-using ..Pipeline
-using Dates
-using CSV
-using DataFrames
+# This file is included within the Dashboard module, so it inherits all imports
 
 # Execute slash commands
 function execute_command(dashboard, command::String)

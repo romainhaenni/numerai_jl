@@ -154,10 +154,22 @@ function format_duration(seconds::Number)::String
         mins = Int(seconds ÷ 60)
         secs = Int(seconds % 60)
         return @sprintf("%dm %ds", mins, secs)
-    else
+    elseif seconds < 86400  # Less than a day
         hours = Int(seconds ÷ 3600)
         mins = Int((seconds % 3600) ÷ 60)
-        return @sprintf("%dh %dm", hours, mins)
+        secs = Int(seconds % 60)
+        # Only show seconds if they exist
+        if secs > 0
+            return @sprintf("%dh %dm %ds", hours, mins, secs)
+        else
+            return @sprintf("%dh %dm", hours, mins)
+        end
+    else  # Days
+        days = Int(seconds ÷ 86400)
+        hours = Int((seconds % 86400) ÷ 3600)
+        mins = Int((seconds % 3600) ÷ 60)
+        secs = Int(seconds % 60)
+        return @sprintf("%dd %dh %dm %ds", days, hours, mins, secs)
     end
 end
 
@@ -435,7 +447,7 @@ function render_unified_status_panel(dashboard)::String
 
     # System Diagnostics
     push!(lines, "🔧 SYSTEM DIAGNOSTICS:")
-    sys = dashboard.system
+    sys = dashboard.system_info
     cpu_usage = @sprintf("%.0f%%", get(sys, :cpu_usage, 0))
     load_avg = get(sys, :load_avg, (0.0, 0.0, 0.0))
     load_str = @sprintf("%.2f, %.2f, %.2f", load_avg...)

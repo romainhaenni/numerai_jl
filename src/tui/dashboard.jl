@@ -141,7 +141,9 @@ function TournamentDashboard(config)
         :model_active => false,
         :threads => Threads.nthreads(),
         :uptime => 0,
-        :julia_version => string(VERSION)
+        :julia_version => string(VERSION),
+        :load_avg => Sys.loadavg(),
+        :process_memory => 0.0
     )
     
     training_info = Dict(
@@ -931,13 +933,24 @@ function update_system_info!(dashboard::TournamentDashboard)
     loadavg = Sys.loadavg()
     cpu_count = Sys.CPU_THREADS
     dashboard.system_info[:cpu_usage] = min(100, round(Int, (loadavg[1] / cpu_count) * 100))
-    
+    dashboard.system_info[:load_avg] = loadavg
+
     # Get actual memory usage in GB
     total_memory = Sys.total_memory() / (1024^3)  # Convert to GB
     free_memory = Sys.free_memory() / (1024^3)    # Convert to GB
     dashboard.system_info[:memory_used] = round(total_memory - free_memory, digits=1)
-    
+    dashboard.system_info[:memory_total] = round(total_memory, digits=1)
+
+    # Try to get process memory (this is an approximation)
+    dashboard.system_info[:process_memory] = 0.0  # Would need platform-specific code
+
     dashboard.system_info[:model_active] = dashboard.model[:is_active]
+
+    # Update uptime
+    if !haskey(dashboard.system_info, :start_time)
+        dashboard.system_info[:start_time] = time()
+    end
+    dashboard.system_info[:uptime] = round(Int, time() - dashboard.system_info[:start_time])
 end
 
 function update_model_performances!(dashboard::TournamentDashboard)

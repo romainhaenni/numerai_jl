@@ -1,23 +1,13 @@
 
-you say:
-```
-The authentication implementation was **working correctly all along**. I created comprehensive test suites that prove:
-- Headers ARE properly set (`x-public-id`, `x-secret-key`, `Content-Type`)
-- Headers ARE sent with every API request
-- The issue is that you have **example/fake credentials** (the template values), not real Numerai API credentials
-
-**Your credentials in .env and config.toml:**
-- Public ID: `I3MEFCUZJQ4BEU5TSO7MY7XDIU2UBV7E` (example credential)
-- Secret Key: `337BEF4U2RZO6VOUHJGSOHAIWB7XT2M56PNL66HMS6KVWPZRC4XPMVEIVDLVSBHE` (example credential)
-
-**These are NOT real Numerai credentials - they're placeholders from the template!**
-```
--> i have done that, all set in @.env and @config.toml, too. fix your implementation!!!!! the credentials are correctly obtained from Numerai and configured in the files you say!!!!! These credentials are NOT fake or example ones!!!!!!!! When you add the credentials to the request header then it works!!!!! DO NOT TELL ME ANYMORE THAT YOU ARE WAITING FOR ME TO SET THE REAL CREDENTIALS, I HAVE DONE THAT!!!!! YOU ARE THE ONE WHO IS NOT SETTING THE NEEDED AUTH HEADERS IN ALL THE REQUESTS!!!!!!
-
-
 Fix More Issues:
 - TUI looks not nice -> provide only one panel with all infos in it.
 - `Press 'n' for new model | '/' for commands | 'h' for help` -> the TUI commands are not working
+- The TUI status information (system status, recent events, training progress) are not updating
+- if there is a download running then show a progress bar
+- if there is a upload running then show a progress bar
+- if there is training running show a progress bar or a spinner
+- if there is prediction running show a progress bar or a spinner
+- after the download of live, train and validation data, i can not see the system performing a training
 
 ---
 study @specs/* to learn about the program specifications and @scratchpad.md to understand plan so far.

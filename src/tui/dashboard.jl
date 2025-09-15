@@ -483,7 +483,7 @@ function render(dashboard::TournamentDashboard)
             println(panel2)
         else
             # Use new grid-based dashboard layout
-            render_grid_dashboard(dashboard)
+            render_unified_dashboard(dashboard)
         end
         
         status_line = create_status_line(dashboard)
@@ -496,51 +496,138 @@ end
 
 function render_grid_dashboard(dashboard::TournamentDashboard)
     """
-    Render dashboard using the 6-column grid system as specified in tui.md
-    Grid layout:
-    - Top row: Model Performance (2 cols), Staking Status (2 cols), System Status (2 cols)
-    - Middle row: Training Progress (3 cols), Predictions Chart (3 cols) 
-    - Bottom row: Events Log (full width - 6 cols)
+    Render a single comprehensive panel with all dashboard information
     """
+    render_unified_dashboard(dashboard)
+end
+
+function render_unified_dashboard(dashboard::TournamentDashboard)
+    """
+    Render a single unified panel with all essential information in a clean, organized format
+    """
+    using Dates
+
+    # Get terminal dimensions
+    terminal_width = try
+        displaysize(stdout)[2]
+    catch
+        120  # Default width
+    end
+
+    # Build content sections
+    content_lines = String[]
+
+    # Header section with box drawing
+    header_text = "🚀 NUMERAI TOURNAMENT SYSTEM"
+    header_len = 28  # Approximate length of header text with emoji
+    padding = max(0, (terminal_width - header_len - 2) ÷ 2)
+    header_line = "║" * " "^padding * header_text * " "^(terminal_width - padding - header_len - 2) * "║"
+
+    push!(content_lines, "╔" * "═"^(terminal_width-2) * "╗")
+    push!(content_lines, header_line)
+    push!(content_lines, "╚" * "═"^(terminal_width-2) * "╝")
+    push!(content_lines, "")
+
+    # System & Network Status (single line)
+    system_status = dashboard.paused ? "⏸ PAUSED" : "▶ RUNNING"
+    network_icon = dashboard.network_status[:is_connected] ? "🟢" : "🔴"
+    network_text = dashboard.network_status[:is_connected] ? "Connected" : "Disconnected"
+    latency = dashboard.network_status[:api_latency] > 0 ? " ($(round(dashboard.network_status[:api_latency], digits=0))ms)" : ""
+
+    push!(content_lines, "System: $system_status │ Network: $network_icon $network_text$latency │ Uptime: $(format_uptime(dashboard.system_info[:uptime]))")
+    push!(content_lines, "─"^terminal_width)
+
+    # Model Performance & Tournament Info
+    push!(content_lines, "")
+    push!(content_lines, "📊 MODEL PERFORMANCE")
+    model_status = dashboard.model[:is_active] ? "🟢 Active" : "🔴 Inactive"
+
+    # Try to get staking info
     try
-        # Get terminal dimensions
-        terminal_width, terminal_height = GridLayout.get_terminal_size()
-        
-        # Create all panels with appropriate sizing for grid layout
-        model_panel = Panels.create_model_performance_panel(dashboard.model, dashboard.config)
-        
-        staking_info = get_staking_info(dashboard)
-        staking_panel = Panels.create_staking_panel(staking_info, dashboard.config)
-        
-        system_panel = Panels.create_system_panel(dashboard.system_info, dashboard.network_status, dashboard.config)
-        
-        training_panel = Panels.create_training_panel(dashboard.training_info, dashboard.config)
-        
-        predictions_panel = Panels.create_predictions_panel(dashboard.predictions_history, dashboard.config)
-        
-        events_panel = Panels.create_events_panel(dashboard.events, dashboard.config)
-        
-        # Create panels named tuple for grid layout
-        panels = (
-            model_performance = model_panel,
-            staking = staking_panel,
-            system = system_panel,
-            training = training_panel,
-            predictions = predictions_panel,
-            events = events_panel
-        )
-        
-        # Create and render the grid
-        grid = GridLayout.create_dashboard_grid(panels, terminal_width, terminal_height)
-        grid_output = GridLayout.render_grid(grid)
-        
-        # Display the grid
-        println(grid_output)
-        
-    catch e
-        # Fallback to simple dashboard if grid rendering fails
-        @warn "Grid rendering failed, falling back to simple dashboard" exception=e
-        render_simple_dashboard(dashboard)
+        stake_info = get_staking_info(dashboard)
+        round_info = " │ Round: #$(stake_info[:current_round])"
+        submission_info = " │ $(stake_info[:submission_status])"
+    catch
+        round_info = ""
+        submission_info = ""
+    end
+
+    push!(content_lines, "Model: $(dashboard.model[:name]) ($model_status)$round_info$submission_info")
+
+    # Performance metrics in a compact format
+    corr = round(dashboard.model[:corr], digits=4)
+    mmc = round(dashboard.model[:mmc], digits=4)
+    fnc = round(dashboard.model[:fnc], digits=4)
+    corr_sign = corr > 0 ? "↑" : "↓"
+    mmc_sign = mmc > 0 ? "↑" : "↓"
+    fnc_sign = fnc > 0 ? "↑" : "↓"
+
+    push!(content_lines, "Metrics: CORR: $corr_sign$corr │ MMC: $mmc_sign$mmc │ FNC: $fnc_sign$fnc")
+
+    if haskey(dashboard.model, :stake) && dashboard.model[:stake] > 0
+        push!(content_lines, "Stake: 💰 $(dashboard.model[:stake]) NMR")
+    end
+    push!(content_lines, "─"^terminal_width)
+
+    # Training Status
+    if dashboard.training_info[:is_training]
+        push!(content_lines, "")
+        push!(content_lines, "🔥 TRAINING IN PROGRESS")
+        progress = dashboard.training_info[:progress]
+        progress_bar = create_simple_progress_bar(progress, 100, width=40)
+        push!(content_lines, "Model: $(dashboard.training_info[:model_name]) │ Epoch: $(dashboard.training_info[:current_epoch])/$(dashboard.training_info[:total_epochs])")
+        push!(content_lines, "Progress: $progress_bar $(progress)% │ ETA: $(dashboard.training_info[:eta])")
+
+        if dashboard.training_info[:val_score] > 0
+            val_score = round(dashboard.training_info[:val_score], digits=4)
+            push!(content_lines, "Validation Score: $val_score")
+        end
+        push!(content_lines, "─"^terminal_width)
+    end
+
+    # System Resources (compact)
+    push!(content_lines, "")
+    push!(content_lines, "⚙️  SYSTEM RESOURCES")
+    cpu_usage = dashboard.system_info[:cpu_usage]
+    mem_used = round(dashboard.system_info[:memory_used], digits=1)
+    mem_total = dashboard.system_info[:memory_total]
+    mem_pct = round(100 * mem_used / mem_total, digits=0)
+    cpu_bar = create_simple_progress_bar(cpu_usage, 100, width=20)
+    mem_bar = create_simple_progress_bar(mem_pct, 100, width=20)
+
+    push!(content_lines, "CPU:    $cpu_bar $(cpu_usage)%")
+    push!(content_lines, "Memory: $mem_bar $mem_used/$mem_total GB ($(Int(mem_pct))%)")
+    push!(content_lines, "Threads: $(dashboard.system_info[:threads]) │ Julia Version: $(dashboard.system_info[:julia_version])")
+    push!(content_lines, "─"^terminal_width)
+
+    # Recent Events (last 8)
+    push!(content_lines, "")
+    push!(content_lines, "📋 RECENT EVENTS")
+    if isempty(dashboard.events)
+        push!(content_lines, "  No recent events")
+    else
+        max_events = min(8, length(dashboard.events))
+        recent_events = dashboard.events[max(1, end-max_events+1):end]
+        for event in reverse(recent_events)
+            timestamp = Dates.format(event[:time], "HH:MM:SS")
+            icon = get_event_icon(event[:type])
+            message = truncate_message(event[:message], terminal_width - 20)
+            push!(content_lines, "  [$timestamp] $icon $message")
+        end
+    end
+    push!(content_lines, "─"^terminal_width)
+
+    # Command help at bottom
+    push!(content_lines, "")
+    if dashboard.command_mode
+        push!(content_lines, "💬 Command: /$(dashboard.command_buffer)_")
+    else
+        push!(content_lines, "📌 Commands: [n] New Model │ [/] Command Mode │ [h] Help │ [r] Refresh │ [s] Start Training │ [q] Quit")
+    end
+
+    # Print all lines
+    for line in content_lines
+        println(line)
     end
 end
 

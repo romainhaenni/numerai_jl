@@ -8,6 +8,7 @@ using ThreadsX
 using Statistics
 using JSON3
 using HTTP
+using Printf
 using ..API
 using ..Pipeline
 using ..DataLoader
@@ -326,6 +327,9 @@ function update_loop(dashboard::TournamentDashboard, start_time::Float64)
     network_check_interval = get(dashboard.config.tui_config, "network_check_interval", 60.0)
     render_interval = dashboard.refresh_rate  # Render at user-specified rate (default 1.0s)
 
+    # Use faster render interval when progress operations are active for real-time updates
+    fast_render_interval = 0.2  # 200ms for progress updates
+
     while dashboard.running
         current_time = time()
         frame_counter += 1
@@ -374,7 +378,15 @@ function update_loop(dashboard::TournamentDashboard, start_time::Float64)
         end
 
         # Always render at consistent intervals, even when paused (to show status changes)
-        if current_time - last_render >= render_interval
+        # Use faster rendering when progress operations are active
+        is_progress_active = dashboard.progress_tracker.is_downloading ||
+                           dashboard.progress_tracker.is_uploading ||
+                           dashboard.progress_tracker.is_training ||
+                           dashboard.progress_tracker.is_predicting
+
+        current_render_interval = is_progress_active ? fast_render_interval : render_interval
+
+        if current_time - last_render >= current_render_interval
             try
                 render(dashboard)
             catch e
@@ -384,8 +396,9 @@ function update_loop(dashboard::TournamentDashboard, start_time::Float64)
             last_render = current_time
         end
 
-        # Small sleep to prevent busy waiting
-        sleep(0.1)
+        # Adaptive sleep to prevent busy waiting - shorter during active progress
+        sleep_duration = is_progress_active ? 0.05 : 0.1
+        sleep(sleep_duration)
     end
 end
 
@@ -401,17 +414,17 @@ function read_key()
             ccall(:jl_tty_set_mode, Int32, (Ptr{Cvoid}, Int32), stdin.handle, 1)
             raw_mode_set = true
 
-            # Read with timeout to prevent blocking
-            if bytesavailable(stdin) > 0 || (sleep(0.01); bytesavailable(stdin) > 0)
+            # Read with minimal timeout for instant response
+            if bytesavailable(stdin) > 0
                 first_char = String(read(stdin, 1))
 
                 # Handle escape sequences for special keys
                 if first_char == "\e"  # ESC character
-                    # Give a small timeout for multi-character sequences
-                    if bytesavailable(stdin) > 0 || (sleep(0.001); bytesavailable(stdin) > 0)
+                    # Give a very small timeout for multi-character sequences
+                    if bytesavailable(stdin) > 0
                         second_char = String(read(stdin, 1))
                         if second_char == "["
-                            if bytesavailable(stdin) > 0 || (sleep(0.001); bytesavailable(stdin) > 0)
+                            if bytesavailable(stdin) > 0
                                 third_char = String(read(stdin, 1))
                                 key_pressed = "\e[$third_char"  # Return full escape sequence
                             else
@@ -461,7 +474,7 @@ function input_loop(dashboard::TournamentDashboard)
 
         # Skip empty keys
         if isempty(key)
-            sleep(0.05)  # Small sleep to prevent busy waiting
+            sleep(0.01)  # Minimal sleep to prevent busy waiting
             continue
         end
 
@@ -566,43 +579,216 @@ function input_loop(dashboard::TournamentDashboard)
 end
 
 function render(dashboard::TournamentDashboard)
-    # Clear screen using ANSI escape sequence
-    print("\033[2J\033[H")
-
     try
-        # Create and display panels using the new grid system
+        # Create and display panels using the sticky panel system
         if dashboard.wizard_active
-            # Show model creation wizard
+            # Show model creation wizard - full screen clear for this special case
+            print("\033[2J\033[H")
             wizard_display = render_wizard(dashboard)
             println(wizard_display)
             status_line = create_status_line(dashboard)
             println("\n" * status_line)
         elseif dashboard.show_model_details
-            # Show model details interface
+            # Show model details interface - full screen clear for this special case
+            print("\033[2J\033[H")
             panel1 = render_model_details_panel(dashboard)
             panel2 = Panels.create_events_panel(dashboard.events, dashboard.config)
             println(panel1)
             println(panel2)
         else
-            # Use new unified status panel and events panel
-            # Clear screen by moving cursor to top
-            print("\033[H\033[2J")
-
-            # Render unified status panel (sticky at top)
-            status_panel = EnhancedDashboard.render_unified_status_panel(dashboard)
-            println(status_panel)
-
-            # Separator
-            println("─" ^ 80)
-            println()
-
-            # Render events panel below
-            events_panel = EnhancedDashboard.render_events_panel(dashboard)
-            println(events_panel)
+            # Use sticky panel system for main dashboard
+            render_sticky_dashboard(dashboard)
         end
     catch e
         # Enhanced recovery mode with comprehensive diagnostics
         render_recovery_mode(dashboard, e)
+    end
+end
+
+function render_sticky_dashboard(dashboard::TournamentDashboard)
+    """
+    Render dashboard with sticky panels using ANSI positioning
+    - Top panel: System status and progress (sticky)
+    - Middle panel: Dynamic content area
+    - Bottom panel: Event logs (sticky)
+    """
+
+    # Get terminal dimensions
+    terminal_height, terminal_width = try
+        displaysize(stdout)
+    catch
+        (40, 120)  # Default dimensions
+    end
+
+    # Calculate panel heights
+    top_panel_height = 8  # System info and progress
+    bottom_panel_height = 10  # Event logs
+    middle_panel_height = terminal_height - top_panel_height - bottom_panel_height - 2  # Dynamic content
+
+    # Only clear screen on first render or if dimensions changed
+    if !haskey(dashboard.system_info, :last_terminal_size) ||
+       dashboard.system_info[:last_terminal_size] != (terminal_height, terminal_width)
+        print("\033[2J\033[H")
+        dashboard.system_info[:last_terminal_size] = (terminal_height, terminal_width)
+    end
+
+    # Render top sticky panel (system status and active operations)
+    print("\033[1;1H")  # Move cursor to top-left
+    render_top_sticky_panel(dashboard, terminal_width)
+
+    # Render middle content area
+    print("\033[$(top_panel_height + 1);1H")  # Position below top panel
+    render_middle_content(dashboard, middle_panel_height, terminal_width)
+
+    # Render bottom sticky panel (event logs)
+    bottom_row = terminal_height - bottom_panel_height + 1
+    print("\033[$(bottom_row);1H")  # Position at bottom
+    render_bottom_sticky_panel(dashboard, bottom_panel_height, terminal_width)
+
+    # Position cursor at safe location
+    print("\033[$(terminal_height);1H")
+end
+
+function render_top_sticky_panel(dashboard::TournamentDashboard, terminal_width::Int)
+    """
+    Render the top sticky panel with system status and progress
+    """
+    lines = String[]
+
+    # Header line
+    header = "NUMERAI TOURNAMENT SYSTEM v0.10.0"
+    push!(lines, EnhancedDashboard.center_text(header, terminal_width))
+    push!(lines, "─" ^ terminal_width)
+
+    # System status line
+    system_status = dashboard.paused ? "⏸ PAUSED" : "▶ RUNNING"
+    network_icon = dashboard.network_status[:is_connected] ? "●" : "○"
+    network_text = dashboard.network_status[:is_connected] ? "Online" : "Offline"
+    latency = dashboard.network_status[:api_latency] > 0 ?
+        @sprintf(" %dms", round(dashboard.network_status[:api_latency])) : ""
+    uptime = EnhancedDashboard.format_duration(dashboard.system_info[:uptime])
+
+    mem_used = dashboard.system_info[:memory_used]
+    mem_total = dashboard.system_info[:memory_total]
+    threads = dashboard.system_info[:threads]
+
+    status_line = @sprintf("System: %s | Network: %s %s%s | Memory: %.1f/%.1f GB | Threads: %d | Uptime: %s",
+        system_status, network_icon, network_text, latency, mem_used, mem_total, threads, uptime)
+    push!(lines, status_line)
+
+    # Progress bars for active operations
+    if dashboard.progress_tracker.is_downloading || dashboard.progress_tracker.is_uploading ||
+       dashboard.progress_tracker.is_training || dashboard.progress_tracker.is_predicting
+
+        push!(lines, "")
+        push!(lines, "Active Operations:")
+
+        if dashboard.progress_tracker.is_downloading
+            spinner = EnhancedDashboard.create_spinner(Int(time() * 10))
+            progress_bar = EnhancedDashboard.create_progress_bar(dashboard.progress_tracker.download_progress, 100, width=40)
+            file_display = length(dashboard.progress_tracker.download_file) > 30 ?
+                dashboard.progress_tracker.download_file[1:27] * "..." : dashboard.progress_tracker.download_file
+            push!(lines, @sprintf("%s Download: %-30s %s", spinner, file_display, progress_bar))
+        end
+
+        if dashboard.progress_tracker.is_uploading
+            spinner = EnhancedDashboard.create_spinner(Int(time() * 10))
+            progress_bar = EnhancedDashboard.create_progress_bar(dashboard.progress_tracker.upload_progress, 100, width=40)
+            file_display = length(dashboard.progress_tracker.upload_file) > 30 ?
+                dashboard.progress_tracker.upload_file[1:27] * "..." : dashboard.progress_tracker.upload_file
+            push!(lines, @sprintf("%s Upload: %-30s %s", spinner, file_display, progress_bar))
+        end
+
+        if dashboard.progress_tracker.is_training
+            spinner = EnhancedDashboard.create_spinner(Int(time() * 10))
+            epoch_info = @sprintf("Epoch %d/%d", dashboard.progress_tracker.training_epoch, dashboard.progress_tracker.training_total_epochs)
+            model_display = length(dashboard.progress_tracker.training_model) > 20 ?
+                dashboard.progress_tracker.training_model[1:17] * "..." : dashboard.progress_tracker.training_model
+            progress_bar = EnhancedDashboard.create_progress_bar(dashboard.progress_tracker.training_progress, 100, width=40)
+            push!(lines, @sprintf("%s Training: %-20s %s %s", spinner, model_display, epoch_info, progress_bar))
+        end
+
+        if dashboard.progress_tracker.is_predicting
+            spinner = EnhancedDashboard.create_spinner(Int(time() * 10))
+            model_display = length(dashboard.progress_tracker.prediction_model) > 30 ?
+                dashboard.progress_tracker.prediction_model[1:27] * "..." : dashboard.progress_tracker.prediction_model
+            progress_bar = EnhancedDashboard.create_progress_bar(dashboard.progress_tracker.prediction_progress, 100, width=40)
+            push!(lines, @sprintf("%s Predicting: %-28s %s", spinner, model_display, progress_bar))
+        end
+    end
+
+    # Pad to ensure consistent height
+    while length(lines) < 8
+        push!(lines, "")
+    end
+
+    # Print the lines
+    for line in lines
+        println(line)
+    end
+end
+
+function render_middle_content(dashboard::TournamentDashboard, height::Int, width::Int)
+    """
+    Render the middle content area with model performance and other dynamic content
+    """
+    # Clear this section
+    for i in 1:height
+        print(" " ^ width * "\n")
+    end
+
+    # Move back to start of middle section
+    print("\033[$(height)A")
+
+    # Render main dashboard content using enhanced dashboard
+    enhanced_content = EnhancedDashboard.render_enhanced_dashboard(dashboard, dashboard.progress_tracker)
+
+    # Split content into lines and limit to available height
+    content_lines = split(enhanced_content, '\n')
+    displayed_lines = content_lines[1:min(length(content_lines), height - 2)]
+
+    for line in displayed_lines
+        println(line)
+    end
+end
+
+function render_bottom_sticky_panel(dashboard::TournamentDashboard, height::Int, width::Int)
+    """
+    Render the bottom sticky panel with event logs
+    """
+    # Separator line
+    println("─" ^ width)
+
+    # Event logs header
+    command_hint = dashboard.command_mode ?
+        "Command: /$(dashboard.command_buffer)_" :
+        "Commands: q=quit, s=start training, d=download, r=refresh, /=command mode"
+    println("Events (showing last $(height-2)) | $command_hint")
+
+    # Get recent events
+    recent_events = length(dashboard.events) > (height - 2) ?
+        dashboard.events[end-(height-3):end] : dashboard.events
+
+    # Render event lines
+    for event in recent_events
+        timestamp_str = Dates.format(event.timestamp, "HH:MM:SS")
+        icon = event.level == :error ? "❌" :
+               event.level == :warning ? "⚠️" :
+               event.level == :success ? "✅" : "ℹ️"
+
+        # Truncate message if too long
+        max_msg_length = width - 12
+        message = length(event.message) > max_msg_length ?
+            event.message[1:max_msg_length-3] * "..." : event.message
+
+        event_line = @sprintf("%s %s %s", timestamp_str, icon, message)
+        println(event_line)
+    end
+
+    # Pad remaining lines
+    remaining_lines = (height - 2) - length(recent_events)
+    for i in 1:remaining_lines
+        println()
     end
 end
 
@@ -1467,15 +1653,11 @@ function run_real_training(dashboard::TournamentDashboard)
         dashboard.training_info[:progress] = 100
         dashboard.training_info[:is_training] = false
 
-        # Update progress tracker to show completion briefly
+        # Clear progress tracker immediately
         dashboard.progress_tracker.training_progress = 100.0
-        @async begin
-            sleep(2)  # Show completion for 2 seconds
-            dashboard.progress_tracker.is_training = false
-            dashboard.progress_tracker.training_progress = 0.0
-            dashboard.progress_tracker.training_model = ""
-            dashboard.progress_tracker.training_epoch = 0
-        end
+        dashboard.progress_tracker.is_training = false
+        dashboard.progress_tracker.training_model = ""
+        dashboard.progress_tracker.training_epoch = 0
 
     catch e
         dashboard.training_info[:is_training] = false
@@ -2399,13 +2581,10 @@ function download_tournament_data(dashboard::TournamentDashboard)
     catch e
         add_event!(dashboard, :error, "❌ Failed to download tournament data: $(sprint(showerror, e))")
     finally
-        # Delay clearing the progress to show completion
-        @async begin
-            sleep(2)
-            dashboard.progress_tracker.is_downloading = false
-            dashboard.progress_tracker.download_progress = 0.0
-            dashboard.progress_tracker.download_file = ""
-        end
+        # Clear progress immediately - no need for delay
+        dashboard.progress_tracker.is_downloading = false
+        dashboard.progress_tracker.download_progress = 0.0
+        dashboard.progress_tracker.download_file = ""
     end
 end
 

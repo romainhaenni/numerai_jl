@@ -181,14 +181,14 @@ function download_data_internal(dashboard::TournamentDashboard)
 
         # Automatically trigger training if configured
         if get(dashboard.config, :auto_train_after_download, true)
-            add_event!(dashboard.event_log, "info", "Starting automatic training after download...")
+            add_event!(dashboard, :info, "Starting automatic training after download...")
             # Start training in a background task
             @async begin
                 sleep(1)  # Small delay to let UI update
                 train_models_internal(dashboard)
             end
         else
-            add_event!(dashboard.event_log, "info", "Download complete. Press 's' or use /train to start training")
+            add_event!(dashboard, :info, "Download complete. Press 's' or use /train to start training")
         end
 
         return true
@@ -364,13 +364,10 @@ function generate_predictions_internal(dashboard::TournamentDashboard)
         @error "Prediction generation failed" error=e
         return nothing
     finally
-        # Clear prediction progress after a delay
-        @async begin
-            sleep(2)
-            dashboard.progress_tracker.is_predicting = false
-            dashboard.progress_tracker.prediction_progress = 0.0
-            dashboard.progress_tracker.prediction_model = ""
-        end
+        # Clear prediction progress immediately
+        dashboard.progress_tracker.is_predicting = false
+        dashboard.progress_tracker.prediction_progress = 0.0
+        dashboard.progress_tracker.prediction_model = ""
     end
 end
 
@@ -442,14 +439,11 @@ function submit_predictions_internal(dashboard::TournamentDashboard, predictions
         @error "Submission failed" error=e
         return false
     finally
-        # Clear upload progress after a delay
-        @async begin
-            sleep(2)
-            EnhancedDashboard.update_progress_tracker!(
-                dashboard.progress_tracker, :upload, active=false
-            )
-            dashboard.progress_tracker.upload_file = ""
-        end
+        # Clear upload progress immediately
+        EnhancedDashboard.update_progress_tracker!(
+            dashboard.progress_tracker, :upload, active=false
+        )
+        dashboard.progress_tracker.upload_file = ""
     end
 end
 

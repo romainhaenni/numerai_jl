@@ -97,6 +97,8 @@ include("tui/enhanced_dashboard.jl")
 include("tui/dashboard.jl")
 include("tui/tui_fixes.jl")  # Must be loaded after dashboard.jl since it uses Dashboard functions
 include("tui/tui_enhanced.jl")  # Enhanced TUI fixes for v0.10.11
+include("tui/tui_realtime.jl")  # Real-time TUI implementation with proper progress tracking
+include("tui/tui_integration.jl")  # TUI integration module for connecting all components
 include("scheduler/cron.jl")
 
 
@@ -142,6 +144,11 @@ using .Dashboard: TournamentDashboard, run_dashboard, add_event!, start_training
 using .TUIFixes
 using .TUIEnhanced: apply_tui_enhancements!, setup_instant_commands!, enable_auto_training_after_download!,
                  setup_realtime_updates!, render_enhanced_sticky_panels!
+using .TUIRealtime: RealTimeTracker, init_realtime_tracker, update_download_progress!,
+                   update_upload_progress!, update_training_progress!, update_prediction_progress!,
+                   render_realtime_dashboard!
+using .TUIIntegration: integrate_tui_system!, handle_instant_command, trigger_download,
+                      trigger_upload, trigger_training, trigger_prediction, monitor_operations
 using .Utils: utc_now, utc_now_datetime, is_weekend_round,
              calculate_submission_window_end, is_submission_window_open,
              get_submission_window_info, get_disk_space_info

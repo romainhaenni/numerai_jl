@@ -123,6 +123,9 @@ mutable struct TournamentDashboard
     last_api_errors::Vector{CategorizedError}  # Recent API errors for debugging
     # Progress tracking for operations
     progress_tracker::EnhancedDashboard.ProgressTracker
+    # Real-time tracking and active operations
+    realtime_tracker::Any  # Will be initialized as RealTimeTracker
+    active_operations::Dict{Symbol, Bool}  # Track active operations
 end
 
 function TournamentDashboard(config)
@@ -184,7 +187,15 @@ function TournamentDashboard(config)
     
     # Initialize models vector with single model
     models = [model]
-    
+
+    # Initialize active operations
+    active_operations = Dict{Symbol, Bool}(
+        :download => false,
+        :upload => false,
+        :training => false,
+        :prediction => false
+    )
+
     return TournamentDashboard(
         config, api_client, model, models,  # model and models
         Vector{Dict{Symbol, Any}}(),  # events
@@ -194,7 +205,9 @@ function TournamentDashboard(config)
         false,  # show_model_details
         nothing, nothing, nothing, false,  # selected_model_details, selected_model_stats, wizard_state, wizard_active
         error_counts, network_status, Vector{CategorizedError}(),  # error tracking fields
-        EnhancedDashboard.ProgressTracker()  # Initialize progress tracker
+        EnhancedDashboard.ProgressTracker(),  # Initialize progress tracker
+        nothing,  # realtime_tracker - will be initialized by integration
+        active_operations  # active operations tracking
     )
 end
 
@@ -275,8 +288,8 @@ function run_dashboard(dashboard::TournamentDashboard)
     try
         add_event!(dashboard, :info, "Dashboard started")
 
-        # Apply TUI enhancements for v0.10.11
-        NumeraiTournament.TUIEnhanced.apply_tui_enhancements!(dashboard)
+        # Apply new integrated TUI system for real-time functionality
+        NumeraiTournament.TUIIntegration.integrate_tui_system!(dashboard)
 
         # Check if auto_submit is enabled and start automatic pipeline
         if dashboard.config.auto_submit

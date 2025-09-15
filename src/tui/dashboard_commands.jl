@@ -143,12 +143,21 @@ function download_data_internal(dashboard::TournamentDashboard)
                     active=true, file=file_name, progress=0.0
                 )
                 add_event!(dashboard, :info, "📥 Downloading $file_name...")
+            elseif phase == :progress
+                # Real-time progress update
+                progress = get(kwargs, :progress, 0.0)
+                current_mb = get(kwargs, :current_mb, 0.0)
+                total_mb = get(kwargs, :total_mb, 0.0)
+                EnhancedDashboard.update_progress_tracker!(
+                    dashboard.progress_tracker, :download,
+                    progress=progress, current_mb=current_mb, total_mb=total_mb
+                )
             elseif phase == :complete
                 file_name = get(kwargs, :name, "unknown")
                 size_mb = get(kwargs, :size_mb, 0.0)
                 EnhancedDashboard.update_progress_tracker!(
                     dashboard.progress_tracker, :download,
-                    active=false, progress=1.0, total_mb=size_mb, current_mb=size_mb
+                    active=false, progress=100.0, total_mb=size_mb, current_mb=size_mb
                 )
                 add_event!(dashboard, :success, "✅ Downloaded $file_name ($(round(size_mb, digits=1)) MB)")
             end

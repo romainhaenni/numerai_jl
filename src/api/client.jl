@@ -367,7 +367,7 @@ end
 function download_with_progress(url::String, output_path::String, name::String; progress_callback=nothing)
     # Use simple download with status indication
     temp_file = tempname()
-    
+
     try
         @log_info "Starting download" file=name
 
@@ -376,12 +376,36 @@ function download_with_progress(url::String, output_path::String, name::String; 
             progress_callback(:start, name=name)
         end
 
-        # Download with retry logic
-        with_download_retry(context="download $name") do
-            Downloads.download(url, temp_file; timeout=300)
+        # Create a custom progress function for the download
+        last_update_time = Ref(time())
+        last_progress = Ref(0.0)
+
+        download_progress = (total, now) -> begin
+            current_time = time()
+            # Update at most every 0.5 seconds to avoid overwhelming the UI
+            if current_time - last_update_time[] > 0.5 && total > 0
+                current_progress = (now / total) * 100.0
+                if current_progress > last_progress[]
+                    if progress_callback !== nothing
+                        size_mb = round(now / 1024 / 1024, digits=1)
+                        total_mb = round(total / 1024 / 1024, digits=1)
+                        progress_callback(:progress, name=name,
+                                        progress=current_progress,
+                                        current_mb=size_mb,
+                                        total_mb=total_mb)
+                    end
+                    last_progress[] = current_progress
+                    last_update_time[] = current_time
+                end
+            end
         end
 
-        # Get file size after download
+        # Download with retry logic and progress tracking
+        with_download_retry(context="download $name") do
+            Downloads.download(url, temp_file; timeout=300, progress=download_progress)
+        end
+
+        # Get final file size after download
         file_size = filesize(temp_file)
         size_mb = round(file_size / 1024 / 1024, digits=1)
 

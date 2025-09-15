@@ -2347,13 +2347,24 @@ function download_tournament_data(dashboard::TournamentDashboard)
                 if phase == :start
                     file_name = get(kwargs, :name, filename)
                     dashboard.progress_tracker.download_file = file_name
+                    dashboard.progress_tracker.is_downloading = true
                     segment_progress = base_progress + (0.1 * 100.0 / total_datasets)
                     dashboard.progress_tracker.download_progress = segment_progress
+                elseif phase == :progress
+                    # Real-time progress update
+                    progress = get(kwargs, :progress, 0.0)
+                    current_mb = get(kwargs, :current_mb, 0.0)
+                    total_mb = get(kwargs, :total_mb, 0.0)
+                    segment_progress = base_progress + (progress * 100.0 / (total_datasets * 100.0))
+                    dashboard.progress_tracker.download_progress = segment_progress
+                    dashboard.progress_tracker.download_current_mb = current_mb
+                    dashboard.progress_tracker.download_total_mb = total_mb
                 elseif phase == :complete
                     size_mb = get(kwargs, :size_mb, 0.0)
                     segment_progress = base_progress + (100.0 / total_datasets)
                     dashboard.progress_tracker.download_progress = segment_progress
                     dashboard.progress_tracker.download_total_mb = size_mb
+                    dashboard.progress_tracker.download_current_mb = size_mb
                     add_event!(dashboard, :success, "Downloaded $dataset_type ($(round(size_mb, digits=1)) MB)")
                 end
             end

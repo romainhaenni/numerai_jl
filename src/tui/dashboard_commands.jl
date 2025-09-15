@@ -128,26 +128,56 @@ function download_data_internal(dashboard::TournamentDashboard)
     try
         config = dashboard.config
         data_dir = config.data_dir
-        
+
         # Create data directory if it doesn't exist
         if !isdir(data_dir)
             mkpath(data_dir)
         end
-        
+
+        # Create progress callback for updating dashboard
+        progress_callback = (phase, kwargs...) -> begin
+            kwargs_dict = Dict(kwargs)
+            if phase == :start
+                file_name = get(kwargs_dict, :name, "unknown")
+                EnhancedDashboard.update_progress_tracker!(
+                    dashboard.progress_tracker, :download,
+                    active=true, file=file_name, progress=0.0
+                )
+                add_event!(dashboard, :info, "📥 Downloading $file_name...")
+            elseif phase == :complete
+                file_name = get(kwargs_dict, :name, "unknown")
+                size_mb = get(kwargs_dict, :size_mb, 0.0)
+                EnhancedDashboard.update_progress_tracker!(
+                    dashboard.progress_tracker, :download,
+                    active=false, progress=1.0, total_mb=size_mb, current_mb=size_mb
+                )
+                add_event!(dashboard, :success, "✅ Downloaded $file_name ($(size_mb) MB)")
+            end
+        end
+
         # Download all dataset components
         train_path = joinpath(data_dir, "train.parquet")
         val_path = joinpath(data_dir, "validation.parquet")
         live_path = joinpath(data_dir, "live.parquet")
         features_path = joinpath(data_dir, "features.json")
-        
-        API.download_dataset(dashboard.api_client, "train", train_path)
-        API.download_dataset(dashboard.api_client, "validation", val_path)
-        API.download_dataset(dashboard.api_client, "live", live_path)
-        API.download_dataset(dashboard.api_client, "features", features_path)
-        
+
+        API.download_dataset(dashboard.api_client, "train", train_path; progress_callback=progress_callback)
+        API.download_dataset(dashboard.api_client, "validation", val_path; progress_callback=progress_callback)
+        API.download_dataset(dashboard.api_client, "live", live_path; progress_callback=progress_callback)
+        API.download_dataset(dashboard.api_client, "features", features_path; progress_callback=progress_callback)
+
+        # Clear download progress
+        EnhancedDashboard.update_progress_tracker!(
+            dashboard.progress_tracker, :download, active=false
+        )
+
         return true
     catch e
         @error "Download failed" error=e
+        # Clear download progress on error
+        EnhancedDashboard.update_progress_tracker!(
+            dashboard.progress_tracker, :download, active=false
+        )
         return false
     end
 end
@@ -160,19 +190,43 @@ function train_models_internal(dashboard::TournamentDashboard)
         dashboard.training_info[:model_name] = dashboard.model[:name]
         dashboard.training_info[:progress] = 0
         dashboard.training_info[:total_epochs] = 100
-        
+
+        # Update progress tracker for training
+        EnhancedDashboard.update_progress_tracker!(
+            dashboard.progress_tracker, :training,
+            active=true, model=dashboard.model[:name],
+            epoch=0, total_epochs=100
+        )
+
         # Run the actual training
         run_real_training(dashboard)
-        
-        # Wait for training to complete
+
+        # Wait for training to complete and update progress
         while dashboard.training_info[:is_training]
+            # Update progress tracker with current epoch
+            current_epoch = Int(round(dashboard.training_info[:progress]))
+            EnhancedDashboard.update_progress_tracker!(
+                dashboard.progress_tracker, :training,
+                epoch=current_epoch,
+                loss=get(dashboard.training_info, :loss, 0.0),
+                val_score=get(dashboard.training_info, :val_score, 0.0)
+            )
             sleep(1)
         end
-        
+
+        # Clear training progress
+        EnhancedDashboard.update_progress_tracker!(
+            dashboard.progress_tracker, :training, active=false
+        )
+
         return dashboard.training_info[:progress] >= 100
     catch e
         @error "Training failed" error=e
         dashboard.training_info[:is_training] = false
+        # Clear training progress on error
+        EnhancedDashboard.update_progress_tracker!(
+            dashboard.progress_tracker, :training, active=false
+        )
         return false
     end
 end
@@ -185,20 +239,30 @@ function generate_predictions_internal(dashboard::TournamentDashboard)
         model_dir = config.model_dir
 
         # Set prediction progress tracker
-        dashboard.progress_tracker.is_predicting = true
-        dashboard.progress_tracker.prediction_model = dashboard.model[:name]
-        dashboard.progress_tracker.prediction_progress = 0.0
+        EnhancedDashboard.update_progress_tracker!(
+            dashboard.progress_tracker, :prediction,
+            active=true, model=dashboard.model[:name],
+            rows_processed=0, total_rows=0
+        )
 
         # Load live data
         live_path = joinpath(data_dir, "live.parquet")
         if !isfile(live_path)
             @error "Live data not found"
+            EnhancedDashboard.update_progress_tracker!(
+                dashboard.progress_tracker, :prediction, active=false
+            )
             return nothing
         end
 
-        dashboard.progress_tracker.prediction_progress = 10.0
+        add_event!(dashboard, :info, "Loading live data...")
         live_df = DataLoader.load_training_data(live_path)
-        dashboard.progress_tracker.prediction_progress = 20.0
+        total_rows = size(live_df, 1)
+
+        EnhancedDashboard.update_progress_tracker!(
+            dashboard.progress_tracker, :prediction,
+            rows_processed=Int(total_rows * 0.2), total_rows=total_rows
+        )
         
         # Get feature columns
         dashboard.progress_tracker.prediction_progress = 30.0

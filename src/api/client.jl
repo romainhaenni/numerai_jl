@@ -324,7 +324,7 @@ function calculate_sharpe_from_performance_history(profile::Dict, min_data_point
     end
 end
 
-function download_dataset(client::NumeraiClient, dataset_type::String, output_path::String; show_progress::Bool=true)
+function download_dataset(client::NumeraiClient, dataset_type::String, output_path::String; show_progress::Bool=true, progress_callback=nothing)
     # Map dataset types to v5.0 filenames
     dataset_files = Dict(
         "train" => "v5.0/train.parquet",
@@ -354,7 +354,7 @@ function download_dataset(client::NumeraiClient, dataset_type::String, output_pa
         @log_info "Downloading dataset" type=dataset_type
         
         # Download with progress callback
-        download_with_progress(url, output_path, dataset_type)
+        download_with_progress(url, output_path, dataset_type; progress_callback=progress_callback)
         
         @log_info "Downloaded dataset" type=dataset_type
     else
@@ -364,25 +364,35 @@ function download_dataset(client::NumeraiClient, dataset_type::String, output_pa
     return output_path
 end
 
-function download_with_progress(url::String, output_path::String, name::String)
+function download_with_progress(url::String, output_path::String, name::String; progress_callback=nothing)
     # Use simple download with status indication
     temp_file = tempname()
     
     try
         @log_info "Starting download" file=name
-        
+
+        # Call progress callback if provided
+        if progress_callback !== nothing
+            progress_callback(:start, name=name)
+        end
+
         # Download with retry logic
         with_download_retry(context="download $name") do
             Downloads.download(url, temp_file; timeout=300)
         end
-        
+
         # Get file size after download
         file_size = filesize(temp_file)
         size_mb = round(file_size / 1024 / 1024, digits=1)
-        
+
         # Move to final location
         mv(temp_file, output_path, force=true)
-        
+
+        # Call progress callback with completion
+        if progress_callback !== nothing
+            progress_callback(:complete, name=name, size_mb=size_mb)
+        end
+
         @log_debug "Download complete" size_mb=size_mb
     catch e
         # Cleanup on error

@@ -288,11 +288,8 @@ function run_dashboard(dashboard::TournamentDashboard)
     try
         add_event!(dashboard, :info, "Dashboard started")
 
-        # Apply new integrated TUI system for real-time functionality
-        NumeraiTournament.TUIIntegration.integrate_tui_system!(dashboard)
-
-        # Apply the WORKING TUI fixes to actually make features work
-        NumeraiTournament.TUIFixIntegration.integrate_working_tui!(dashboard)
+        # Apply unified TUI fix for all features
+        NumeraiTournament.UnifiedTUIFix.apply_unified_tui_fix!(dashboard)
 
         # Check if auto_submit is enabled and start automatic pipeline
         if dashboard.config.auto_submit
@@ -483,81 +480,30 @@ function read_key()
 end
 
 function input_loop(dashboard::TournamentDashboard)
-    # Use improved keyboard handling from TUIFixes
-    # Initialize debug tracking variables
-    key_press_count = 0
-    last_key_time = time()
+    # Check if unified fix has been applied
+    if haskey(dashboard.active_operations, :unified_fix) && dashboard.active_operations[:unified_fix]
+        # Use the unified input loop with instant commands
+        NumeraiTournament.UnifiedTUIFix.unified_input_loop(dashboard)
+    else
+        # Fallback to basic input loop
+        basic_input_loop(dashboard)
+    end
+end
 
+function basic_input_loop(dashboard::TournamentDashboard)
     while dashboard.running
-        # Use the improved key reading function from TUIFixes module
-        # Access TUIFixes through NumeraiTournament module
-        key = NumeraiTournament.TUIFixes.read_key_improved()
+        key = read_key()
 
-        # Skip empty keys
         if isempty(key)
-            sleep(0.01)  # Minimal sleep to prevent busy waiting
+            sleep(0.01)
             continue
         end
 
-        # Debug logging for key presses
-        key_press_count += 1
-        current_time = time()
-        if current_time - last_key_time > 5.0 && key_press_count > 0
-            @debug "Key press stats: $key_press_count keys in $(round(current_time - last_key_time, digits=1)) seconds"
-            key_press_count = 0
-            last_key_time = current_time
+        # Handle basic commands
+        if key == "q" || key == "Q"
+            dashboard.running = false
         end
 
-        # Log the key pressed for debugging
-        if !isempty(key) && key != "\r" && key != "\n"
-            @debug "Key pressed: '$(escape_string(key))' (length: $(length(key)))"
-        end
-
-        if dashboard.wizard_active
-            # Handle wizard input
-            handle_wizard_input(dashboard, key)
-        elseif dashboard.show_model_details
-            # Handle model details panel input
-            if key == "\e" || key == "q"  # ESC or q to close
-                dashboard.show_model_details = false
-                dashboard.selected_model_details = nothing
-                dashboard.selected_model_stats = nothing
-                add_event!(dashboard, :info, "Model details closed")
-            end
-        elseif dashboard.command_mode
-            # Handle command mode input with slash commands (requires Enter)
-            if key == "\r" || key == "\n"  # Enter - execute command
-                execute_command(dashboard, dashboard.command_buffer)
-                dashboard.command_buffer = ""
-                dashboard.command_mode = false
-            elseif key == "\e"  # ESC - cancel command
-                dashboard.command_buffer = ""
-                dashboard.command_mode = false
-                add_event!(dashboard, :info, "Command cancelled")
-            elseif key == "\b" || key == "\x7f"  # Backspace
-                if length(dashboard.command_buffer) > 0
-                    dashboard.command_buffer = dashboard.command_buffer[1:end-1]
-                end
-            elseif length(key) == 1 && isprint(key[1])
-                dashboard.command_buffer *= key
-            end
-        elseif key == "/"  # Start command mode
-            dashboard.command_mode = true
-            dashboard.command_buffer = ""
-            add_event!(dashboard, :info, "Command mode: type command and press Enter")
-        else
-            # First try TUIIntegration instant commands if available
-            if isdefined(dashboard, :realtime_tracker) && !isnothing(dashboard.realtime_tracker)
-                if NumeraiTournament.TUIIntegration.process_instant_key(dashboard, key)
-                    # Key was handled by TUIIntegration
-                end
-            else
-                # Fall back to TUIFixes instant keyboard command handler (no Enter required)
-                NumeraiTournament.TUIFixes.handle_direct_command(dashboard, key)
-            end
-        end
-
-        # Small delay to prevent CPU spinning
         sleep(0.01)
     end
 end
@@ -2649,8 +2595,14 @@ function download_tournament_data(dashboard::TournamentDashboard)
 
         add_event!(dashboard, :success, "✅ All tournament data downloaded successfully")
 
-        # Trigger automatic training using TUIFixes handler
-        NumeraiTournament.TUIFixes.handle_post_download_training(dashboard)
+        # Trigger automatic training if configured
+        if dashboard.config.auto_submit || dashboard.config.auto_train_after_download
+            add_event!(dashboard, :info, "🚀 Starting automatic training after download...")
+            @async begin
+                sleep(1)  # Brief pause before starting training
+                NumeraiTournament.UnifiedTUIFix.train_with_progress(dashboard)
+            end
+        end
 
     catch e
         add_event!(dashboard, :error, "❌ Failed to download tournament data: $(sprint(showerror, e))")

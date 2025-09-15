@@ -95,13 +95,7 @@ include("tui/charts.jl")
 include("tui/panels.jl")
 include("tui/enhanced_dashboard.jl")
 include("tui/dashboard.jl")
-include("tui/tui_fixes.jl")  # Must be loaded after dashboard.jl since it uses Dashboard functions
-include("tui/tui_enhanced.jl")  # Enhanced TUI fixes for v0.10.11
-include("tui/tui_realtime.jl")  # Real-time TUI implementation with proper progress tracking
-include("tui/tui_integration.jl")  # TUI integration module for connecting all components
-include("tui/working_tui.jl")  # Actually working TUI implementation
-include("tui/tui_fix_integration.jl")  # Integrates working TUI fixes into main dashboard
-include("tui/tui_complete_fix.jl")  # Complete TUI fix that actually works
+include("tui/unified_tui_fix.jl")  # Single unified TUI fix module that actually works
 include("scheduler/cron.jl")
 
 
@@ -144,18 +138,7 @@ using .EnhancedDashboard: ProgressTracker, update_progress_tracker!,
 using .Dashboard: TournamentDashboard, run_dashboard, add_event!, start_training,
                   update_system_info!, render_sticky_dashboard, render_top_sticky_panel,
                   render_bottom_sticky_panel
-using .TUIFixes
-using .TUICompleteFix: apply_complete_tui_fix!, setup_realtime_rendering!, connect_progress_callbacks!,
-                      setup_instant_keyboard!, trigger_auto_training!, setup_sticky_panels!
-using .TUIEnhanced: apply_tui_enhancements!, setup_instant_commands!, enable_auto_training_after_download!,
-                 setup_realtime_updates!, render_enhanced_sticky_panels!
-using .TUIRealtime: RealTimeTracker, init_realtime_tracker, update_download_progress!,
-                   update_upload_progress!, update_training_progress!, update_prediction_progress!,
-                   render_realtime_dashboard!
-using .TUIIntegration: integrate_tui_system!
-using .WorkingTUI: WorkingDashboard, init_working_dashboard!, render_working_dashboard!,
-                   handle_instant_key!, start_download!, start_training!
-using .TUIFixIntegration: integrate_working_tui!
+using .UnifiedTUIFix: apply_unified_tui_fix!
 using .Utils: utc_now, utc_now_datetime, is_weekend_round,
              calculate_submission_window_end, is_submission_window_open,
              get_submission_window_info, get_disk_space_info

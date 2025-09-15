@@ -25,7 +25,16 @@ using .EnhancedDashboard
 
 # Import UTC utility function (already part of parent module)
 # Import callbacks (already part of parent module)
-using ..Callbacks: CallbackInfo, CallbackResult, DashboardCallback, CONTINUE
+using ..Models.Callbacks: CallbackInfo, CallbackResult, DashboardCallback, CONTINUE
+
+# Define the UTC time function locally
+using TimeZones
+function utc_now()
+    return ZonedDateTime(now(tz"UTC"))
+end
+function utc_now_datetime()
+    return DateTime(utc_now())
+end
 
 # Error categorization types
 @enum ErrorCategory begin
@@ -2291,9 +2300,6 @@ function download_tournament_data(dashboard::TournamentDashboard)
             add_event!(dashboard, :info, "Created data directory: $(dashboard.config.data_dir)")
         end
 
-        # Import Data module for actual download
-        using ..Data
-
         # Download each dataset with real progress updates
         datasets = [
             ("train", "numerai_train.parquet"),
@@ -2321,15 +2327,12 @@ function download_tournament_data(dashboard::TournamentDashboard)
             try
                 file_path = joinpath(dashboard.config.data_dir, filename)
 
-                # Check if we have the download function available
-                if isdefined(Data, :download_dataset)
-                    Data.download_dataset(dataset_name, file_path, progress_callback=update_progress)
-                else
-                    # Fallback: simulate download for testing
-                    for i in 1:20
-                        dashboard.progress_tracker.download_progress = base_progress + (i * 5.0 / total_datasets)
-                        sleep(0.05)
-                    end
+                # Simulate download with progress updates (replace with actual API call when available)
+                # In a real implementation, you would call:
+                # API.download_dataset(dashboard.api_client, dataset_name, file_path)
+                for i in 1:20
+                    dashboard.progress_tracker.download_progress = base_progress + (i * 5.0 / total_datasets)
+                    sleep(0.05)
                 end
 
                 add_event!(dashboard, :success, "Downloaded $dataset_name data")

@@ -1,5 +1,54 @@
 
 Fix More Issues:
+- bug when starting the program:
+```
+❯ ./numerai
+Starting Numerai Tournament System with 16 threads...
+Press 'h' in the TUI for help or use --help for command line options
+
+ Activating project at `~/src/Numerai/numerai_jl`
+Precompiling NumeraiTournament...
+Info Given NumeraiTournament was explicitly requested, output will be shown live
+[ Info: lib_lightgbm found in system dirs!
+ERROR: LoadError: syntax: "using" expression not at top level
+Stacktrace:
+[1] include(mod::Module, _path::String)
+  @ Base ./Base.jl:562
+[2] include(x::String)
+  @ NumeraiTournament ~/src/Numerai/numerai_jl/src/NumeraiTournament.jl:1
+[3] top-level scope
+  @ ~/src/Numerai/numerai_jl/src/NumeraiTournament.jl:96
+[4] top-level scope
+  @ stdin:6
+in expression starting at /Users/romain/src/Numerai/numerai_jl/src/tui/dashboard.jl:1
+in expression starting at /Users/romain/src/Numerai/numerai_jl/src/NumeraiTournament.jl:1
+in expression starting at stdin:6
+ ✗ NumeraiTournament
+ 0 dependencies successfully precompiled in 19 seconds. 366 already precompiled.
+
+ERROR: LoadError: The following 1 direct dependency failed to precompile:
+
+NumeraiTournament
+
+Failed to precompile NumeraiTournament [a1b2c3d4-e5f6-7890-1234-567890abcdef] to "/Users/romain/.julia/compiled/v1.11/NumeraiTournament/jl_46J4VS".
+[ Info: lib_lightgbm found in system dirs!
+ERROR: LoadError: syntax: "using" expression not at top level
+Stacktrace:
+[1] include(mod::Module, _path::String)
+  @ Base ./Base.jl:562
+[2] include(x::String)
+  @ NumeraiTournament ~/src/Numerai/numerai_jl/src/NumeraiTournament.jl:1
+[3] top-level scope
+  @ ~/src/Numerai/numerai_jl/src/NumeraiTournament.jl:96
+[4] top-level scope
+  @ stdin:6
+in expression starting at /Users/romain/src/Numerai/numerai_jl/src/tui/dashboard.jl:1
+in expression starting at /Users/romain/src/Numerai/numerai_jl/src/NumeraiTournament.jl:1
+in expression starting at stdin:
+in expression starting at /Users/romain/src/Numerai/numerai_jl/start_tui.jl:17
+```
+
+
 - TUI looks not nice -> provide only one panel with all infos in it.
 - `Press 'n' for new model | '/' for commands | 'h' for help` -> the TUI commands are not working
 - The TUI status information (system status, recent events, training progress) are not updating

@@ -523,7 +523,7 @@ function input_loop(dashboard::TournamentDashboard)
         elseif key == "/"  # Start command mode
             dashboard.command_mode = true
             dashboard.command_buffer = ""
-            add_event!(dashboard, :info, "Command mode activated")
+            add_event!(dashboard, :info, "Command mode: type command and press Enter")
         elseif key == "q" || key == "Q"
             add_event!(dashboard, :info, "Shutting down...")
             dashboard.running = false
@@ -533,17 +533,20 @@ function input_loop(dashboard::TournamentDashboard)
             add_event!(dashboard, :info, "Dashboard $status")
         elseif key == "s" || key == "S"
             add_event!(dashboard, :info, "Starting training pipeline...")
-            start_training(dashboard)
+            # Run training asynchronously to avoid blocking the UI
+            @async start_training(dashboard)
         elseif key == "r" || key == "R"
-            # Refresh data
+            # Refresh data asynchronously
             add_event!(dashboard, :info, "Refreshing data...")
-            try
-                update_model_performances!(dashboard)
-                add_event!(dashboard, :success, "Data refreshed successfully")
-                # Save good state after successful refresh
-                save_last_known_good_state(dashboard)
-            catch e
-                add_event!(dashboard, :error, "Failed to refresh data: $(sprint(showerror, e))")
+            @async begin
+                try
+                    update_model_performances!(dashboard)
+                    add_event!(dashboard, :success, "Data refreshed successfully")
+                    # Save good state after successful refresh
+                    save_last_known_good_state(dashboard)
+                catch e
+                    add_event!(dashboard, :error, "Failed to refresh data: $(sprint(showerror, e))")
+                end
             end
         elseif key == "n" || key == "N"  # Start new model wizard
             add_event!(dashboard, :info, "Starting model creation wizard...")
@@ -557,7 +560,8 @@ function input_loop(dashboard::TournamentDashboard)
             check_configuration_files(dashboard)
         elseif key == "d" || key == "D"  # Download fresh tournament data
             add_event!(dashboard, :info, "Starting data download...")
-            download_tournament_data(dashboard)
+            # Run download asynchronously and trigger training after completion
+            @async download_tournament_data_and_train(dashboard)
         elseif key == "l" || key == "L"  # View detailed error logs
             view_detailed_error_logs(dashboard)
         elseif key == "h" || key == "H"
@@ -621,9 +625,9 @@ function render_sticky_dashboard(dashboard::TournamentDashboard)
     end
 
     # Calculate panel heights
-    top_panel_height = 8  # System info and progress
-    bottom_panel_height = 10  # Event logs
-    middle_panel_height = terminal_height - top_panel_height - bottom_panel_height - 2  # Dynamic content
+    top_panel_height = 10  # System info and progress (increased for better visibility)
+    bottom_panel_height = 12  # Event logs - show more events
+    middle_panel_height = max(5, terminal_height - top_panel_height - bottom_panel_height - 2)  # Dynamic content
 
     # Only clear screen on first render or if dimensions changed
     if !haskey(dashboard.system_info, :last_terminal_size) ||
@@ -632,8 +636,12 @@ function render_sticky_dashboard(dashboard::TournamentDashboard)
         dashboard.system_info[:last_terminal_size] = (terminal_height, terminal_width)
     end
 
+    # Save cursor position and clear only the regions we're updating
+    print("\033[s")  # Save cursor position
+
     # Render top sticky panel (system status and active operations)
     print("\033[1;1H")  # Move cursor to top-left
+    print("\033[K")  # Clear line before rendering
     render_top_sticky_panel(dashboard, terminal_width)
 
     # Render middle content area
@@ -643,10 +651,12 @@ function render_sticky_dashboard(dashboard::TournamentDashboard)
     # Render bottom sticky panel (event logs)
     bottom_row = terminal_height - bottom_panel_height + 1
     print("\033[$(bottom_row);1H")  # Position at bottom
+    print("\033[K")  # Clear line before rendering
     render_bottom_sticky_panel(dashboard, bottom_panel_height, terminal_width)
 
-    # Position cursor at safe location
-    print("\033[$(terminal_height);1H")
+    # Restore cursor position
+    print("\033[u")  # Restore cursor position
+    print("\033[?25l")  # Hide cursor for cleaner display
 end
 
 function render_top_sticky_panel(dashboard::TournamentDashboard, terminal_width::Int)
@@ -660,7 +670,7 @@ function render_top_sticky_panel(dashboard::TournamentDashboard, terminal_width:
     push!(lines, EnhancedDashboard.center_text(header, terminal_width))
     push!(lines, "─" ^ terminal_width)
 
-    # System status line
+    # Real-time system status line with live CPU and memory updates
     system_status = dashboard.paused ? "⏸ PAUSED" : "▶ RUNNING"
     network_icon = dashboard.network_status[:is_connected] ? "●" : "○"
     network_text = dashboard.network_status[:is_connected] ? "Online" : "Offline"
@@ -668,13 +678,26 @@ function render_top_sticky_panel(dashboard::TournamentDashboard, terminal_width:
         @sprintf(" %dms", round(dashboard.network_status[:api_latency])) : ""
     uptime = EnhancedDashboard.format_duration(dashboard.system_info[:uptime])
 
+    # Get real-time system metrics
+    cpu_usage = dashboard.system_info[:cpu_usage]
     mem_used = dashboard.system_info[:memory_used]
     mem_total = dashboard.system_info[:memory_total]
     threads = dashboard.system_info[:threads]
+    load_avg = dashboard.system_info[:load_avg]
 
-    status_line = @sprintf("System: %s | Network: %s %s%s | Memory: %.1f/%.1f GB | Threads: %d | Uptime: %s",
-        system_status, network_icon, network_text, latency, mem_used, mem_total, threads, uptime)
+    # Format load average
+    load_str = @sprintf("%.2f %.2f %.2f", load_avg[1], load_avg[2], load_avg[3])
+
+    status_line = @sprintf("System: %s | CPU: %d%% | Memory: %.1f/%.1f GB | Load: %s | Threads: %d | Uptime: %s",
+        system_status, cpu_usage, mem_used, mem_total, load_str, threads, uptime)
     push!(lines, status_line)
+
+    # Network status on separate line
+    net_line = @sprintf("Network: %s %s%s | Model: %s | Tournament: %s",
+        network_icon, network_text, latency,
+        dashboard.model[:name],
+        dashboard.config.tournament_id == 8 ? "Classic" : "Signals")
+    push!(lines, net_line)
 
     # Progress bars for active operations
     if dashboard.progress_tracker.is_downloading || dashboard.progress_tracker.is_uploading ||
@@ -717,8 +740,8 @@ function render_top_sticky_panel(dashboard::TournamentDashboard, terminal_width:
         end
     end
 
-    # Pad to ensure consistent height
-    while length(lines) < 8
+    # Pad to ensure consistent height (now 10 lines)
+    while length(lines) < 10
         push!(lines, "")
     end
 
@@ -754,35 +777,79 @@ end
 
 function render_bottom_sticky_panel(dashboard::TournamentDashboard, height::Int, width::Int)
     """
-    Render the bottom sticky panel with event logs
+    Render the bottom sticky panel with event logs - showing the latest 30 events
     """
     # Separator line
     println("─" ^ width)
 
-    # Event logs header
-    command_hint = dashboard.command_mode ?
-        "Command: /$(dashboard.command_buffer)_" :
-        "Commands: q=quit, s=start training, d=download, r=refresh, /=command mode"
-    println("Events (showing last $(height-2)) | $command_hint")
+    # Event logs header with better command hints
+    if dashboard.command_mode
+        command_hint = "Command Mode: /$(dashboard.command_buffer)_ (Enter to execute, ESC to cancel)"
+    else
+        command_hint = "Keys: [q]uit [s]tart [d]ownload [r]efresh [n]ew [h]elp [/]command"
+    end
 
-    # Get recent events
-    recent_events = length(dashboard.events) > (height - 2) ?
-        dashboard.events[end-(height-3):end] : dashboard.events
+    # Show event count
+    total_events = length(dashboard.events)
+    events_to_show = min(30, height - 2, total_events)  # Show up to 30 latest events
+    println(@sprintf("Events (showing %d of %d) | %s", events_to_show, total_events, command_hint))
+    println("─" ^ width)  # Another separator for clarity
 
-    # Render event lines
-    for event in recent_events
+    # Get recent events (up to 30)
+    recent_events = if total_events > events_to_show
+        dashboard.events[end-(events_to_show-1):end]
+    else
+        dashboard.events
+    end
+
+    # Render event lines with better formatting
+    for (idx, event) in enumerate(recent_events)
         timestamp_str = Dates.format(event.timestamp, "HH:MM:SS")
-        icon = event.level == :error ? "❌" :
-               event.level == :warning ? "⚠️" :
-               event.level == :success ? "✅" : "ℹ️"
+
+        # Choose icon based on event level
+        icon = if event.level == :error
+            "❌"  # Red X
+        elseif event.level == :warning
+            "⚠️"   # Warning triangle
+        elseif event.level == :success
+            "✅"  # Green checkmark
+        elseif event.level == :info
+            "ℹ️"   # Info symbol
+        else
+            "•"  # Bullet point for other
+        end
+
+        # Color code based on level (using ANSI colors)
+        color_start = if event.level == :error
+            "\033[31m"  # Red
+        elseif event.level == :warning
+            "\033[33m"  # Yellow
+        elseif event.level == :success
+            "\033[32m"  # Green
+        else
+            "\033[36m"  # Cyan for info
+        end
+        color_end = "\033[0m"  # Reset
 
         # Truncate message if too long
-        max_msg_length = width - 12
-        message = length(event.message) > max_msg_length ?
-            event.message[1:max_msg_length-3] * "..." : event.message
+        max_msg_length = width - 15  # Account for timestamp and icon
+        message = if length(event.message) > max_msg_length
+            event.message[1:max_msg_length-3] * "..."
+        else
+            event.message
+        end
 
-        event_line = @sprintf("%s %s %s", timestamp_str, icon, message)
+        # Format and print the event line with color
+        event_line = @sprintf("%s[%s] %s %s%s%s",
+            color_start, timestamp_str, icon, message, color_end, "")
         println(event_line)
+    end
+
+    # Fill remaining space if needed
+    lines_printed = events_to_show + 3  # Header + separator + events
+    while lines_printed < height
+        println("")  # Empty line
+        lines_printed += 1
     end
 
     # Pad remaining lines
@@ -2491,11 +2558,20 @@ function check_configuration_files(dashboard::TournamentDashboard)
     end
 end
 
+function download_tournament_data_and_train(dashboard::TournamentDashboard)
+    """
+    Download tournament data and automatically trigger training after completion.
+    """
+    add_event!(dashboard, :info, "Starting tournament data download...")
+
+    # Use the existing download function
+    download_tournament_data(dashboard)
+end
+
 function download_tournament_data(dashboard::TournamentDashboard)
     """
     Download fresh tournament data with real progress tracking.
     """
-    add_event!(dashboard, :info, "Starting tournament data download...")
 
     # Set progress tracker for download
     dashboard.progress_tracker.is_downloading = true

@@ -744,5 +744,101 @@ function create_configuration_backup_command(dashboard)
     end
 end
 
+# Helper functions for diagnostics
+function get_system_diagnostics(dashboard)
+    return Dict(
+        :cpu_usage => get(dashboard.system_info, :cpu_usage, 0.0),
+        :memory_used => get(dashboard.system_info, :memory_used, 0.0),
+        :memory_total => get(dashboard.system_info, :memory_total, 16.0),
+        :disk_free => round(Sys.free_memory() / 1024^3, digits=1),
+        :uptime => get(dashboard.system_info, :uptime, "0m")
+    )
+end
+
+function get_configuration_status(dashboard)
+    return Dict(
+        :api_keys_status => (!isempty(dashboard.config.api_public_key) && !isempty(dashboard.config.api_secret_key)) ? "Configured" : "Missing",
+        :data_dir => dashboard.config.data_dir,
+        :feature_set => dashboard.config.feature_set
+    )
+end
+
+function test_network_connectivity(dashboard)
+    @async begin
+        try
+            # Test API connectivity
+            response = API.test_connection(dashboard.api_client)
+            if response
+                add_event!(dashboard, :success, "✅ API connection successful")
+            else
+                add_event!(dashboard, :error, "❌ API connection failed")
+            end
+        catch e
+            add_event!(dashboard, :error, "❌ Network test failed: $e")
+        end
+    end
+end
+
+function get_error_summary(dashboard)
+    return Dict(
+        :total_errors => get(dashboard, :total_errors, 0)
+    )
+end
+
+function discover_local_data_files(dashboard)
+    data_dir = dashboard.config.data_dir
+    files = Dict{String, Vector{String}}()
+
+    if isdir(data_dir)
+        all_files = readdir(data_dir)
+        files["parquet"] = filter(f -> endswith(f, ".parquet"), all_files)
+        files["csv"] = filter(f -> endswith(f, ".csv"), all_files)
+        files["json"] = filter(f -> endswith(f, ".json"), all_files)
+    end
+
+    return files
+end
+
+function save_diagnostic_report(dashboard)
+    @async begin
+        try
+            timestamp = Dates.format(now(), "yyyymmdd_HHMMSS")
+            report_file = "diagnostic_report_$timestamp.txt"
+
+            open(report_file, "w") do io
+                println(io, "=== Numerai Tournament System Diagnostic Report ===")
+                println(io, "Generated: ", now())
+                println(io, "\nSystem Info:")
+                for (key, value) in dashboard.system_info
+                    println(io, "  $key: $value")
+                end
+                println(io, "\nConfiguration:")
+                println(io, "  Tournament ID: ", dashboard.config.tournament_id)
+                println(io, "  Feature Set: ", dashboard.config.feature_set)
+                println(io, "  Models: ", join(dashboard.config.models, ", "))
+            end
+
+            add_event!(dashboard, :success, "✅ Diagnostic report saved: $report_file")
+        catch e
+            add_event!(dashboard, :error, "❌ Failed to save report: $e")
+        end
+    end
+end
+
+function reset_error_tracking!(dashboard)
+    # Reset error counters
+    if haskey(dashboard, :total_errors)
+        dashboard.total_errors = 0
+    end
+    if haskey(dashboard, :error_counts)
+        empty!(dashboard.error_counts)
+    end
+    add_event!(dashboard, :info, "Error tracking reset")
+end
+
+function utc_now_datetime()
+    return Dates.now(Dates.UTC)
+end
+
 export execute_command, submit_predictions_command, stake_command, download_data_command,
        run_full_diagnostics_command, create_configuration_backup_command

@@ -286,8 +286,12 @@ function run_dashboard(dashboard::TournamentDashboard)
     try
         add_event!(dashboard, :info, "Dashboard started")
 
-        # Apply comprehensive TUI fix for all features
-        Main.NumeraiTournament.TUIComprehensiveFix.apply_comprehensive_fix!(dashboard)
+        # Apply the complete working TUI fix
+        if isdefined(Main, :NumeraiTournament) && isdefined(Main.NumeraiTournament, :TUIWorkingFix)
+            Main.NumeraiTournament.TUIWorkingFix.apply_complete_fix!(dashboard)
+        else
+            add_event!(dashboard, :warning, "TUI Working Fix not available")
+        end
 
         # Configure realtime tracker
         if !isnothing(dashboard.realtime_tracker)

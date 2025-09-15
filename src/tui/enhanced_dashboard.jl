@@ -5,29 +5,39 @@ using Printf
 using ..API
 
 export render_enhanced_dashboard, create_progress_bar, create_spinner,
-       format_duration, center_text, create_metric_bar
+       format_duration, center_text, create_metric_bar, ProgressTracker,
+       update_progress_tracker!
 
 # Progress indicators for ongoing operations
 mutable struct ProgressTracker
     download_progress::Float64
     download_file::String
+    download_total_mb::Float64
+    download_current_mb::Float64
     upload_progress::Float64
     upload_file::String
+    upload_total_mb::Float64
+    upload_current_mb::Float64
     training_progress::Float64
     training_model::String
     training_epoch::Int
     training_total_epochs::Int
+    training_loss::Float64
+    training_val_score::Float64
     prediction_progress::Float64
     prediction_model::String
+    prediction_rows_processed::Int
+    prediction_total_rows::Int
     is_downloading::Bool
     is_uploading::Bool
     is_training::Bool
     is_predicting::Bool
+    last_update::DateTime
 end
 
 ProgressTracker() = ProgressTracker(
-    0.0, "", 0.0, "", 0.0, "", 0, 0, 0.0, "",
-    false, false, false, false
+    0.0, "", 0.0, 0.0, 0.0, "", 0.0, 0.0, 0.0, "", 0, 0, 0.0, 0.0,
+    0.0, "", 0, 0, false, false, false, false, now()
 )
 
 """
@@ -62,6 +72,75 @@ Create an animated spinner for indeterminate progress
 function create_spinner(frame::Int)::String
     spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
     return spinners[(frame % length(spinners)) + 1]
+end
+
+"""
+Update progress tracker with new information
+"""
+function update_progress_tracker!(tracker::ProgressTracker, operation::Symbol; kwargs...)
+    tracker.last_update = now()
+
+    if operation == :download
+        for (key, value) in kwargs
+            if key == :progress
+                tracker.download_progress = value
+            elseif key == :file
+                tracker.download_file = value
+            elseif key == :total_mb
+                tracker.download_total_mb = value
+            elseif key == :current_mb
+                tracker.download_current_mb = value
+            elseif key == :active
+                tracker.is_downloading = value
+            end
+        end
+    elseif operation == :upload
+        for (key, value) in kwargs
+            if key == :progress
+                tracker.upload_progress = value
+            elseif key == :file
+                tracker.upload_file = value
+            elseif key == :total_mb
+                tracker.upload_total_mb = value
+            elseif key == :current_mb
+                tracker.upload_current_mb = value
+            elseif key == :active
+                tracker.is_uploading = value
+            end
+        end
+    elseif operation == :training
+        for (key, value) in kwargs
+            if key == :progress
+                tracker.training_progress = value
+            elseif key == :model
+                tracker.training_model = value
+            elseif key == :epoch
+                tracker.training_epoch = value
+            elseif key == :total_epochs
+                tracker.training_total_epochs = value
+            elseif key == :loss
+                tracker.training_loss = value
+            elseif key == :val_score
+                tracker.training_val_score = value
+            elseif key == :active
+                tracker.is_training = value
+            end
+        end
+    elseif operation == :prediction
+        for (key, value) in kwargs
+            if key == :progress
+                tracker.prediction_progress = value
+            elseif key == :model
+                tracker.prediction_model = value
+            elseif key == :rows_processed
+                tracker.prediction_rows_processed = value
+            elseif key == :total_rows
+                tracker.prediction_total_rows = value
+            elseif key == :active
+                tracker.is_predicting = value
+            end
+        end
+    end
 end
 
 """
@@ -158,11 +237,13 @@ function render_enhanced_dashboard(dashboard, progress_tracker::ProgressTracker)
     uptime = format_duration(dashboard.system_info[:uptime])
 
     # Add memory and CPU info
-    mem_usage = dashboard.system_info[:memory_usage]
-    cpu_cores = dashboard.system_info[:cpu_cores]
+    mem_used = dashboard.system_info[:memory_used]
+    mem_total = dashboard.system_info[:memory_total]
+    mem_usage = mem_total > 0 ? (mem_used / mem_total * 100) : 0.0
+    threads = dashboard.system_info[:threads]
 
-    status_line = @sprintf("System: %s | Network: %s %s%s | Memory: %.1f%% | CPUs: %d | Uptime: %s",
-        system_status, network_icon, network_text, latency, mem_usage, cpu_cores, uptime)
+    status_line = @sprintf("System: %s | Network: %s %s%s | Memory: %.1f GB/%.1f GB | Threads: %d | Uptime: %s",
+        system_status, network_icon, network_text, latency, mem_used, mem_total, threads, uptime)
     push!(lines, status_line)
     push!(lines, "")
 

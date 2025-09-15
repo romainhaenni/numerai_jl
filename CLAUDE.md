@@ -173,6 +173,30 @@ NUMERAI_SECRET_KEY=your_secret_key
 - Example scripts in `examples/` directory
 - Credential validation script available at `examples/validate_credentials.jl`
 
+### Authentication and Credential Management
+The authentication system has been improved to handle common issues:
+
+1. **Robust .env File Loading**:
+   - `load_env_file()` function searches for .env files in project root and parent directories
+   - Working directory independence ensures credentials load correctly from any execution context
+   - Fallback to environment variables if .env file not found
+
+2. **Test Credential Filtering**:
+   - Test credentials (containing "test" in keys/values) are automatically filtered out
+   - Prevents test credentials from contaminating production environment
+   - Ensures clean separation between development and production authentication
+
+3. **API Endpoint Consistency**:
+   - Validation scripts must use the same API endpoint as the main application
+   - Both production and validation use `https://api-tournament.numer.ai/graphql`
+   - Consistent endpoint prevents authentication mismatches
+
+### Common Authentication Issues and Solutions
+1. **Authentication failures during testing**: Often caused by working directory issues when loading .env - resolved by robust path searching
+2. **Test credential contamination**: Test credentials can interfere with production - now automatically filtered
+3. **Endpoint mismatches**: Validation and production must use identical API endpoints
+4. **Missing credentials**: Graceful fallback to environment variables when .env file unavailable
+
 ### Known Limitations
 1. **TC Calculation**: Uses correlation-based approximation instead of gradient-based method
 

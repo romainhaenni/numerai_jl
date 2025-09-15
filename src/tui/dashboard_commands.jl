@@ -135,23 +135,22 @@ function download_data_internal(dashboard::TournamentDashboard)
         end
 
         # Create progress callback for updating dashboard
-        progress_callback = (phase, kwargs...) -> begin
-            kwargs_dict = Dict(kwargs)
+        progress_callback = (phase; kwargs...) -> begin
             if phase == :start
-                file_name = get(kwargs_dict, :name, "unknown")
+                file_name = get(kwargs, :name, "unknown")
                 EnhancedDashboard.update_progress_tracker!(
                     dashboard.progress_tracker, :download,
                     active=true, file=file_name, progress=0.0
                 )
                 add_event!(dashboard, :info, "📥 Downloading $file_name...")
             elseif phase == :complete
-                file_name = get(kwargs_dict, :name, "unknown")
-                size_mb = get(kwargs_dict, :size_mb, 0.0)
+                file_name = get(kwargs, :name, "unknown")
+                size_mb = get(kwargs, :size_mb, 0.0)
                 EnhancedDashboard.update_progress_tracker!(
                     dashboard.progress_tracker, :download,
                     active=false, progress=1.0, total_mb=size_mb, current_mb=size_mb
                 )
-                add_event!(dashboard, :success, "✅ Downloaded $file_name ($(size_mb) MB)")
+                add_event!(dashboard, :success, "✅ Downloaded $file_name ($(round(size_mb, digits=1)) MB)")
             end
         end
 

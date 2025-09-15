@@ -263,8 +263,6 @@ function create_dashboard_training_callback(dashboard::TournamentDashboard)
     return create_dashboard_callback(update_fn, frequency=1, name="training_progress")
 end
 
-# Include dashboard commands after TournamentDashboard is defined
-include("dashboard_commands.jl")
 
 """
 Mark training as completed in dashboard
@@ -3271,6 +3269,9 @@ function render_wizard(dashboard::TournamentDashboard)
     
     return join(wizard_content, "\n")
 end
+
+# Include dashboard commands (must be after TournamentDashboard is defined)
+include("dashboard_commands.jl")
 
 export TournamentDashboard, run_dashboard, add_event!, start_training, save_performance_history, load_performance_history!, get_performance_summary,
        get_error_summary, reset_error_tracking!, get_error_trends, check_network_connectivity,

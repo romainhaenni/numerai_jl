@@ -96,7 +96,6 @@ include("tui/panels.jl")
 include("tui/enhanced_dashboard.jl")
 include("tui/tui_realtime.jl")  # Real-time TUI tracking module
 include("tui/dashboard.jl")
-include("tui/dashboard_commands.jl")  # Dashboard command implementations
 include("tui/unified_tui_fix.jl")  # Single unified TUI fix module that actually works
 include("tui/tui_comprehensive_fix.jl")  # Comprehensive fix for all TUI issues
 include("scheduler/cron.jl")

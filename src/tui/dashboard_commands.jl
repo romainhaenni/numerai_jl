@@ -183,17 +183,25 @@ function generate_predictions_internal(dashboard::TournamentDashboard)
         config = dashboard.config
         data_dir = config.data_dir
         model_dir = config.model_dir
-        
+
+        # Set prediction progress tracker
+        dashboard.progress_tracker.is_predicting = true
+        dashboard.progress_tracker.prediction_model = dashboard.model[:name]
+        dashboard.progress_tracker.prediction_progress = 0.0
+
         # Load live data
         live_path = joinpath(data_dir, "live.parquet")
         if !isfile(live_path)
             @error "Live data not found"
             return nothing
         end
-        
+
+        dashboard.progress_tracker.prediction_progress = 10.0
         live_df = DataLoader.load_training_data(live_path)
+        dashboard.progress_tracker.prediction_progress = 20.0
         
         # Get feature columns
+        dashboard.progress_tracker.prediction_progress = 30.0
         features_path = joinpath(data_dir, "features.json")
         feature_cols = if isfile(features_path)
             features, _ = DataLoader.load_features_json(features_path; feature_set=config.feature_set)
@@ -201,7 +209,9 @@ function generate_predictions_internal(dashboard::TournamentDashboard)
         else
             DataLoader.get_feature_columns(live_df)
         end
-        
+
+        dashboard.progress_tracker.prediction_progress = 40.0
+
         # Load the trained model or create a new pipeline
         model_config = Pipeline.ModelConfig(
             "xgboost",
@@ -212,40 +222,71 @@ function generate_predictions_internal(dashboard::TournamentDashboard)
                 :subsample => 0.8
             )
         )
-        
+
         pipeline = Pipeline.MLPipeline(
             feature_cols=feature_cols,
             target_col=config.target_col,
             model_config=model_config,
             neutralize=config.enable_neutralization
         )
-        
+
+        dashboard.progress_tracker.prediction_progress = 50.0
+
         # Load saved model if available
         model_path = joinpath(model_dir, "model_latest.jld2")
         if isfile(model_path)
             pipeline = Pipeline.load_pipeline(model_path)
         end
-        
-        # Generate predictions
-        predictions = Pipeline.predict(pipeline, live_df)
-        
+
+        dashboard.progress_tracker.prediction_progress = 60.0
+
+        # Generate predictions with progress updates
+        add_event!(dashboard, :info, "Generating predictions for $(size(live_df, 1)) samples...")
+
+        # Simulate batch processing for progress updates
+        n_samples = size(live_df, 1)
+        batch_size = max(1000, n_samples ÷ 10)
+        predictions = []
+
+        for i in 1:batch_size:n_samples
+            batch_end = min(i + batch_size - 1, n_samples)
+            batch_df = live_df[i:batch_end, :]
+
+            batch_predictions = Pipeline.predict(pipeline, batch_df)
+            append!(predictions, batch_predictions)
+
+            progress = 60.0 + (batch_end / n_samples) * 30.0
+            dashboard.progress_tracker.prediction_progress = progress
+        end
+
+        dashboard.progress_tracker.prediction_progress = 90.0
+
         # Save predictions
         timestamp = Dates.format(Dates.now(), "yyyymmdd_HHMMSS")
         predictions_path = joinpath(data_dir, "predictions_$(timestamp).csv")
-        
+
         # Create submission DataFrame
         submission_df = DataFrame(
             id = live_df[!, "id"],
             prediction = predictions
         )
-        
+
         CSV.write(predictions_path, submission_df)
+        dashboard.progress_tracker.prediction_progress = 100.0
         
         return predictions_path
-        
+
     catch e
         @error "Prediction generation failed" error=e
         return nothing
+    finally
+        # Clear prediction progress after a delay
+        @async begin
+            sleep(2)
+            dashboard.progress_tracker.is_predicting = false
+            dashboard.progress_tracker.prediction_progress = 0.0
+            dashboard.progress_tracker.prediction_model = ""
+        end
     end
 end
 
@@ -253,16 +294,47 @@ end
 function submit_predictions_internal(dashboard::TournamentDashboard, predictions_path::String)
     try
         config = dashboard.config
-        
+
+        # Set upload progress tracker
+        dashboard.progress_tracker.is_uploading = true
+        dashboard.progress_tracker.upload_file = basename(predictions_path)
+        dashboard.progress_tracker.upload_progress = 0.0
+
         # Submit for each model
-        for model_name in config.models
+        total_models = length(config.models)
+        for (idx, model_name) in enumerate(config.models)
+            dashboard.progress_tracker.upload_progress = ((idx - 1) / total_models) * 100.0
+            add_event!(dashboard, :info, "Uploading predictions for model: $model_name")
+
+            # Call API with simulated progress updates
+            @async begin
+                # Simulate upload progress increments
+                for i in 1:10
+                    dashboard.progress_tracker.upload_progress = ((idx - 1) / total_models) * 100.0 + (i / 10) * (100.0 / total_models)
+                    sleep(0.1)
+                end
+            end
+
             API.submit_predictions(dashboard.api_client, model_name, predictions_path)
+
+            dashboard.progress_tracker.upload_progress = (idx / total_models) * 100.0
         end
-        
+
+        dashboard.progress_tracker.upload_progress = 100.0
+        sleep(0.5)  # Show completion briefly
+
         return true
     catch e
         @error "Submission failed" error=e
         return false
+    finally
+        # Clear upload progress after a delay
+        @async begin
+            sleep(2)
+            dashboard.progress_tracker.is_uploading = false
+            dashboard.progress_tracker.upload_progress = 0.0
+            dashboard.progress_tracker.upload_file = ""
+        end
     end
 end
 
@@ -271,17 +343,22 @@ function submit_predictions_command(dashboard)
         try
             config = dashboard.config
             data_dir = config.data_dir
-            
+
             # Find the latest predictions file
-            predictions_files = filter(f -> startswith(f, "predictions_") && endswith(f, ".csv"), 
+            predictions_files = filter(f -> startswith(f, "predictions_") && endswith(f, ".csv"),
                                       readdir(data_dir))
-            
+
             if isempty(predictions_files)
                 add_event!(dashboard, :error, "No predictions found to submit")
                 return
             end
-            
+
             latest_predictions = joinpath(data_dir, predictions_files[end])
+
+            # Set upload progress tracker
+            dashboard.progress_tracker.is_uploading = true
+            dashboard.progress_tracker.upload_file = predictions_files[end]
+            dashboard.progress_tracker.upload_progress = 0.0
             
             # Submit for each model
             for model_name in config.models

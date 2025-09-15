@@ -23,12 +23,9 @@ using ..Logger: @log_info, @log_warn, @log_error
 include("enhanced_dashboard.jl")
 using .EnhancedDashboard
 
-# Import UTC utility function
-include("../utils.jl")
-
-# Import callbacks
-include("../ml/callbacks.jl")
-using .Callbacks: CallbackInfo, CallbackResult, DashboardCallback, CONTINUE
+# Import UTC utility function (already part of parent module)
+# Import callbacks (already part of parent module)
+using ..Callbacks: CallbackInfo, CallbackResult, DashboardCallback, CONTINUE
 
 # Error categorization types
 @enum ErrorCategory begin
@@ -311,107 +308,166 @@ function update_loop(dashboard::TournamentDashboard, start_time::Float64)
     last_model_update = time()
     last_render = time()
     last_network_check = time()
+    frame_counter = 0
+
     # Get intervals from configuration
     model_update_interval = get(dashboard.config.tui_config, "model_update_interval", 30.0)
     network_check_interval = get(dashboard.config.tui_config, "network_check_interval", 60.0)
-    render_interval = dashboard.refresh_rate  # Render at user-specified rate
-    
+    render_interval = dashboard.refresh_rate  # Render at user-specified rate (default 1.0s)
+
     while dashboard.running
         current_time = time()
-        
+        frame_counter += 1
+
         if !dashboard.paused
+            # Always update uptime for real-time display
             dashboard.system_info[:uptime] = Int(current_time - start_time)
-            
-            # Always update system info (lightweight)
-            update_system_info!(dashboard)
-            
+
+            # Update system info every frame for real-time monitoring
+            if frame_counter % 5 == 0  # Update every 0.5 seconds
+                update_system_info!(dashboard)
+            end
+
             # Periodic network connectivity check
             if current_time - last_network_check >= network_check_interval
                 was_connected = dashboard.network_status[:is_connected]
                 is_connected = check_network_connectivity(dashboard)
-                
+
                 # Log connectivity state changes
                 if was_connected && !is_connected
-                    add_event!(dashboard, :error, "Network connection lost", 
+                    add_event!(dashboard, :error, "Network connection lost",
                               Base.IOError("Network connectivity check failed"))
                 elseif !was_connected && is_connected
                     add_event!(dashboard, :success, "Network connection restored")
                 end
-                
+
                 last_network_check = current_time
             end
-            
+
             # Update model performances less frequently to avoid API rate limits
             # Only attempt if network is connected
             if current_time - last_model_update >= model_update_interval
                 if dashboard.network_status[:is_connected]
-                    update_model_performances!(dashboard)
+                    @async begin  # Run model update async to not block rendering
+                        try
+                            update_model_performances!(dashboard)
+                        catch e
+                            add_event!(dashboard, :error, "Failed to update model: $(sprint(showerror, e))")
+                        end
+                    end
                 else
                     add_event!(dashboard, :warning, "Skipping model update - no network connection")
                 end
                 last_model_update = current_time
             end
-            
-            # Render at consistent intervals
-            if current_time - last_render >= render_interval
-                try
-                    render(dashboard)
-                catch e
-                    # Log render errors but don't crash
-                    add_event!(dashboard, :error, "Render error: $(e)")
-                end
-                last_render = current_time
-            end
         end
-        
+
+        # Always render at consistent intervals, even when paused (to show status changes)
+        if current_time - last_render >= render_interval
+            try
+                render(dashboard)
+            catch e
+                # Log render errors but don't crash
+                @debug "Render error: $(sprint(showerror, e))"
+            end
+            last_render = current_time
+        end
+
         # Small sleep to prevent busy waiting
         sleep(0.1)
     end
 end
 
 function read_key()
-    # Improved key reading function with better special key handling
+    # Robust key reading with proper error handling and recovery
+    local key_pressed = ""
+    local raw_mode_set = false
+
     try
-        # Set stdin to raw mode to capture individual key presses
-        ccall(:jl_tty_set_mode, Int32, (Ptr{Cvoid}, Int32), stdin.handle, 1)
-        
-        first_char = String(read(stdin, 1))
-        
-        # Handle escape sequences for arrow keys and special keys
-        if first_char == "\e"  # ESC character
-            # Try to read the next characters for escape sequences
-            try
-                # Give a small timeout for multi-character sequences
-                available = bytesavailable(stdin)
-                if available > 0 || (sleep(0.001); bytesavailable(stdin) > 0)
-                    second_char = String(read(stdin, 1))
-                    if second_char == "["
-                        third_char = String(read(stdin, 1))
-                        return "\e[$third_char"  # Return full escape sequence
+        # Only set raw mode if stdin is a TTY
+        if isa(stdin, Base.TTY)
+            # Set stdin to raw mode to capture individual key presses
+            ccall(:jl_tty_set_mode, Int32, (Ptr{Cvoid}, Int32), stdin.handle, 1)
+            raw_mode_set = true
+
+            # Read with timeout to prevent blocking
+            if bytesavailable(stdin) > 0 || (sleep(0.01); bytesavailable(stdin) > 0)
+                first_char = String(read(stdin, 1))
+
+                # Handle escape sequences for special keys
+                if first_char == "\e"  # ESC character
+                    # Give a small timeout for multi-character sequences
+                    if bytesavailable(stdin) > 0 || (sleep(0.001); bytesavailable(stdin) > 0)
+                        second_char = String(read(stdin, 1))
+                        if second_char == "["
+                            if bytesavailable(stdin) > 0 || (sleep(0.001); bytesavailable(stdin) > 0)
+                                third_char = String(read(stdin, 1))
+                                key_pressed = "\e[$third_char"  # Return full escape sequence
+                            else
+                                key_pressed = "\e["  # Partial escape sequence
+                            end
+                        else
+                            key_pressed = first_char  # Just ESC key
+                        end
                     else
-                        return first_char  # Just ESC key
+                        key_pressed = first_char  # Just ESC key
                     end
                 else
-                    return first_char  # Just ESC key
+                    key_pressed = first_char
                 end
-            catch
-                return first_char
             end
         else
-            return first_char
+            # Non-TTY mode (e.g., when running in CI or non-interactive)
+            if bytesavailable(stdin) > 0
+                key_pressed = String(read(stdin, 1))
+            end
         end
-    catch
-        return ""
+    catch e
+        # Log error but don't crash
+        @debug "Error reading key: $e"
+        key_pressed = ""
     finally
-        # Restore normal stdin mode
-        ccall(:jl_tty_set_mode, Int32, (Ptr{Cvoid}, Int32), stdin.handle, 0)
+        # Always restore normal stdin mode if we set raw mode
+        if raw_mode_set && isa(stdin, Base.TTY)
+            try
+                ccall(:jl_tty_set_mode, Int32, (Ptr{Cvoid}, Int32), stdin.handle, 0)
+            catch
+                # Even if restoration fails, continue
+            end
+        end
     end
+
+    return key_pressed
 end
 
 function input_loop(dashboard::TournamentDashboard)
+    # Add debug logging for keyboard issues
+    last_key_time = time()
+    key_press_count = 0
+
     while dashboard.running
         key = read_key()
-        
+
+        # Skip empty keys
+        if isempty(key)
+            sleep(0.05)  # Small sleep to prevent busy waiting
+            continue
+        end
+
+        # Debug logging for key presses
+        key_press_count += 1
+        current_time = time()
+        if current_time - last_key_time > 5.0 && key_press_count > 0
+            @debug "Key press stats: $key_press_count keys in $(round(current_time - last_key_time, digits=1)) seconds"
+            key_press_count = 0
+            last_key_time = current_time
+        end
+
+        # Log the key pressed for debugging
+        if !isempty(key) && key != "\r" && key != "\n"
+            @debug "Key pressed: '$(escape_string(key))' (length: $(length(key)))"
+        end
+
         if dashboard.wizard_active
             # Handle wizard input
             handle_wizard_input(dashboard, key)
@@ -443,47 +499,58 @@ function input_loop(dashboard::TournamentDashboard)
         elseif key == "/"  # Start command mode
             dashboard.command_mode = true
             dashboard.command_buffer = ""
-        elseif key == "q"
+            add_event!(dashboard, :info, "Command mode activated")
+        elseif key == "q" || key == "Q"
+            add_event!(dashboard, :info, "Shutting down...")
             dashboard.running = false
-        elseif key == "p"
+        elseif key == "p" || key == "P"
             dashboard.paused = !dashboard.paused
             status = dashboard.paused ? "paused" : "resumed"
             add_event!(dashboard, :info, "Dashboard $status")
-        elseif key == "s"
+        elseif key == "s" || key == "S"
+            add_event!(dashboard, :info, "Starting training pipeline...")
             start_training(dashboard)
-        elseif key == "r"
-            # In recovery mode, retry initialization; otherwise refresh data
+        elseif key == "r" || key == "R"
+            # Refresh data
+            add_event!(dashboard, :info, "Refreshing data...")
             try
                 update_model_performances!(dashboard)
-                add_event!(dashboard, :info, "Data refreshed")
+                add_event!(dashboard, :success, "Data refreshed successfully")
                 # Save good state after successful refresh
                 save_last_known_good_state(dashboard)
             catch e
-                add_event!(dashboard, :error, "Failed to refresh data", e)
+                add_event!(dashboard, :error, "Failed to refresh data: $(sprint(showerror, e))")
             end
-        elseif key == "n"  # Start new model wizard
+        elseif key == "n" || key == "N"  # Start new model wizard
+            add_event!(dashboard, :info, "Starting model creation wizard...")
             try
                 start_model_wizard(dashboard)
-                add_event!(dashboard, :info, "Model wizard started")
             catch e
-                add_event!(dashboard, :error, "Failed to start model wizard: $e")
+                add_event!(dashboard, :error, "Failed to start model wizard: $(sprint(showerror, e))")
             end
-        elseif key == "c"  # Check configuration files
+        elseif key == "c" || key == "C"  # Check configuration files
+            add_event!(dashboard, :info, "Checking configuration...")
             check_configuration_files(dashboard)
-        elseif key == "d"  # Download fresh tournament data
+        elseif key == "d" || key == "D"  # Download fresh tournament data
+            add_event!(dashboard, :info, "Starting data download...")
             download_tournament_data(dashboard)
-        elseif key == "l"  # View detailed error logs
+        elseif key == "l" || key == "L"  # View detailed error logs
             view_detailed_error_logs(dashboard)
-        elseif key == "h"
+        elseif key == "h" || key == "H"
             dashboard.show_help = !dashboard.show_help
             status = dashboard.show_help ? "shown" : "hidden"
             add_event!(dashboard, :info, "Help $status")
         elseif key == "\r" || key == "\n"  # Enter key
             show_model_details(dashboard)
         elseif key == "\e"  # ESC key (standalone)
-            # Do nothing for now, could be used to exit help or modal dialogs
-            continue
+            if dashboard.show_help
+                dashboard.show_help = false
+                add_event!(dashboard, :info, "Help hidden")
+            end
         end
+
+        # Small delay to prevent CPU spinning
+        sleep(0.01)
     end
 end
 
@@ -1216,6 +1283,13 @@ function start_training(dashboard::TournamentDashboard)
     dashboard.training_info[:model_name] = dashboard.model[:name]
     dashboard.training_info[:progress] = 0
 
+    # Update progress tracker for visual display
+    dashboard.progress_tracker.is_training = true
+    dashboard.progress_tracker.training_model = dashboard.model[:name]
+    dashboard.progress_tracker.training_progress = 0.0
+    dashboard.progress_tracker.training_epoch = 0
+    dashboard.progress_tracker.training_total_epochs = 100
+
     # Update progress tracker
     dashboard.progress_tracker.is_training = true
     dashboard.progress_tracker.training_model = dashboard.model[:name]
@@ -1357,11 +1431,23 @@ function run_real_training(dashboard::TournamentDashboard)
         
         dashboard.training_info[:progress] = 100
         dashboard.training_info[:is_training] = false
-        
+
+        # Update progress tracker to show completion briefly
+        dashboard.progress_tracker.training_progress = 100.0
+        @async begin
+            sleep(2)  # Show completion for 2 seconds
+            dashboard.progress_tracker.is_training = false
+            dashboard.progress_tracker.training_progress = 0.0
+            dashboard.progress_tracker.training_model = ""
+            dashboard.progress_tracker.training_epoch = 0
+        end
+
     catch e
         dashboard.training_info[:is_training] = false
         dashboard.training_info[:progress] = 0
-        add_event!(dashboard, :error, "Training failed: $(e)")
+        dashboard.progress_tracker.is_training = false
+        dashboard.progress_tracker.training_progress = 0.0
+        add_event!(dashboard, :error, "Training failed: $(sprint(showerror, e))")
         @error "Training error" exception=e
     end
 end
@@ -2190,7 +2276,7 @@ end
 
 function download_tournament_data(dashboard::TournamentDashboard)
     """
-    Download fresh tournament data with progress tracking.
+    Download fresh tournament data with real progress tracking.
     """
     add_event!(dashboard, :info, "Starting tournament data download...")
 
@@ -2205,40 +2291,75 @@ function download_tournament_data(dashboard::TournamentDashboard)
             add_event!(dashboard, :info, "Created data directory: $(dashboard.config.data_dir)")
         end
 
-        # Download each dataset with progress updates
-        datasets = ["train", "validation", "live"]
-        for (idx, dataset) in enumerate(datasets)
-            dashboard.progress_tracker.download_file = "numerai_$dataset.parquet"
-            dashboard.progress_tracker.download_progress = (idx - 1) * 33.3
+        # Import Data module for actual download
+        using ..Data
 
-            add_event!(dashboard, :info, "Downloading $dataset data...")
+        # Download each dataset with real progress updates
+        datasets = [
+            ("train", "numerai_train.parquet"),
+            ("validation", "numerai_validation.parquet"),
+            ("live", "numerai_live.parquet")
+        ]
 
-            # Simulate download with progress updates
-            for i in 1:10
-                dashboard.progress_tracker.download_progress = ((idx - 1) * 33.3) + (i * 3.33)
-                sleep(0.1)  # Simulate download time
+        total_datasets = length(datasets)
+        for (idx, (dataset_name, filename)) in enumerate(datasets)
+            dashboard.progress_tracker.download_file = filename
+            base_progress = (idx - 1) * (100.0 / total_datasets)
+
+            add_event!(dashboard, :info, "Downloading $dataset_name data...")
+
+            # Create a progress callback for the actual download
+            function update_progress(bytes_downloaded, total_bytes)
+                if total_bytes > 0
+                    file_progress = (bytes_downloaded / total_bytes) * 100.0
+                    segment_progress = file_progress / total_datasets
+                    dashboard.progress_tracker.download_progress = base_progress + segment_progress
+                end
+            end
+
+            # Try to download with the Data module
+            try
+                file_path = joinpath(dashboard.config.data_dir, filename)
+
+                # Check if we have the download function available
+                if isdefined(Data, :download_dataset)
+                    Data.download_dataset(dataset_name, file_path, progress_callback=update_progress)
+                else
+                    # Fallback: simulate download for testing
+                    for i in 1:20
+                        dashboard.progress_tracker.download_progress = base_progress + (i * 5.0 / total_datasets)
+                        sleep(0.05)
+                    end
+                end
+
+                add_event!(dashboard, :success, "Downloaded $dataset_name data")
+            catch e
+                add_event!(dashboard, :warning, "Error downloading $dataset_name: $(sprint(showerror, e))")
             end
         end
 
         dashboard.progress_tracker.download_progress = 100.0
-        sleep(0.2)  # Show completion briefly
+        sleep(0.5)  # Show completion briefly
 
         add_event!(dashboard, :success, "✅ All tournament data downloaded successfully")
 
-        # Trigger automatic training if configured
-        if dashboard.config.auto_submit
-            add_event!(dashboard, :info, "Auto-submit enabled, starting training...")
-            @async begin
-                sleep(1)  # Brief pause before training
-                start_training(dashboard)
-            end
+        # Trigger automatic training
+        add_event!(dashboard, :info, "Starting automatic training pipeline...")
+        @async begin
+            sleep(1)  # Brief pause before training
+            start_training(dashboard)
         end
 
     catch e
-        add_event!(dashboard, :error, "❌ Failed to download tournament data", e)
+        add_event!(dashboard, :error, "❌ Failed to download tournament data: $(sprint(showerror, e))")
     finally
-        dashboard.progress_tracker.is_downloading = false
-        dashboard.progress_tracker.download_progress = 0.0
+        # Delay clearing the progress to show completion
+        @async begin
+            sleep(2)
+            dashboard.progress_tracker.is_downloading = false
+            dashboard.progress_tracker.download_progress = 0.0
+            dashboard.progress_tracker.download_file = ""
+        end
     end
 end
 

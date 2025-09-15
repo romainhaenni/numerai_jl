@@ -143,63 +143,75 @@ function render_enhanced_dashboard(dashboard, progress_tracker::ProgressTracker)
     # Build dashboard content
     lines = String[]
 
-    # Header with clean border
-    push!(lines, "═" ^ terminal_width)
-    header = "🚀 NUMERAI TOURNAMENT SYSTEM v0.9.9"
+    # Clean header without full-width borders
+    push!(lines, "")
+    header = "NUMERAI TOURNAMENT SYSTEM v0.10.0"
     push!(lines, center_text(header, terminal_width))
-    push!(lines, "═" ^ terminal_width)
-
-    # System status bar
-    system_status = dashboard.paused ? "⏸ PAUSED" : "▶ RUNNING"
-    network_icon = dashboard.network_status[:is_connected] ? "🟢" : "🔴"
-    network_text = dashboard.network_status[:is_connected] ? "Connected" : "Disconnected"
-    latency = dashboard.network_status[:api_latency] > 0 ?
-        @sprintf(" (%dms)", round(dashboard.network_status[:api_latency])) : ""
-    uptime = format_duration(dashboard.system_info[:uptime])
-
-    status_line = "System: $system_status │ Network: $network_icon $network_text$latency │ Uptime: $uptime"
-    push!(lines, status_line)
     push!(lines, "─" ^ terminal_width)
 
-    # Active Operations Section (if any)
-    active_ops = []
+    # System status bar with real-time updates
+    system_status = dashboard.paused ? "⏸ PAUSED" : "▶ RUNNING"
+    network_icon = dashboard.network_status[:is_connected] ? "●" : "○"
+    network_text = dashboard.network_status[:is_connected] ? "Online" : "Offline"
+    latency = dashboard.network_status[:api_latency] > 0 ?
+        @sprintf(" %dms", round(dashboard.network_status[:api_latency])) : ""
+    uptime = format_duration(dashboard.system_info[:uptime])
 
-    if progress_tracker.is_downloading
-        spinner = create_spinner(Int(time() * 10))
-        progress_bar = create_progress_bar(progress_tracker.download_progress, 100, width=30)
-        push!(active_ops, "$spinner DOWNLOADING: $(progress_tracker.download_file)")
-        push!(active_ops, "   $progress_bar")
-    end
+    # Add memory and CPU info
+    mem_usage = dashboard.system_info[:memory_usage]
+    cpu_cores = dashboard.system_info[:cpu_cores]
 
-    if progress_tracker.is_uploading
-        spinner = create_spinner(Int(time() * 10))
-        progress_bar = create_progress_bar(progress_tracker.upload_progress, 100, width=30)
-        push!(active_ops, "$spinner UPLOADING: $(progress_tracker.upload_file)")
-        push!(active_ops, "   $progress_bar")
-    end
+    status_line = @sprintf("System: %s | Network: %s %s%s | Memory: %.1f%% | CPUs: %d | Uptime: %s",
+        system_status, network_icon, network_text, latency, mem_usage, cpu_cores, uptime)
+    push!(lines, status_line)
+    push!(lines, "")
 
-    if progress_tracker.is_training
-        spinner = create_spinner(Int(time() * 10))
-        epoch_info = "Epoch $(progress_tracker.training_epoch)/$(progress_tracker.training_total_epochs)"
-        progress_bar = create_progress_bar(progress_tracker.training_progress, 100, width=30)
-        push!(active_ops, "$spinner TRAINING: $(progress_tracker.training_model) - $epoch_info")
-        push!(active_ops, "   $progress_bar")
-    end
+    # Active Operations Section with improved visibility
+    if progress_tracker.is_downloading || progress_tracker.is_uploading ||
+       progress_tracker.is_training || progress_tracker.is_predicting
 
-    if progress_tracker.is_predicting
-        spinner = create_spinner(Int(time() * 10))
-        progress_bar = create_progress_bar(progress_tracker.prediction_progress, 100, width=30)
-        push!(active_ops, "$spinner PREDICTING: $(progress_tracker.prediction_model)")
-        push!(active_ops, "   $progress_bar")
-    end
+        push!(lines, "┌─ ACTIVE OPERATIONS ─────────────────────────────────────────┐")
 
-    if !isempty(active_ops)
-        push!(lines, "")
-        push!(lines, "🔥 ACTIVE OPERATIONS")
-        for op in active_ops
-            push!(lines, op)
+        if progress_tracker.is_downloading
+            spinner = create_spinner(Int(time() * 10))
+            progress_bar = create_progress_bar(progress_tracker.download_progress, 100, width=40)
+            file_display = length(progress_tracker.download_file) > 30 ?
+                progress_tracker.download_file[1:27] * "..." : progress_tracker.download_file
+            push!(lines, @sprintf("│ %s Download: %-30s │", spinner, file_display))
+            push!(lines, @sprintf("│   %s │", progress_bar))
         end
-        push!(lines, "─" ^ terminal_width)
+
+        if progress_tracker.is_uploading
+            spinner = create_spinner(Int(time() * 10))
+            progress_bar = create_progress_bar(progress_tracker.upload_progress, 100, width=40)
+            file_display = length(progress_tracker.upload_file) > 30 ?
+                progress_tracker.upload_file[1:27] * "..." : progress_tracker.upload_file
+            push!(lines, @sprintf("│ %s Upload: %-32s │", spinner, file_display))
+            push!(lines, @sprintf("│   %s │", progress_bar))
+        end
+
+        if progress_tracker.is_training
+            spinner = create_spinner(Int(time() * 10))
+            epoch_info = @sprintf("Epoch %d/%d",
+                progress_tracker.training_epoch, progress_tracker.training_total_epochs)
+            model_display = length(progress_tracker.training_model) > 20 ?
+                progress_tracker.training_model[1:17] * "..." : progress_tracker.training_model
+            progress_bar = create_progress_bar(progress_tracker.training_progress, 100, width=40)
+            push!(lines, @sprintf("│ %s Training: %-20s %s │", spinner, model_display, epoch_info))
+            push!(lines, @sprintf("│   %s │", progress_bar))
+        end
+
+        if progress_tracker.is_predicting
+            spinner = create_spinner(Int(time() * 10))
+            model_display = length(progress_tracker.prediction_model) > 30 ?
+                progress_tracker.prediction_model[1:27] * "..." : progress_tracker.prediction_model
+            progress_bar = create_progress_bar(progress_tracker.prediction_progress, 100, width=40)
+            push!(lines, @sprintf("│ %s Predicting: %-28s │", spinner, model_display))
+            push!(lines, @sprintf("│   %s │", progress_bar))
+        end
+
+        push!(lines, "└──────────────────────────────────────────────────────────────┘")
+        push!(lines, "")
     end
 
     # Model Performance Section

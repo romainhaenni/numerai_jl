@@ -128,7 +128,8 @@ function TournamentDashboard(config)
         :memory_total => round(Sys.total_memory() / (1024^3), digits=1),  # Get actual system memory in GB
         :model_active => false,
         :threads => Threads.nthreads(),
-        :uptime => 0
+        :uptime => 0,
+        :julia_version => string(VERSION)
     )
     
     training_info = Dict(
@@ -597,7 +598,7 @@ function render_unified_dashboard(dashboard::TournamentDashboard)
 
     push!(content_lines, "CPU:    $cpu_bar $(cpu_usage)%")
     push!(content_lines, "Memory: $mem_bar $mem_used/$mem_total GB ($(Int(mem_pct))%)")
-    push!(content_lines, "Threads: $(dashboard.system_info[:threads]) │ Julia Version: $(dashboard.system_info[:julia_version])")
+    push!(content_lines, "Threads: $(dashboard.system_info[:threads]) │ Julia $(dashboard.system_info[:julia_version])")
     push!(content_lines, "─"^terminal_width)
 
     # Recent Events (last 8)

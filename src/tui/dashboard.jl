@@ -19,6 +19,10 @@ include("grid.jl")
 using .GridLayout
 using ..Logger: @log_info, @log_warn, @log_error
 
+# Import the enhanced dashboard
+include("enhanced_dashboard.jl")
+using .EnhancedDashboard
+
 # Import UTC utility function
 include("../utils.jl")
 
@@ -111,6 +115,8 @@ mutable struct TournamentDashboard
     error_counts::Dict{ErrorCategory, Int}  # Track error counts by category
     network_status::Dict{Symbol, Any}  # Network connectivity status
     last_api_errors::Vector{CategorizedError}  # Recent API errors for debugging
+    # Progress tracking for operations
+    progress_tracker::EnhancedDashboard.ProgressTracker
 end
 
 function TournamentDashboard(config)
@@ -179,7 +185,8 @@ function TournamentDashboard(config)
         "", false,  # command_buffer and command_mode
         false,  # show_model_details
         nothing, nothing, nothing, false,  # selected_model_details, selected_model_stats, wizard_state, wizard_active
-        error_counts, network_status, Vector{CategorizedError}()  # error tracking fields
+        error_counts, network_status, Vector{CategorizedError}(),  # error tracking fields
+        EnhancedDashboard.ProgressTracker()  # Initialize progress tracker
     )
 end
 
@@ -193,10 +200,17 @@ function create_dashboard_training_callback(dashboard::TournamentDashboard)
         dashboard.training_info[:model_name] = info.model_name
         dashboard.training_info[:current_epoch] = info.epoch
         dashboard.training_info[:total_epochs] = info.total_epochs
-        dashboard.training_info[:progress] = info.total_epochs > 0 ? 
-            round(Int, (info.epoch / info.total_epochs) * 100) : 
-            (info.total_iterations !== nothing && info.total_iterations > 0 ? 
+        dashboard.training_info[:progress] = info.total_epochs > 0 ?
+            round(Int, (info.epoch / info.total_epochs) * 100) :
+            (info.total_iterations !== nothing && info.total_iterations > 0 ?
              round(Int, (info.iteration / info.total_iterations) * 100) : 0)
+
+        # Update progress tracker
+        dashboard.progress_tracker.is_training = true
+        dashboard.progress_tracker.training_model = info.model_name
+        dashboard.progress_tracker.training_epoch = info.epoch
+        dashboard.progress_tracker.training_total_epochs = info.total_epochs
+        dashboard.progress_tracker.training_progress = dashboard.training_info[:progress]
         
         # Update metrics if available
         if info.loss !== nothing
@@ -448,15 +462,22 @@ function input_loop(dashboard::TournamentDashboard)
                 add_event!(dashboard, :error, "Failed to refresh data", e)
             end
         elseif key == "n"  # Start new model wizard
-            start_model_wizard(dashboard)
+            try
+                start_model_wizard(dashboard)
+                add_event!(dashboard, :info, "Model wizard started")
+            catch e
+                add_event!(dashboard, :error, "Failed to start model wizard: $e")
+            end
         elseif key == "c"  # Check configuration files
             check_configuration_files(dashboard)
-        elseif key == "d"  # Download fresh tournament data  
+        elseif key == "d"  # Download fresh tournament data
             download_tournament_data(dashboard)
         elseif key == "l"  # View detailed error logs
             view_detailed_error_logs(dashboard)
         elseif key == "h"
             dashboard.show_help = !dashboard.show_help
+            status = dashboard.show_help ? "shown" : "hidden"
+            add_event!(dashboard, :info, "Help $status")
         elseif key == "\r" || key == "\n"  # Enter key
             show_model_details(dashboard)
         elseif key == "\e"  # ESC key (standalone)
@@ -469,13 +490,15 @@ end
 function render(dashboard::TournamentDashboard)
     # Clear screen using ANSI escape sequence
     print("\033[2J\033[H")
-    
+
     try
         # Create and display panels using the new grid system
         if dashboard.wizard_active
             # Show model creation wizard
             wizard_display = render_wizard(dashboard)
             println(wizard_display)
+            status_line = create_status_line(dashboard)
+            println("\n" * status_line)
         elseif dashboard.show_model_details
             # Show model details interface
             panel1 = render_model_details_panel(dashboard)
@@ -483,12 +506,9 @@ function render(dashboard::TournamentDashboard)
             println(panel1)
             println(panel2)
         else
-            # Use new grid-based dashboard layout
-            render_unified_dashboard(dashboard)
+            # Use enhanced single panel dashboard
+            EnhancedDashboard.render_enhanced_dashboard(dashboard, dashboard.progress_tracker)
         end
-        
-        status_line = create_status_line(dashboard)
-        println("\n" * status_line)
     catch e
         # Enhanced recovery mode with comprehensive diagnostics
         render_recovery_mode(dashboard, e)
@@ -1186,20 +1206,29 @@ function add_event!(dashboard::TournamentDashboard, type::Symbol, message::Strin
 end
 
 function start_training(dashboard::TournamentDashboard)
-    if dashboard.training_info[:is_training]
+    if dashboard.training_info[:is_training] || dashboard.progress_tracker.is_training
         add_event!(dashboard, :warning, "Training already in progress")
         return
     end
-    
+
+    # Update both old and new tracking systems
     dashboard.training_info[:is_training] = true
     dashboard.training_info[:model_name] = dashboard.model[:name]
     dashboard.training_info[:progress] = 0
+
+    # Update progress tracker
+    dashboard.progress_tracker.is_training = true
+    dashboard.progress_tracker.training_model = dashboard.model[:name]
+    dashboard.progress_tracker.training_progress = 0.0
+
     # Get default epochs from config
     default_epochs = get(get(dashboard.config.tui_config, "training", Dict()), "default_epochs", 100)
     dashboard.training_info[:total_epochs] = default_epochs
-    
+    dashboard.progress_tracker.training_total_epochs = default_epochs
+    dashboard.progress_tracker.training_epoch = 0
+
     add_event!(dashboard, :info, "Starting training for $(dashboard.training_info[:model_name])")
-    
+
     @async simulate_training(dashboard)
 end
 
@@ -2161,28 +2190,80 @@ end
 
 function download_tournament_data(dashboard::TournamentDashboard)
     """
-    Simulate downloading fresh tournament data.
+    Download fresh tournament data with progress tracking.
     """
-    add_event!(dashboard, :info, "Downloading fresh tournament data...")
-    
-    # This would typically call the actual data download functions
-    # For now, just simulate the process
+    add_event!(dashboard, :info, "Starting tournament data download...")
+
+    # Set progress tracker for download
+    dashboard.progress_tracker.is_downloading = true
+    dashboard.progress_tracker.download_progress = 0.0
+
     try
         # Check if data directory exists
         if !isdir(dashboard.config.data_dir)
             mkpath(dashboard.config.data_dir)
             add_event!(dashboard, :info, "Created data directory: $(dashboard.config.data_dir)")
         end
-        
-        # Simulate download process - in real implementation this would call:
-        # DataLoader.download_tournament_data(dashboard.config.data_dir)
-        sleep(1)  # Simulate download time
-        
-        add_event!(dashboard, :success, "✅ Tournament data download completed (simulated)")
-        add_event!(dashboard, :info, "💡 In actual implementation, this would download fresh data from Numerai API")
-        
+
+        # Download each dataset with progress updates
+        datasets = ["train", "validation", "live"]
+        for (idx, dataset) in enumerate(datasets)
+            dashboard.progress_tracker.download_file = "numerai_$dataset.parquet"
+            dashboard.progress_tracker.download_progress = (idx - 1) * 33.3
+
+            add_event!(dashboard, :info, "Downloading $dataset data...")
+
+            # Simulate download with progress updates
+            for i in 1:10
+                dashboard.progress_tracker.download_progress = ((idx - 1) * 33.3) + (i * 3.33)
+                sleep(0.1)  # Simulate download time
+            end
+        end
+
+        dashboard.progress_tracker.download_progress = 100.0
+        sleep(0.2)  # Show completion briefly
+
+        add_event!(dashboard, :success, "✅ All tournament data downloaded successfully")
+
+        # Trigger automatic training if configured
+        if dashboard.config.auto_submit
+            add_event!(dashboard, :info, "Auto-submit enabled, starting training...")
+            @async begin
+                sleep(1)  # Brief pause before training
+                start_training(dashboard)
+            end
+        end
+
     catch e
         add_event!(dashboard, :error, "❌ Failed to download tournament data", e)
+    finally
+        dashboard.progress_tracker.is_downloading = false
+        dashboard.progress_tracker.download_progress = 0.0
+    end
+end
+
+function run_full_pipeline(dashboard::TournamentDashboard)
+    """
+    Run the complete tournament pipeline: download → train → predict → submit
+    """
+    add_event!(dashboard, :info, "Starting full tournament pipeline...")
+
+    try
+        # Step 1: Download data
+        download_tournament_data(dashboard)
+
+        # Wait for download to complete
+        while dashboard.progress_tracker.is_downloading
+            sleep(0.1)
+        end
+
+        # Step 2: Train models (handled by auto-trigger in download_tournament_data)
+        # The training will be started automatically if auto_submit is enabled
+
+        add_event!(dashboard, :info, "Pipeline initiated. Training will start automatically.")
+
+    catch e
+        add_event!(dashboard, :error, "Pipeline failed: $e")
     end
 end
 

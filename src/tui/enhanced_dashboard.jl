@@ -1,0 +1,326 @@
+module EnhancedDashboard
+
+using Dates
+using Printf
+
+# Helper function for formatted output
+sprintf(fmt::String, args...) = @sprintf(fmt, args...)
+using ..API
+using ..Utils
+
+export render_enhanced_dashboard, create_progress_bar, create_spinner,
+       format_duration, center_text, create_metric_bar
+
+# Progress indicators for ongoing operations
+mutable struct ProgressTracker
+    download_progress::Float64
+    download_file::String
+    upload_progress::Float64
+    upload_file::String
+    training_progress::Float64
+    training_model::String
+    training_epoch::Int
+    training_total_epochs::Int
+    prediction_progress::Float64
+    prediction_model::String
+    is_downloading::Bool
+    is_uploading::Bool
+    is_training::Bool
+    is_predicting::Bool
+end
+
+ProgressTracker() = ProgressTracker(
+    0.0, "", 0.0, "", 0.0, "", 0, 0, 0.0, "",
+    false, false, false, false
+)
+
+"""
+Create a visual progress bar with percentage
+"""
+function create_progress_bar(current::Number, total::Number; width::Int=40, show_percent::Bool=true)::String
+    if total == 0
+        return "─" ^ width
+    end
+
+    percentage = clamp(current / total, 0.0, 1.0)
+    filled = Int(round(percentage * width))
+
+    # Use block characters for smooth progress visualization
+    blocks = ["▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]
+    remainder = (percentage * width - filled) * 8
+    remainder_block = remainder > 0 ? blocks[Int(ceil(remainder))] : ""
+
+    bar = "█" ^ filled * remainder_block * "░" ^ max(0, width - filled - (remainder > 0 ? 1 : 0))
+
+    if show_percent
+        percent_str = @sprintf("%.1f%%", percentage * 100)
+        return "$bar $percent_str"
+    else
+        return bar
+    end
+end
+
+"""
+Create an animated spinner for indeterminate progress
+"""
+function create_spinner(frame::Int)::String
+    spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    return spinners[(frame % length(spinners)) + 1]
+end
+
+"""
+Format duration in human-readable format
+"""
+function format_duration(seconds::Number)::String
+    if seconds < 60
+        return @sprintf("%ds", Int(seconds))
+    elseif seconds < 3600
+        mins = Int(seconds ÷ 60)
+        secs = Int(seconds % 60)
+        return @sprintf("%dm %ds", mins, secs)
+    else
+        hours = Int(seconds ÷ 3600)
+        mins = Int((seconds % 3600) ÷ 60)
+        return @sprintf("%dh %dm", hours, mins)
+    end
+end
+
+"""
+Center text within a given width
+"""
+function center_text(text::String, width::Int; pad_char::String=" ")::String
+    text_len = length(text)
+    if text_len >= width
+        return text[1:width]
+    end
+
+    left_pad = (width - text_len) ÷ 2
+    right_pad = width - text_len - left_pad
+
+    return pad_char^left_pad * text * pad_char^right_pad
+end
+
+"""
+Create a mini bar chart for a metric value
+"""
+function create_metric_bar(value::Float64, min_val::Float64, max_val::Float64, width::Int=15)::String
+    # Normalize value to 0-1 range
+    normalized = clamp((value - min_val) / (max_val - min_val), 0.0, 1.0)
+
+    # Create bar with center marker
+    center = width ÷ 2
+    value_pos = Int(round(normalized * (width - 1)))
+
+    bar = Char[]
+    for i in 0:(width-1)
+        if i == center
+            push!(bar, '│')  # Center line
+        elseif i == value_pos
+            push!(bar, value >= 0 ? '▲' : '▼')  # Value marker
+        elseif (value >= 0 && i > center && i < value_pos) || (value < 0 && i < center && i > value_pos)
+            push!(bar, '═')  # Fill between center and value
+        else
+            push!(bar, '─')  # Empty space
+        end
+    end
+
+    return "[" * join(bar) * "]"
+end
+
+"""
+Render the enhanced single-panel dashboard
+"""
+function render_enhanced_dashboard(dashboard, progress_tracker::ProgressTracker)
+    # Get terminal dimensions
+    terminal_width = try
+        displaysize(stdout)[2]
+    catch
+        120  # Default width
+    end
+
+    terminal_height = try
+        displaysize(stdout)[1]
+    catch
+        40  # Default height
+    end
+
+    # Build dashboard content
+    lines = String[]
+
+    # Header with clean border
+    push!(lines, "═" ^ terminal_width)
+    header = "🚀 NUMERAI TOURNAMENT SYSTEM v0.9.9"
+    push!(lines, center_text(header, terminal_width))
+    push!(lines, "═" ^ terminal_width)
+
+    # System status bar
+    system_status = dashboard.paused ? "⏸ PAUSED" : "▶ RUNNING"
+    network_icon = dashboard.network_status[:is_connected] ? "🟢" : "🔴"
+    network_text = dashboard.network_status[:is_connected] ? "Connected" : "Disconnected"
+    latency = dashboard.network_status[:api_latency] > 0 ?
+        @sprintf(" (%dms)", round(dashboard.network_status[:api_latency])) : ""
+    uptime = format_duration(dashboard.system_info[:uptime])
+
+    status_line = "System: $system_status │ Network: $network_icon $network_text$latency │ Uptime: $uptime"
+    push!(lines, status_line)
+    push!(lines, "─" ^ terminal_width)
+
+    # Active Operations Section (if any)
+    active_ops = []
+
+    if progress_tracker.is_downloading
+        spinner = create_spinner(Int(time() * 10))
+        progress_bar = create_progress_bar(progress_tracker.download_progress, 100, width=30)
+        push!(active_ops, "$spinner DOWNLOADING: $(progress_tracker.download_file)")
+        push!(active_ops, "   $progress_bar")
+    end
+
+    if progress_tracker.is_uploading
+        spinner = create_spinner(Int(time() * 10))
+        progress_bar = create_progress_bar(progress_tracker.upload_progress, 100, width=30)
+        push!(active_ops, "$spinner UPLOADING: $(progress_tracker.upload_file)")
+        push!(active_ops, "   $progress_bar")
+    end
+
+    if progress_tracker.is_training
+        spinner = create_spinner(Int(time() * 10))
+        epoch_info = "Epoch $(progress_tracker.training_epoch)/$(progress_tracker.training_total_epochs)"
+        progress_bar = create_progress_bar(progress_tracker.training_progress, 100, width=30)
+        push!(active_ops, "$spinner TRAINING: $(progress_tracker.training_model) - $epoch_info")
+        push!(active_ops, "   $progress_bar")
+    end
+
+    if progress_tracker.is_predicting
+        spinner = create_spinner(Int(time() * 10))
+        progress_bar = create_progress_bar(progress_tracker.prediction_progress, 100, width=30)
+        push!(active_ops, "$spinner PREDICTING: $(progress_tracker.prediction_model)")
+        push!(active_ops, "   $progress_bar")
+    end
+
+    if !isempty(active_ops)
+        push!(lines, "")
+        push!(lines, "🔥 ACTIVE OPERATIONS")
+        for op in active_ops
+            push!(lines, op)
+        end
+        push!(lines, "─" ^ terminal_width)
+    end
+
+    # Model Performance Section
+    push!(lines, "")
+    push!(lines, "📊 MODEL PERFORMANCE")
+
+    model_status = dashboard.model[:is_active] ? "🟢 Active" : "🔴 Inactive"
+    push!(lines, "Model: $(dashboard.model[:name]) ($model_status)")
+
+    # Tournament info
+    try
+        stake_info = get_staking_info(dashboard)
+        round_str = "Round #$(stake_info[:current_round])"
+        submission_str = stake_info[:submission_status]
+        time_left = stake_info[:time_remaining]
+        push!(lines, "Tournament: $round_str │ Submission: $submission_str │ Time Left: $time_left")
+    catch
+        push!(lines, "Tournament: Loading... │ Submission: Loading... │ Time Left: N/A")
+    end
+
+    push!(lines, "")
+
+    # Performance metrics with visual bars
+    corr = dashboard.model[:corr]
+    mmc = dashboard.model[:mmc]
+    fnc = dashboard.model[:fnc]
+    tc = get(dashboard.model, :tc, 0.0)
+    sharpe = get(dashboard.model, :sharpe, 0.0)
+
+    corr_bar = create_metric_bar(corr, -0.1, 0.1, 20)
+    mmc_bar = create_metric_bar(mmc, -0.05, 0.05, 20)
+    fnc_bar = create_metric_bar(fnc, -0.05, 0.05, 20)
+
+    push!(lines, @sprintf("CORR:   %s %+.4f", corr_bar, corr))
+    push!(lines, @sprintf("MMC:    %s %+.4f", mmc_bar, mmc))
+    push!(lines, @sprintf("FNC:    %s %+.4f", fnc_bar, fnc))
+    push!(lines, @sprintf("TC:     %+.4f │ Sharpe: %+.3f", tc, sharpe))
+
+    # Staking info if available
+    if haskey(dashboard.model, :stake) && dashboard.model[:stake] > 0
+        stake = dashboard.model[:stake]
+        at_risk = stake * 0.25
+        expected = stake * corr * 0.5
+        push!(lines, "")
+        push!(lines, @sprintf("💰 Stake: %.2f NMR │ At Risk: %.2f NMR │ Expected: %+.2f NMR",
+                              stake, at_risk, expected))
+    end
+
+    push!(lines, "─" ^ terminal_width)
+
+    # System Resources Section
+    push!(lines, "")
+    push!(lines, "⚙️  SYSTEM RESOURCES")
+
+    cpu_usage = dashboard.system_info[:cpu_usage]
+    mem_used = dashboard.system_info[:memory_used]
+    mem_total = dashboard.system_info[:memory_total]
+    mem_pct = round(100 * mem_used / max(mem_total, 1), digits=0)
+
+    cpu_bar = create_progress_bar(cpu_usage, 100, width=25, show_percent=false)
+    mem_bar = create_progress_bar(mem_pct, 100, width=25, show_percent=false)
+
+    push!(lines, @sprintf("CPU:    %s %3d%%", cpu_bar, cpu_usage))
+    push!(lines, @sprintf("Memory: %s %3d%% (%.1f/%.1f GB)", mem_bar, Int(mem_pct), mem_used, mem_total))
+    push!(lines, @sprintf("Threads: %d │ Julia %s",
+                          dashboard.system_info[:threads],
+                          get(dashboard.system_info, :julia_version, VERSION)))
+
+    push!(lines, "─" ^ terminal_width)
+
+    # Recent Events Section
+    push!(lines, "")
+    push!(lines, "📋 RECENT EVENTS")
+
+    if isempty(dashboard.events)
+        push!(lines, "  No recent events")
+    else
+        # Calculate how many events we can show based on remaining space
+        used_lines = length(lines) + 4  # Account for command help and spacing
+        available_lines = terminal_height - used_lines
+        max_events = min(max(5, available_lines - 2), length(dashboard.events))
+
+        recent_events = dashboard.events[max(1, end-max_events+1):end]
+        for event in reverse(recent_events)
+            timestamp = Dates.format(event[:time], "HH:MM:SS")
+            icon = event[:type] == :error ? "❌" :
+                   event[:type] == :warning ? "⚠️ " :
+                   event[:type] == :success ? "✅" : "ℹ️ "
+
+            # Truncate message to fit terminal width
+            max_msg_len = terminal_width - 15  # Account for timestamp and icon
+            message = length(event[:message]) > max_msg_len ?
+                     event[:message][1:max_msg_len-3] * "..." : event[:message]
+
+            push!(lines, "  [$timestamp] $icon $message")
+        end
+    end
+
+    push!(lines, "─" ^ terminal_width)
+
+    # Help/Commands Section
+    push!(lines, "")
+    if dashboard.command_mode
+        push!(lines, "💬 Command: /$(dashboard.command_buffer)_")
+    elseif dashboard.show_help
+        push!(lines, "❓ HELP")
+        push!(lines, "  [n] New Model     [/] Command Mode  [h] Toggle Help")
+        push!(lines, "  [s] Start Train   [r] Refresh Data   [q] Quit")
+        push!(lines, "  [p] Pause/Resume  [d] Download Data  [c] Check Config")
+    else
+        push!(lines, "Press 'n' for new model │ '/' for commands │ 'h' for help │ 'q' to quit")
+    end
+
+    # Print all lines
+    for line in lines
+        println(line)
+    end
+end
+
+end # module

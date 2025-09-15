@@ -3227,7 +3227,7 @@ export TournamentDashboard, run_dashboard, add_event!, start_training, save_perf
        categorize_error, get_user_friendly_message, get_severity_icon, render_recovery_mode,
        get_system_diagnostics, get_configuration_status, discover_local_data_files, get_last_known_good_state,
        save_last_known_good_state, get_detailed_network_status, get_troubleshooting_suggestions,
-       test_network_connectivity, check_configuration_files, download_tournament_data, 
+       test_network_connectivity, check_configuration_files, download_tournament_data,
        view_detailed_error_logs, save_diagnostic_report,
        # Callback integration functions
        create_dashboard_training_callback, complete_training!,
@@ -3238,6 +3238,11 @@ export TournamentDashboard, run_dashboard, add_event!, start_training, save_perf
        # Sticky panel functions
        render_sticky_dashboard, render_top_sticky_panel, render_bottom_sticky_panel,
        # System info functions
-       update_system_info!
+       update_system_info!,
+       # Command execution functions
+       execute_command, download_data_internal, train_models_internal, submit_predictions_internal,
+       # Types and structs
+       ModelInfo, ChartPoint, EventLevel, EventEntry, SystemStatus,
+       StatusLevel, ProgressTracker, DashboardConfig, CategorizedError, ModelWizardState
 
 end

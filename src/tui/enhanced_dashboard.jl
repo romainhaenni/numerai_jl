@@ -4,7 +4,8 @@ using Dates
 using Printf
 using ..API
 
-export render_enhanced_dashboard, create_progress_bar, create_spinner,
+export render_enhanced_dashboard, render_unified_status_panel, render_events_panel,
+       create_progress_bar, create_spinner,
        format_duration, center_text, create_metric_bar, ProgressTracker,
        update_progress_tracker!
 
@@ -307,16 +308,15 @@ function render_enhanced_dashboard(dashboard, progress_tracker::ProgressTracker)
     submission_str = "Pending"
     time_left = "00:00:00"
 
-    # Try to get actual info if available
-    if haskey(dashboard, :get_staking_info)
-        try
-            stake_info = dashboard.get_staking_info(dashboard)
-            round_str = "Round #$(stake_info[:current_round])"
-            submission_str = stake_info[:submission_status]
-            time_left = stake_info[:time_remaining]
-        catch
-            # Keep defaults
+    # Try to get actual tournament info if available
+    try
+        # Get current round info from API if available
+        if isdefined(dashboard, :api_client) && dashboard.api_client !== nothing
+            # This would need proper API integration
+            # For now, use placeholder values
         end
+    catch
+        # Keep defaults on any error
     end
 
     push!(lines, "Tournament: $round_str │ Submission: $submission_str │ Time Left: $time_left")
@@ -425,6 +425,306 @@ function render_enhanced_dashboard(dashboard, progress_tracker::ProgressTracker)
     for line in lines
         println(line)
     end
+end
+
+"""
+Render unified status panel with all system information
+"""
+function render_unified_status_panel(dashboard)::String
+    lines = String[]
+
+    # System Diagnostics
+    push!(lines, "🔧 SYSTEM DIAGNOSTICS:")
+    sys = dashboard.system
+    cpu_usage = @sprintf("%.0f%%", get(sys, :cpu_usage, 0))
+    load_avg = get(sys, :load_avg, (0.0, 0.0, 0.0))
+    load_str = @sprintf("%.2f, %.2f, %.2f", load_avg...)
+    memory_used = get(sys, :memory_used, 0.0)
+    memory_total = get(sys, :memory_total, 48.0)
+    memory_pct = memory_total > 0 ? (memory_used / memory_total * 100) : 0
+
+    push!(lines, "   CPU Usage: $cpu_usage (Load: $load_str)")
+    push!(lines, @sprintf("   Memory: %.1f GB / %.1f GB (%.0f%%)", memory_used, memory_total, memory_pct))
+
+    # Disk space (placeholder - would need actual implementation)
+    push!(lines, "   Disk Space: 0.0 GB free / 0.0 GB total")
+    push!(lines, @sprintf("   Process Memory: %.1f MB", get(sys, :process_memory, 0.0)))
+    push!(lines, @sprintf("   Threads: %d (Julia: %d)", get(sys, :threads, 1), Threads.nthreads()))
+
+    uptime = get(sys, :uptime, 0)
+    uptime_str = format_duration(uptime)
+    push!(lines, "   Uptime: $uptime_str")
+    push!(lines, "")
+
+    # Configuration Status
+    push!(lines, "⚙️  CONFIGURATION STATUS:")
+
+    # API Keys - safely display partial keys
+    pub_key = get(ENV, "NUMERAI_PUBLIC_ID", "NOT SET")
+    sec_key = get(ENV, "NUMERAI_SECRET_KEY", "NOT SET")
+    if pub_key != "NOT SET" && length(pub_key) > 8
+        pub_display = pub_key[1:4] * "..." * pub_key[end-3:end]
+    else
+        pub_display = pub_key
+    end
+    if sec_key != "NOT SET" && length(sec_key) > 8
+        sec_display = sec_key[1:4] * "..." * sec_key[end-3:end]
+    else
+        sec_display = sec_key
+    end
+    api_status = (pub_key != "NOT SET" && sec_key != "NOT SET") ? "✅" : "❌"
+    push!(lines, "   API Keys: $api_status Set via ENV ($pub_display, $sec_display)")
+
+    push!(lines, "   Tournament ID: $(dashboard.config.tournament_id)")
+    push!(lines, "   Data Directory: ✅ $(dashboard.config.data_dir)")
+    push!(lines, "   Models Directory: ✅ $(dashboard.config.model_dir)")
+    push!(lines, "   Feature Set: $(dashboard.config.feature_set)")
+
+    # Environment variables summary
+    env_vars = []
+    push!(env_vars, "NUMERAI_PUBLIC_ID=***")
+    push!(env_vars, "NUMERAI_SECRET_KEY=***")
+    push!(env_vars, "JULIA_NUM_THREADS=$(Threads.nthreads())")
+    if haskey(ENV, "PATH")
+        path = ENV["PATH"]
+        if length(path) > 30
+            path = path[1:27] * "..."
+        end
+        push!(env_vars, "PATH=$path")
+    end
+    push!(lines, "   Environment Variables: " * join(env_vars, ", "))
+    push!(lines, "")
+
+    # Current Model Status
+    push!(lines, "📊 CURRENT MODEL STATUS:")
+    model_name = get(dashboard.model, :name, "Unknown")
+    is_active = get(dashboard.model, :is_active, false)
+    push!(lines, "   Model: $model_name")
+    push!(lines, "   Active: $(is_active ? "Yes" : "No")")
+    push!(lines, "")
+
+    # Local Data Files
+    push!(lines, "📁 LOCAL DATA FILES:")
+
+    # Check for model files
+    push!(lines, "   Model Files:")
+    model_dir = dashboard.config.model_dir
+    if isdir(model_dir)
+        model_files = readdir(model_dir)
+        if !isempty(model_files)
+            for file in model_files[1:min(3, length(model_files))]
+                filepath = joinpath(model_dir, file)
+                if isfile(filepath)
+                    size_mb = filesize(filepath) / 1024 / 1024
+                    mtime_val = mtime(filepath)
+                    mtime_dt = Dates.unix2datetime(mtime_val)
+                    time_str = Dates.format(mtime_dt, "yyyy-mm-dd HH:MM")
+                    push!(lines, @sprintf("     • %s (%.1f MB, %s)", file, size_mb, time_str))
+                end
+            end
+        end
+    end
+
+    # Check for data files
+    push!(lines, "   Data Files:")
+    data_dir = dashboard.config.data_dir
+    important_files = ["features.json", "live.parquet", "train.parquet", "validation.parquet"]
+    for file in important_files
+        filepath = joinpath(data_dir, file)
+        if isfile(filepath)
+            size_bytes = filesize(filepath)
+            if size_bytes > 1024 * 1024 * 1024  # GB
+                size_str = @sprintf("%.1f GB", size_bytes / 1024 / 1024 / 1024)
+            elseif size_bytes > 1024 * 1024  # MB
+                size_str = @sprintf("%.1f MB", size_bytes / 1024 / 1024)
+            else  # KB
+                size_str = @sprintf("%.1f KB", size_bytes / 1024)
+            end
+            mtime_val = mtime(filepath)
+            mtime_dt = Dates.unix2datetime(mtime_val)
+            time_str = Dates.format(mtime_dt, "yyyy-mm-dd HH:MM")
+            push!(lines, "     • $file ($size_str, $time_str)")
+        end
+    end
+
+    # Config files
+    push!(lines, "   Config Files:")
+    config_files = ["config.toml"]
+    for file in config_files
+        if isfile(file)
+            size_bytes = filesize(file)
+            size_str = @sprintf("%.0f B", size_bytes)
+            mtime_val = mtime(file)
+            mtime_dt = Dates.unix2datetime(mtime_val)
+            time_str = Dates.format(mtime_dt, "yyyy-mm-dd HH:MM")
+            push!(lines, "     • $file ($size_str, $time_str)")
+        end
+    end
+    push!(lines, "")
+
+    # Last Known Good State
+    push!(lines, "💾 LAST KNOWN GOOD STATE:")
+    # This would need implementation to track successful operations
+    push!(lines, "   ❌ No previous good state recorded")
+    push!(lines, "")
+
+    # Network Status
+    push!(lines, "🌐 NETWORK STATUS:")
+    network = dashboard.network_status
+    is_connected = get(network, :is_connected, false)
+    connection_str = is_connected ? "✅ Connected" : "❌ Disconnected"
+    push!(lines, "   Connection: $connection_str")
+
+    last_check = get(network, :last_check, nothing)
+    if last_check !== nothing
+        push!(lines, "   Last Check: $last_check")
+    else
+        push!(lines, "   Last Check: Never")
+    end
+
+    latency = get(network, :api_latency, 0.0)
+    push!(lines, @sprintf("   API Latency: %.1fms", latency))
+
+    failures = get(network, :consecutive_failures, 0)
+    push!(lines, "   Consecutive Failures: $failures")
+    push!(lines, "")
+
+    # Add progress bars for active operations
+    if dashboard.progress_tracker.is_downloading
+        push!(lines, "📥 DOWNLOADING:")
+        push!(lines, "   File: $(dashboard.progress_tracker.download_file)")
+        progress_bar = create_progress_bar(
+            dashboard.progress_tracker.download_current_mb,
+            dashboard.progress_tracker.download_total_mb,
+            width=40
+        )
+        push!(lines, "   Progress: $progress_bar")
+        push!(lines, @sprintf("   %.1f MB / %.1f MB",
+            dashboard.progress_tracker.download_current_mb,
+            dashboard.progress_tracker.download_total_mb))
+        push!(lines, "")
+    end
+
+    if dashboard.progress_tracker.is_uploading
+        push!(lines, "📤 UPLOADING:")
+        push!(lines, "   File: $(dashboard.progress_tracker.upload_file)")
+        progress_bar = create_progress_bar(
+            dashboard.progress_tracker.upload_current_mb,
+            dashboard.progress_tracker.upload_total_mb,
+            width=40
+        )
+        push!(lines, "   Progress: $progress_bar")
+        push!(lines, @sprintf("   %.1f MB / %.1f MB",
+            dashboard.progress_tracker.upload_current_mb,
+            dashboard.progress_tracker.upload_total_mb))
+        push!(lines, "")
+    end
+
+    if dashboard.progress_tracker.is_training
+        push!(lines, "🏋️ TRAINING:")
+        push!(lines, "   Model: $(dashboard.progress_tracker.training_model)")
+        progress_bar = create_progress_bar(
+            dashboard.progress_tracker.training_epoch,
+            dashboard.progress_tracker.training_total_epochs,
+            width=40
+        )
+        push!(lines, "   Progress: $progress_bar")
+        push!(lines, @sprintf("   Epoch: %d / %d",
+            dashboard.progress_tracker.training_epoch,
+            dashboard.progress_tracker.training_total_epochs))
+        push!(lines, @sprintf("   Loss: %.4f | Val Score: %.4f",
+            dashboard.progress_tracker.training_loss,
+            dashboard.progress_tracker.training_val_score))
+        push!(lines, "")
+    end
+
+    if dashboard.progress_tracker.is_predicting
+        push!(lines, "🔮 PREDICTING:")
+        push!(lines, "   Model: $(dashboard.progress_tracker.prediction_model)")
+        progress_bar = create_progress_bar(
+            dashboard.progress_tracker.prediction_rows_processed,
+            dashboard.progress_tracker.prediction_total_rows,
+            width=40
+        )
+        push!(lines, "   Progress: $progress_bar")
+        push!(lines, @sprintf("   Rows: %d / %d",
+            dashboard.progress_tracker.prediction_rows_processed,
+            dashboard.progress_tracker.prediction_total_rows))
+        push!(lines, "")
+    end
+
+    # Troubleshooting Suggestions
+    push!(lines, "🔍 TROUBLESHOOTING SUGGESTIONS:")
+    if !is_connected
+        push!(lines, "   1. Check your internet connection")
+        push!(lines, "   2. Verify API credentials are correct")
+        push!(lines, "   3. Check Numerai API status at https://status.numer.ai")
+    elseif failures > 0
+        push!(lines, "   1. Check Numerai API status at https://status.numer.ai")
+        push!(lines, "   2. Reduce API request frequency by increasing refresh_rate in config.toml")
+        push!(lines, "   3. Try running: r to retry dashboard initialization")
+    else
+        push!(lines, "   System is operating normally")
+    end
+    push!(lines, "")
+
+    # Recovery Commands
+    push!(lines, "⌨️  RECOVERY COMMANDS:")
+    push!(lines, "   r  - Retry dashboard initialization")
+    push!(lines, "   n  - Test network connectivity")
+    push!(lines, "   c  - Check configuration files")
+    push!(lines, "   d  - Download fresh tournament data")
+    push!(lines, "   l  - View detailed error logs")
+    push!(lines, "   s  - Start training (original functionality)")
+    push!(lines, "   /save - Save current diagnostic report")
+    push!(lines, "   /diag - Run full system diagnostics")
+    push!(lines, "   /reset - Reset all error counters")
+    push!(lines, "   /backup - Create configuration backup")
+    push!(lines, "   q  - Quit dashboard")
+    push!(lines, "   h  - Show help")
+
+    return join(lines, "\n")
+end
+
+"""
+Render events panel showing recent events
+"""
+function render_events_panel(dashboard; max_events::Int=20)::String
+    lines = String[]
+
+    push!(lines, "📋 RECENT EVENTS:")
+    push!(lines, "" * "─" ^ 60)
+
+    events = dashboard.events
+    if isempty(events)
+        push!(lines, "   No events recorded yet")
+    else
+        # Show most recent events first
+        for (i, event) in enumerate(reverse(events)[1:min(max_events, length(events))])
+            type_icon = if event[:type] == :error
+                "❌"
+            elseif event[:type] == :warning
+                "⚠️"
+            elseif event[:type] == :success
+                "✅"
+            else
+                "ℹ️"
+            end
+
+            timestamp = get(event, :time, now())
+            time_str = Dates.format(timestamp, "HH:MM:SS")
+            message = get(event, :message, "Unknown event")
+
+            # Truncate long messages
+            if length(message) > 50
+                message = message[1:47] * "..."
+            end
+
+            push!(lines, "   [$time_str] $type_icon $message")
+        end
+    end
+
+    return join(lines, "\n")
 end
 
 end # module

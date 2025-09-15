@@ -582,8 +582,21 @@ function render(dashboard::TournamentDashboard)
             println(panel1)
             println(panel2)
         else
-            # Use enhanced single panel dashboard
-            EnhancedDashboard.render_enhanced_dashboard(dashboard, dashboard.progress_tracker)
+            # Use new unified status panel and events panel
+            # Clear screen by moving cursor to top
+            print("\033[H\033[2J")
+
+            # Render unified status panel (sticky at top)
+            status_panel = EnhancedDashboard.render_unified_status_panel(dashboard)
+            println(status_panel)
+
+            # Separator
+            println("─" ^ 80)
+            println()
+
+            # Render events panel below
+            events_panel = EnhancedDashboard.render_events_panel(dashboard)
+            println(events_panel)
         end
     catch e
         # Enhanced recovery mode with comprehensive diagnostics

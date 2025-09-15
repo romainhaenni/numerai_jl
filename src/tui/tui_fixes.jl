@@ -188,7 +188,7 @@ function create_download_callback(dashboard)
                 dashboard.progress_tracker, :download,
                 progress = 0.0,
                 file = file_name,
-                is_active = true
+                active = true
             )
             add_event!(dashboard, :info, "Downloading: $file_name")
         elseif phase == :progress
@@ -205,14 +205,14 @@ function create_download_callback(dashboard)
             EnhancedDashboard.update_progress_tracker!(
                 dashboard.progress_tracker, :download,
                 progress = 100.0,
-                is_active = false
+                active = false
             )
             file_name = get(kwargs, :name, "unknown")
             add_event!(dashboard, :success, "Download complete: $file_name")
         elseif phase == :error
             EnhancedDashboard.update_progress_tracker!(
                 dashboard.progress_tracker, :download,
-                is_active = false
+                active = false
             )
             error_msg = get(kwargs, :error, "Unknown error")
             add_event!(dashboard, :error, "Download failed: $error_msg")
@@ -231,7 +231,7 @@ function create_upload_callback(dashboard)
                 dashboard.progress_tracker, :upload,
                 progress = 0.0,
                 file = file_name,
-                is_active = true
+                active = true
             )
             add_event!(dashboard, :info, "Uploading: $file_name")
         elseif phase == :progress
@@ -248,13 +248,13 @@ function create_upload_callback(dashboard)
             EnhancedDashboard.update_progress_tracker!(
                 dashboard.progress_tracker, :upload,
                 progress = 100.0,
-                is_active = false
+                active = false
             )
             add_event!(dashboard, :success, "Upload complete")
         elseif phase == :error
             EnhancedDashboard.update_progress_tracker!(
                 dashboard.progress_tracker, :upload,
-                is_active = false
+                active = false
             )
             error_msg = get(kwargs, :error, "Unknown error")
             add_event!(dashboard, :error, "Upload failed: $error_msg")
@@ -274,7 +274,7 @@ function create_training_callback(dashboard)
                 current_epoch = info.current_epoch,
                 total_epochs = info.total_epochs,
                 progress = (info.current_epoch - 1) / info.total_epochs * 100,
-                is_active = true
+                active = true
             )
         elseif info.phase == :epoch_end
             progress = info.current_epoch / info.total_epochs * 100
@@ -297,7 +297,7 @@ function create_training_callback(dashboard)
             EnhancedDashboard.update_progress_tracker!(
                 dashboard.progress_tracker, :training,
                 progress = 100.0,
-                is_active = false
+                active = false
             )
             dashboard.training_info[:is_training] = false
             add_event!(dashboard, :success, "Training complete: $(info.model_name)")
@@ -320,7 +320,7 @@ function create_prediction_callback(dashboard)
                 model_name = model_name,
                 total_samples = total_samples,
                 progress = 0.0,
-                is_active = true
+                active = true
             )
             add_event!(dashboard, :info, "Starting predictions: $model_name")
         elseif phase == :progress
@@ -336,7 +336,7 @@ function create_prediction_callback(dashboard)
             EnhancedDashboard.update_progress_tracker!(
                 dashboard.progress_tracker, :prediction,
                 progress = 100.0,
-                is_active = false
+                active = false
             )
             model_name = get(kwargs, :model, "model")
             add_event!(dashboard, :success, "Predictions complete: $model_name")

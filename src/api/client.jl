@@ -447,30 +447,49 @@ function get_submission_status(client::NumeraiClient, model_name::String, round_
     return result
 end
 
-function submit_predictions(client::NumeraiClient, model_name::String, predictions_path::String; validate_window::Bool=true, max_upload_size_mb::Float64=DEFAULT_MAX_UPLOAD_SIZE_MB)
+function submit_predictions(client::NumeraiClient, model_name::String, predictions_path::String;
+                          validate_window::Bool=true, max_upload_size_mb::Float64=DEFAULT_MAX_UPLOAD_SIZE_MB,
+                          progress_callback=nothing)
     if !isfile(predictions_path)
         error("Predictions file not found: $predictions_path")
     end
-    
+
     # Validate file size before reading into memory
     validate_file_size(predictions_path; max_size_mb=max_upload_size_mb)
-    
+
+    # Get file size for progress tracking
+    file_size = filesize(predictions_path)
+    size_mb = round(file_size / 1024 / 1024, digits=1)
+
+    # Call progress callback if provided
+    if progress_callback !== nothing
+        progress_callback(:start, file=basename(predictions_path), model=model_name, size_mb=size_mb)
+    end
+
     # Validate submission window if requested
     if validate_window
         current_round = get_current_round(client)
         window_info = get_submission_window_info(current_round.open_time)
-        
+
         if !window_info.is_open
             time_closed = abs(window_info.time_remaining)
+            if progress_callback !== nothing
+                progress_callback(:error, message="Submission window closed")
+            end
             error("Submission window is closed for round $(current_round.number). Window closed $(round(time_closed, digits=1)) hours ago (at $(window_info.window_end) UTC)")
         end
-        
+
         @log_info "Submission window is open" round_type=window_info.round_type round=current_round.number
         if window_info.time_remaining > 0
             @log_info "Time remaining for submission" hours_remaining=round(window_info.time_remaining, digits=1) closes_at=window_info.window_end
         end
     end
-    
+
+    # Update progress: Getting upload URL
+    if progress_callback !== nothing
+        progress_callback(:progress, phase="Getting upload URL", progress=10.0)
+    end
+
     # First, get the upload URL
     query = """
     mutation(\$filename: String!, \$modelId: String!) {
@@ -484,17 +503,28 @@ function submit_predictions(client::NumeraiClient, model_name::String, predictio
         }
     }
     """
-    
+
     result = graphql_query(client, query, Dict(
         "filename" => basename(predictions_path),
         "modelId" => model_name
     ))
-    
+
     submission_id = result.createSignalsSubmission.id
     upload_url = result.createSignalsSubmission.uploadUrl
-    
+
+    # Update progress: Starting upload
+    if progress_callback !== nothing
+        progress_callback(:progress, phase="Uploading file", progress=30.0)
+    end
+
     # Upload the file to S3
     file_content = read(predictions_path)
+
+    # Update progress: File read, uploading
+    if progress_callback !== nothing
+        progress_callback(:progress, phase="Uploading to S3", progress=50.0)
+    end
+
     upload_response = HTTP.put(
         upload_url,
         Dict("Content-Type" => "text/csv"),
@@ -502,11 +532,19 @@ function submit_predictions(client::NumeraiClient, model_name::String, predictio
         readtimeout=300,
         connect_timeout=30
     )
-    
+
     if upload_response.status != 200
+        if progress_callback !== nothing
+            progress_callback(:error, message="Upload failed with status $(upload_response.status)")
+        end
         error("Failed to upload predictions: $(upload_response.status)")
     end
-    
+
+    # Update progress: Complete
+    if progress_callback !== nothing
+        progress_callback(:complete, model=model_name, submission_id=submission_id, size_mb=size_mb)
+    end
+
     @log_info "Successfully uploaded predictions" model=model_name
     return submission_id
 end

@@ -62,7 +62,7 @@ end
 
 # Configuration struct for model creation
 struct ModelConfig
-    type::String  # "xgboost", "lightgbm", "evotrees", "mlp", "resnet", "tabnet"
+    type::String  # "xgboost", "lightgbm", "evotrees", "mlp", "resnet"
     name::String  # Optional model name
     params::Dict{Symbol, Any}  # Model-specific parameters
     

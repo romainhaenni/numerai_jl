@@ -1200,7 +1200,7 @@ function feature_importance(model::XGBoostModel)::Dict{String, Float64}
         for (feature_key, importance_value) in first_importance
             feature_name = string(feature_key)  # Convert key to string
             importance_val = if importance_value isa AbstractVector
-                Float64(sum(importance_value))  # Sum the vector for multi-component importance
+                Float64(sum(Float64.(importance_value)))  # Convert to Float64 first, then sum
             else
                 Float64(importance_value)
             end
@@ -1213,7 +1213,7 @@ function feature_importance(model::XGBoostModel)::Dict{String, Float64}
             for (feature_key, importance_value) in target_importance
                 feature_name = string(feature_key)  # Convert key to string
                 importance_val = if importance_value isa AbstractVector
-                    Float64(sum(importance_value))  # Sum the vector for multi-component importance
+                    Float64(sum(Float64.(importance_value)))  # Convert to Float64 first, then sum
                 else
                     Float64(importance_value)
                 end
@@ -1255,7 +1255,7 @@ function feature_importance(model::XGBoostModel)::Dict{String, Float64}
             feature_name = string(feature_key)  # Convert key to string
             # Handle case where importance_value might be a vector or scalar
             importance_val = if importance_value isa AbstractVector
-                Float64(sum(importance_value))  # Sum the vector for multi-component importance
+                Float64(sum(Float64.(importance_value)))  # Convert to Float64 first, then sum
             else
                 Float64(importance_value)
             end

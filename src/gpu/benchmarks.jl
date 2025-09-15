@@ -9,9 +9,8 @@ using Printf
 using Dates
 using CSV
 
-# Import Metal acceleration module
-include("metal_acceleration.jl")
-using .MetalAcceleration
+# Use Metal acceleration module (already loaded by main module)
+using ..MetalAcceleration
 
 export run_comprehensive_gpu_benchmark, generate_benchmark_report
 export benchmark_data_preprocessing, benchmark_model_operations

@@ -37,13 +37,19 @@ Send a macOS notification using AppleScript.
 # Returns
 - `true` if notification was sent successfully, `false` otherwise
 """
-function send_notification(title::String, message::String; 
+function send_notification(title::String, message::String;
                           level::NotificationLevel=INFO,
                           sound::Bool=true)
+    # Check notification support on first use
+    if !check_notification_support()
+        @log_debug "Notifications not supported, skipping" title=title
+        return false
+    end
+
     # Escape quotes in title and message for AppleScript
     title_escaped = replace(title, "\"" => "\\\"")
     message_escaped = replace(message, "\"" => "\\\"")
-    
+
     # Determine sound name based on level
     sound_name = if !sound
         ""
@@ -54,7 +60,7 @@ function send_notification(title::String, message::String;
     else
         "Glass"  # Info sound
     end
-    
+
     # Build AppleScript command
     script = if sound_name != ""
         """
@@ -65,10 +71,10 @@ function send_notification(title::String, message::String;
         display notification "$(message_escaped)" with title "Numerai Tournament" subtitle "$(title_escaped)"
         """
     end
-    
+
     # Execute AppleScript via osascript
     cmd = `osascript -e $script`
-    
+
     try
         run(cmd)
         @log_debug "Notification sent" title=title level=level
@@ -264,11 +270,8 @@ end
 
 # Module initialization
 function __init__()
-    if check_notification_support()
-        @log_info "Notification system initialized"
-    else
-        @log_warn "Notification system unavailable - osascript not found"
-    end
+    # Defer notification support check to first use to speed up module loading
+    @log_info "Notification system initialized"
 end
 
 end # module

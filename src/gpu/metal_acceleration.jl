@@ -882,11 +882,31 @@ Initialize Metal acceleration system
 """
 function __init__()
     @info "Initializing Metal acceleration system"
-    
+
     if has_metal_gpu()
         device = configure_metal_device()
         if device.is_available
-            @info "Metal GPU acceleration ready" device_info=get_gpu_info()
+            # Use the already configured device info to avoid redundant calls
+            info = Dict(
+                "available" => true,
+                "device_name" => if device.compute_units <= 8
+                    "Apple M1 GPU"
+                elseif device.compute_units <= 16
+                    "Apple M1 Pro/M2 GPU"
+                elseif device.compute_units <= 32
+                    "Apple M1 Max/M2 Max GPU"
+                else
+                    "Apple M-series Ultra GPU"
+                end,
+                "memory_total" => device.memory_total,
+                "memory_free" => device.memory_free,
+                "memory_used" => device.memory_total - device.memory_free,
+                "memory_gb" => device.memory_total / (1024^3),
+                "compute_units" => device.compute_units,
+                "max_threads_per_group" => device.max_threads_per_group,
+                "supports_unified_memory" => device.supports_unified_memory
+            )
+            @info "Metal GPU acceleration ready" device_info=info
         else
             @info "Metal GPU not available, CPU fallback will be used"
         end

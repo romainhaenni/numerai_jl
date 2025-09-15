@@ -542,13 +542,14 @@ function render_unified_dashboard(dashboard::TournamentDashboard)
     model_status = dashboard.model[:is_active] ? "🟢 Active" : "🔴 Inactive"
 
     # Try to get staking info
+    round_info = ""
+    submission_info = ""
     try
         stake_info = get_staking_info(dashboard)
         round_info = " │ Round: #$(stake_info[:current_round])"
         submission_info = " │ $(stake_info[:submission_status])"
     catch
-        round_info = ""
-        submission_info = ""
+        # Keep defaults
     end
 
     push!(content_lines, "Model: $(dashboard.model[:name]) ($model_status)$round_info$submission_info")

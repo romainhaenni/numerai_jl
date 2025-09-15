@@ -51,8 +51,8 @@ using Test
         NumeraiTournament.UnifiedTUIFix.apply_unified_tui_fix!(dashboard)
 
         # Test that unified fix is applied
-        @test isdefined(dashboard, :unified_fix_applied)
-        @test dashboard.unified_fix_applied == true
+        @test haskey(dashboard.active_operations, :unified_fix)
+        @test dashboard.active_operations[:unified_fix] == true
 
         # Test instant command handler exists
         @test isdefined(NumeraiTournament.UnifiedTUIFix, :handle_instant_command)
@@ -68,7 +68,8 @@ using Test
 
         # Apply fix and check setup
         NumeraiTournament.UnifiedTUIFix.apply_unified_tui_fix!(dashboard)
-        @test isdefined(dashboard, :unified_fix_applied)
+        @test haskey(dashboard.active_operations, :unified_fix)
+        @test dashboard.active_operations[:unified_fix] == true
     end
 
     @testset "Real-time Updates" begin
@@ -77,8 +78,8 @@ using Test
         NumeraiTournament.UnifiedTUIFix.apply_unified_tui_fix!(dashboard)
 
         # Check adaptive refresh is enabled
-        @test isdefined(dashboard, :adaptive_refresh)
-        @test dashboard.adaptive_refresh == true
+        @test haskey(dashboard.system_info, :adaptive_refresh)
+        @test dashboard.system_info[:adaptive_refresh] == true
 
         # Check refresh rate adjusts
         initial_rate = dashboard.refresh_rate
@@ -104,11 +105,11 @@ using Test
         NumeraiTournament.UnifiedTUIFix.apply_unified_tui_fix!(dashboard)
 
         # Check sticky panel configuration
-        @test isdefined(dashboard, :use_sticky_panels)
-        @test dashboard.use_sticky_panels == true
-        @test dashboard.top_panel_height == 12
-        @test dashboard.bottom_panel_height == 15
-        @test dashboard.max_events_shown == 30
+        @test haskey(dashboard.system_info, :use_sticky_panels)
+        @test dashboard.system_info[:use_sticky_panels] == true
+        @test dashboard.system_info[:top_panel_height] == 12
+        @test dashboard.system_info[:bottom_panel_height] == 15
+        @test dashboard.system_info[:max_events_shown] == 30
     end
 
     @testset "Progress Updates During Operations" begin
@@ -155,8 +156,8 @@ using Test
 
         # Check last event
         last_event = dashboard.events[end]
-        @test last_event.level == :error
-        @test last_event.message == "Test error message"
+        @test get(last_event, :level, nothing) == :error
+        @test get(last_event, :message, nothing) == "Test error message"
     end
 
     @testset "Render Functions" begin

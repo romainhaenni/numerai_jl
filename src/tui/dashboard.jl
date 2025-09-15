@@ -766,10 +766,11 @@ function render_bottom_sticky_panel(dashboard::TournamentDashboard, height::Int,
 
         # Truncate message if too long
         max_msg_length = width - 15  # Account for timestamp and icon
-        message = if length(event.message) > max_msg_length
-            event.message[1:max_msg_length-3] * "..."
+        event_msg = get(event, :message, "")
+        message = if length(event_msg) > max_msg_length
+            event_msg[1:max_msg_length-3] * "..."
         else
-            event.message
+            event_msg
         end
 
         # Format and print the event line with color

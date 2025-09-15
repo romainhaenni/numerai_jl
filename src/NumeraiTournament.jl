@@ -138,7 +138,7 @@ using .EnhancedDashboard: ProgressTracker, update_progress_tracker!,
 using .Dashboard: TournamentDashboard, run_dashboard, add_event!, start_training,
                   update_system_info!, render_sticky_dashboard, render_top_sticky_panel,
                   render_bottom_sticky_panel
-using .UnifiedTUIFix: apply_unified_tui_fix!
+using .UnifiedTUIFix: apply_unified_fix!
 using .Utils: utc_now, utc_now_datetime, is_weekend_round,
              calculate_submission_window_end, is_submission_window_open,
              get_submission_window_info, get_disk_space_info

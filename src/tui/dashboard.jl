@@ -289,7 +289,7 @@ function run_dashboard(dashboard::TournamentDashboard)
         add_event!(dashboard, :info, "Dashboard started")
 
         # Apply unified TUI fix for all features
-        NumeraiTournament.UnifiedTUIFix.apply_unified_tui_fix!(dashboard)
+        NumeraiTournament.UnifiedTUIFix.apply_unified_fix!(dashboard)
 
         # Check if auto_submit is enabled and start automatic pipeline
         if dashboard.config.auto_submit
@@ -542,6 +542,12 @@ function render_sticky_dashboard(dashboard::TournamentDashboard)
     - Middle panel: Dynamic content area
     - Bottom panel: Event logs (sticky)
     """
+
+    # If unified fix is active, use its rendering with sticky panels
+    if haskey(dashboard.active_operations, :unified_fix) && dashboard.active_operations[:unified_fix]
+        NumeraiTournament.UnifiedTUIFix.render_with_sticky_panels(dashboard)
+        return
+    end
 
     # If realtime tracker is available and active, use it for rendering
     if isdefined(dashboard, :realtime_tracker) && !isnothing(dashboard.realtime_tracker)

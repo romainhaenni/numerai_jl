@@ -36,7 +36,7 @@ function test_tui_fixes()
     dashboard = Dashboard.TournamentDashboard(
         config,
         api_client,
-        Dict{String, Any}(:name => "test_model", :type => "XGBoost"),
+        Dict{String, Any}("name" => "test_model", "type" => "XGBoost"),
         Symbol[],  # tournament_rounds
         Dashboard.ModelInfo[],  # models
         Dates.DateTime[],  # performance_history

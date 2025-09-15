@@ -1,13 +1,9 @@
 module UnifiedTUIFix
 
-using ..Dashboard: TournamentDashboard, DashboardPanel, add_event!, save_dashboard_state
-using ..Dashboard: ModelInfo, ChartPoint, EventLevel, EventEntry, SystemStatus
-using ..Dashboard: StatusLevel, ProgressTracker, DashboardConfig
-using ..Dashboard: update_system_status!, @safe_call
+using ..Dashboard: TournamentDashboard, add_event!
 using ..Dashboard: download_data_internal, train_models_internal, submit_predictions_internal
 using ..Dashboard: execute_command
 using ..EnhancedDashboard: render_enhanced_dashboard
-using ..NumeraiTournament: get_config
 using Dates
 using Printf
 using Term
@@ -15,6 +11,8 @@ using REPL
 
 export apply_unified_fix!, monitor_operations, setup_sticky_panels!
 export read_key_improved, handle_instant_command, unified_input_loop
+export download_with_progress, train_with_progress, submit_with_progress
+export render_with_sticky_panels
 
 struct UnifiedFix
     instant_commands::Bool
@@ -176,7 +174,9 @@ function download_with_progress(dashboard::TournamentDashboard)
             add_event!(dashboard, :success, "✅ Data download completed successfully")
 
             # Auto-training after successful download if configured
-            if dashboard.config.auto_submit || get(ENV, "AUTO_TRAIN", "false") == "true"
+            if dashboard.config.auto_submit ||
+               get(dashboard.config, :auto_train_after_download, false) ||
+               get(ENV, "AUTO_TRAIN", "false") == "true"
                 add_event!(dashboard, :info, "🚀 Starting automatic training after download...")
                 # Small delay to show completion
                 sleep(1.0)
@@ -277,13 +277,19 @@ function monitor_operations(dashboard::TournamentDashboard)
 
             if is_active
                 # Update system status to show activity
-                update_system_status!(dashboard, :running, "Operations in progress...")
+                dashboard.system_status[:level] = :running
+                dashboard.system_status[:message] = "Operations in progress..."
+                dashboard.system_status[:icon] = "🔄"
 
                 # Force dashboard refresh for real-time updates
-                dashboard.needs_refresh[] = true
+                if isdefined(dashboard, :needs_refresh) && dashboard.needs_refresh isa Ref
+                    dashboard.needs_refresh[] = true
+                end
             else
                 # Update system status to idle when no operations
-                update_system_status!(dashboard, :ready, "System ready")
+                dashboard.system_status[:level] = :ready
+                dashboard.system_status[:message] = "System ready"
+                dashboard.system_status[:icon] = "🟢"
             end
 
             # Adaptive sleep based on activity
@@ -302,19 +308,19 @@ end
 Setup sticky panels with ANSI positioning
 """
 function setup_sticky_panels!(dashboard::TournamentDashboard)
-    # Enable sticky panels in configuration
-    dashboard.config.sticky_top_panel = true
-    dashboard.config.sticky_bottom_panel = true
-    dashboard.config.event_limit = 30  # Show last 30 events in bottom panel
+    # Enable sticky panels in TUI configuration dictionary
+    dashboard.config.tui_config["sticky_top_panel"] = true
+    dashboard.config.tui_config["sticky_bottom_panel"] = true
+    dashboard.config.tui_config["event_limit"] = 30  # Show last 30 events in bottom panel
 
     # Store terminal dimensions for proper positioning
     terminal_height, terminal_width = displaysize(stdout)
 
     # Configure panel heights
-    dashboard.config.top_panel_height = 8    # System status panel
-    dashboard.config.bottom_panel_height = 10 # Event log panel
-    dashboard.config.main_panel_start = 9    # Main content starts after top panel
-    dashboard.config.main_panel_end = terminal_height - 10  # Main content ends before bottom panel
+    dashboard.config.tui_config["top_panel_height"] = 8    # System status panel
+    dashboard.config.tui_config["bottom_panel_height"] = 10 # Event log panel
+    dashboard.config.tui_config["main_panel_start"] = 9    # Main content starts after top panel
+    dashboard.config.tui_config["main_panel_end"] = terminal_height - 10  # Main content ends before bottom panel
 
     add_event!(dashboard, :info, "📌 Sticky panels configured (top: system, bottom: events)")
 end
@@ -334,9 +340,11 @@ function render_with_sticky_panels(dashboard::TournamentDashboard)
     print("\033[1;1H")
 
     # Render system status panel
+    status_icon = get(dashboard.system_status, :icon, "🟢")
+    status_level = get(dashboard.system_status, :level, :ready)
     status_panel = Panel(
         """
-        $(dashboard.system_status.icon) Status: $(dashboard.system_status.level)
+        $(status_icon) Status: $(status_level)
         📊 Active Models: $(length(dashboard.models))
         🔄 Last Update: $(Dates.format(now(), "HH:MM:SS"))
 
@@ -364,26 +372,31 @@ function render_with_sticky_panels(dashboard::TournamentDashboard)
     bottom_start = terminal_height - 10
     print("\033[$(bottom_start);1H")
 
-    # Get last 30 events
-    recent_events = length(dashboard.events) > 30 ?
-                   dashboard.events[end-29:end] :
+    # Get last 30 events (or configured limit)
+    event_limit = get(dashboard.config.tui_config, "event_limit", 30)
+    recent_events = length(dashboard.events) > event_limit ?
+                   dashboard.events[end-(event_limit-1):end] :
                    dashboard.events
 
     # Format events with color coding and emojis
     event_lines = String[]
     for event in recent_events
-        color = event.level == :error ? "red" :
-                event.level == :warning ? "yellow" :
-                event.level == :success ? "green" :
+        event_level = get(event, :level, :info)
+        event_message = get(event, :message, "")
+        event_timestamp = get(event, :timestamp, now())
+
+        color = event_level == :error ? "red" :
+                event_level == :warning ? "yellow" :
+                event_level == :success ? "green" :
                 "white"
 
-        emoji = event.level == :error ? "❌" :
-                event.level == :warning ? "⚠️" :
-                event.level == :success ? "✅" :
+        emoji = event_level == :error ? "❌" :
+                event_level == :warning ? "⚠️" :
+                event_level == :success ? "✅" :
                 "ℹ️"
 
-        time_str = Dates.format(event.timestamp, "HH:MM:SS")
-        push!(event_lines, "[$time_str] $emoji $(event.message)")
+        time_str = Dates.format(event_timestamp, "HH:MM:SS")
+        push!(event_lines, "[$time_str] $emoji $(event_message)")
     end
 
     events_panel = Panel(

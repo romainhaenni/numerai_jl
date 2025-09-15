@@ -135,8 +135,13 @@ end
 Update system info in real-time
 """
 function update_system_info_realtime!(dashboard::TournamentDashboard)
-    # Update CPU usage (simplified calculation)
-    dashboard.system_info[:cpu_usage] = rand(20:60)  # Placeholder - would use actual system stats
+    # Get actual CPU usage from system load average
+    # Load average is a better metric than trying to read /proc/stat
+    load_avg = Sys.loadavg()
+    cpu_cores = Sys.CPU_THREADS
+    # Normalize load average to percentage (load / cores * 100)
+    # Cap at 100% for display purposes
+    dashboard.system_info[:cpu_usage] = min(100.0, round(load_avg[1] / cpu_cores * 100, digits=1))
 
     # Update memory usage
     dashboard.system_info[:memory_used] = round(
@@ -144,14 +149,24 @@ function update_system_info_realtime!(dashboard::TournamentDashboard)
         digits=1
     )
 
-    # Update load average
-    dashboard.system_info[:load_avg] = Sys.loadavg()
+    # Calculate memory percentage
+    dashboard.system_info[:memory_total] = round(Sys.total_memory() / (1024^3), digits=1)
+    dashboard.system_info[:memory_percent] = round(
+        (dashboard.system_info[:memory_used] / dashboard.system_info[:memory_total]) * 100,
+        digits=1
+    )
+
+    # Update load average array
+    dashboard.system_info[:load_avg] = load_avg
 
     # Update process memory
     dashboard.system_info[:process_memory] = round(
         Base.gc_live_bytes() / (1024^3),
         digits=2
     )
+
+    # Update thread count
+    dashboard.system_info[:threads_active] = Threads.nthreads()
 end
 
 """

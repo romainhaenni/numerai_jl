@@ -505,7 +505,6 @@ function render_unified_dashboard(dashboard::TournamentDashboard)
     """
     Render a single unified panel with all essential information in a clean, organized format
     """
-    using Dates
 
     # Get terminal dimensions
     terminal_width = try

@@ -1,3 +1,37 @@
+
+you say:
+```
+⚠ Skipping API test due to credential format issues
+
+============================================================
+HOW TO FIX AUTHENTICATION:
+============================================================
+
+1. Get your Numerai API credentials:
+   • Go to https://numer.ai
+   • Log in to your account
+   • Go to Account → Compute (or API section)
+   • Generate a new API key
+   • Copy both the Public ID and Secret Key
+
+2. Update your .env file:
+   • Open .env in your editor
+   • Replace the example credentials with your real ones:
+
+   NUMERAI_PUBLIC_ID=your_real_public_id_here
+   NUMERAI_SECRET_KEY=your_real_secret_key_here
+
+3. Run this script again to validate
+```
+-> i have done that, all set in @.env and @config.toml, too. fix your implementation!!!!! the credentials are correctly obtained from Numerai and configured in the files you say!!!!! DO NOT TELL ME ANYMORE THAT YOU ARE WAITING FOR ME TO SET THE REAL CREDENTIALS, I HAVE DONE THAT!!!!! YOU ARE THE ONE WHO IS NOT SETTING THE NEEDED AUTH HEADERS IN THE REQUESTS!!!!!!
+
+
+Fix More Issues:
+-> TUI looks not nice
+-> the TUI commands are not working
+-> we have 3 different scripts to start the program: @startup.jl, @start_tui.jl, and ./numerai. which one is the right one? remove the obsolete ones
+
+---
 study @specs/* to learn about the program specifications and @scratchpad.md to understand plan so far.
 
 The source code of the program is in @src/*

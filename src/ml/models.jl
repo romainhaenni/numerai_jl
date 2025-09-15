@@ -1197,18 +1197,30 @@ function feature_importance(model::XGBoostModel)::Dict{String, Float64}
         
         # Initialize accumulator with first model's importance
         feature_dict = Dict{String, Float64}()
-        for (feature_name, importance_value) in first_importance
-            feature_dict[feature_name] = importance_value
+        for (feature_key, importance_value) in first_importance
+            feature_name = string(feature_key)  # Convert key to string
+            importance_val = if importance_value isa AbstractVector
+                Float64(sum(importance_value))  # Sum the vector for multi-component importance
+            else
+                Float64(importance_value)
+            end
+            feature_dict[feature_name] = importance_val
         end
-        
+
         # Add importance from other target models
         for i in 2:n_targets
             target_importance = XGBoost.importance(model.model[i])
-            for (feature_name, importance_value) in target_importance
-                if haskey(feature_dict, feature_name)
-                    feature_dict[feature_name] += importance_value
+            for (feature_key, importance_value) in target_importance
+                feature_name = string(feature_key)  # Convert key to string
+                importance_val = if importance_value isa AbstractVector
+                    Float64(sum(importance_value))  # Sum the vector for multi-component importance
                 else
-                    feature_dict[feature_name] = importance_value
+                    Float64(importance_value)
+                end
+                if haskey(feature_dict, feature_name)
+                    feature_dict[feature_name] += importance_val
+                else
+                    feature_dict[feature_name] = importance_val
                 end
             end
         end
@@ -1228,9 +1240,29 @@ function feature_importance(model::XGBoostModel)::Dict{String, Float64}
         
         return feature_dict
     else
-        # Single-target case
-        importance = XGBoost.importance(model.model)
-        return importance
+        # Single-target case - model.model might be Vector with single element or Booster
+        xgb_model = if model.model isa Vector
+            model.model[1]  # Get first (and only) model from vector
+        else
+            model.model  # Use the model directly if it's a Booster
+        end
+
+        importance = XGBoost.importance(xgb_model)
+
+        # Convert to Dict{String, Float64} - XGBoost returns Dict with Integer keys
+        feature_dict = Dict{String, Float64}()
+        for (feature_key, importance_value) in importance
+            feature_name = string(feature_key)  # Convert key to string
+            # Handle case where importance_value might be a vector or scalar
+            importance_val = if importance_value isa AbstractVector
+                Float64(sum(importance_value))  # Sum the vector for multi-component importance
+            else
+                Float64(importance_value)
+            end
+            feature_dict[feature_name] = importance_val
+        end
+
+        return feature_dict
     end
 end
 

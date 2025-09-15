@@ -40,8 +40,11 @@ julia --project=. -e "using Pkg; Pkg.test(coverage=true)"
 
 ### TUI Dashboard Usage
 ```bash
-# Run TUI with new grid layout (default)
-julia -t 16 ./numerai
+# Run TUI with optimal thread count (recommended)
+./numerai
+
+# Run TUI with custom thread count
+./numerai --threads 8
 
 # Interactive model creation wizard
 # In TUI: Press 'n' to create a new model, follow prompts for:
@@ -59,8 +62,8 @@ julia -t 16 ./numerai
 
 ### Main Application
 ```bash
-# Run TUI dashboard (recommended: use multiple threads)
-julia -t 16 ./numerai
+# Run TUI dashboard (recommended)
+./numerai
 
 # Run in headless mode for automation
 ./numerai --headless
@@ -73,6 +76,9 @@ julia -t 16 ./numerai
 
 # Download tournament data
 ./numerai --download
+
+# Show help and all options
+./numerai --help
 ```
 
 ## High-Level Architecture

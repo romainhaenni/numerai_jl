@@ -30,7 +30,7 @@ using ..Models.Callbacks: CallbackInfo, CallbackResult, DashboardCallback, CONTI
 # Define the UTC time function locally
 using TimeZones
 function utc_now()
-    return ZonedDateTime(now(tz"UTC"))
+    return now(tz"UTC")
 end
 function utc_now_datetime()
     return DateTime(utc_now())

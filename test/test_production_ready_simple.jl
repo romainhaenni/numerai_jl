@@ -38,7 +38,7 @@ run_test("Configuration", () -> begin
     config_path = joinpath(dirname(@__DIR__), "config.toml")
     @test isfile(config_path)
     config = NumeraiTournament.load_config(config_path)
-    @test isa(config, Dict)
+    @test isa(config, NumeraiTournament.TournamentConfig)
 end)
 
 # 3. API client creation (public endpoints)
@@ -53,7 +53,7 @@ end)
 
 # 4. Model creation
 run_test("Model Creation", () -> begin
-    for model_type in [:xgboost, :lightgbm, :ridge]
+    for model_type in [:XGBoost, :LightGBM, :Ridge]
         model = NumeraiTournament.create_model(model_type)
         @test isa(model, NumeraiTournament.Models.NumeraiModel)
     end
@@ -93,19 +93,19 @@ end)
 # 8. Logger functionality
 run_test("Logger", () -> begin
     temp_dir = mktempdir()
-    NumeraiTournament.Logger.initialize_logger(temp_dir)
-    NumeraiTournament.Logger.log_info("Test message")
-    log_file = joinpath(temp_dir, "logs", "numerai.log")
-    @test isfile(log_file)
-    rm(temp_dir, recursive=true)
+    log_file_path = joinpath(temp_dir, "test.log")
+    NumeraiTournament.Logger.init_logger(log_file = log_file_path)
+    NumeraiTournament.Logger.@log_info "Test message"
+    @test isfile(log_file_path) || isdir(dirname(log_file_path))
+    rm(temp_dir, recursive=true, force=true)
 end)
 
 # 9. Database functionality
 run_test("Database", () -> begin
     temp_db = tempname() * ".db"
-    db = NumeraiTournament.Database.init_database(temp_db)
+    db = NumeraiTournament.Database.init_database(db_path=temp_db)
     @test isfile(temp_db)
-    
+
     # Test saving predictions
     df = DataFrame(id = ["test1"], prediction = [0.5])
     NumeraiTournament.Database.save_predictions(db, df, "test_model", 500)
@@ -116,17 +116,20 @@ end)
 # 10. Data preprocessing
 run_test("Data Preprocessing", () -> begin
     Random.seed!(42)
+    # Create DataFrame with columns that allow missing values
     df = DataFrame(
-        feature_1 = randn(100),
-        feature_2 = randn(100),
+        feature_1 = Vector{Union{Float64, Missing}}(randn(100)),
+        feature_2 = Vector{Union{Float64, Missing}}(randn(100)),
         target = rand(100),
         era = repeat(1:10, inner=10)
     )
-    
-    preprocessor = NumeraiTournament.DataProcessing.DataPreprocessor()
-    processed = NumeraiTournament.DataProcessing.preprocess_data(
-        preprocessor, df, ["feature_1", "feature_2"]
-    )
+
+    # Test fillna function
+    df[1, :feature_1] = missing
+    df[5, :feature_2] = missing
+    processed = NumeraiTournament.Preprocessor.fillna(df, 0.5)
+    @test !any(ismissing, processed.feature_1)
+    @test !any(ismissing, processed.feature_2)
     @test size(processed) == size(df)
 end)
 

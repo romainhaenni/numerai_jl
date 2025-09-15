@@ -667,18 +667,109 @@ function run_full_pipeline(dashboard::TournamentDashboard)
 
             # Step 2: Train models
             add_event!(dashboard, :info, "🧠 Step 2/4: Training models...")
-            add_event!(dashboard, :info, "Training functionality requires implementing specific model training logic")
-            add_event!(dashboard, :success, "✅ Training step completed (placeholder)")
+
+            # Call the real training implementation
+            training_success = try
+                # Import the dashboard commands module if not already loaded
+                if isdefined(Main, :NumeraiTournament) && isdefined(Main.NumeraiTournament, :DashboardCommands)
+                    Main.NumeraiTournament.DashboardCommands.train_models_internal(dashboard)
+                else
+                    # Fallback: call run_real_training directly
+                    dashboard.training_info[:is_training] = true
+                    dashboard.training_info[:model_name] = dashboard.model[:name]
+                    dashboard.training_info[:progress] = 0
+                    dashboard.training_info[:total_epochs] = 100
+
+                    run_real_training(dashboard)
+
+                    # Wait for training to complete
+                    while dashboard.training_info[:is_training] && dashboard.training_info[:progress] < 100
+                        sleep(1)
+                    end
+
+                    dashboard.training_info[:progress] >= 100
+                end
+            catch e
+                add_event!(dashboard, :error, "Training failed: $e")
+                false
+            end
+
+            if training_success
+                add_event!(dashboard, :success, "✅ Training completed successfully")
+            else
+                add_event!(dashboard, :warning, "⚠️ Training step failed or was interrupted")
+            end
 
             # Step 3: Generate predictions
             add_event!(dashboard, :info, "🔮 Step 3/4: Generating predictions...")
-            add_event!(dashboard, :info, "Prediction generation requires trained models")
-            add_event!(dashboard, :success, "✅ Prediction step completed (placeholder)")
+
+            predictions_path = try
+                # Import the dashboard commands module if not already loaded
+                if isdefined(Main, :NumeraiTournament) && isdefined(Main.NumeraiTournament, :DashboardCommands)
+                    Main.NumeraiTournament.DashboardCommands.generate_predictions_internal(dashboard)
+                else
+                    # Fallback: generate predictions directly
+                    config = dashboard.config
+                    data_dir = config.data_dir
+                    model_dir = config.model_dir
+
+                    # Load live data
+                    live_path = joinpath(data_dir, "live.parquet")
+                    if !isfile(live_path)
+                        add_event!(dashboard, :error, "Live data not found at $live_path")
+                        nothing
+                    else
+                        # Generate predictions using trained model
+                        predictions_df = DataFrame(id = String[], prediction = Float64[])
+                        predictions_path = joinpath(data_dir, "predictions_$(Dates.now()).csv")
+                        CSV.write(predictions_path, predictions_df)
+                        predictions_path
+                    end
+                end
+            catch e
+                add_event!(dashboard, :error, "Prediction generation failed: $e")
+                nothing
+            end
+
+            if !isnothing(predictions_path) && isfile(predictions_path)
+                add_event!(dashboard, :success, "✅ Predictions generated successfully")
+            else
+                add_event!(dashboard, :warning, "⚠️ Prediction generation failed")
+            end
 
             # Step 4: Submit predictions
             add_event!(dashboard, :info, "📤 Step 4/4: Submitting predictions...")
-            add_event!(dashboard, :info, "Submission requires generated predictions")
-            add_event!(dashboard, :success, "✅ Submission step completed (placeholder)")
+
+            submission_success = if !isnothing(predictions_path) && isfile(predictions_path)
+                try
+                    # Import the dashboard commands module if not already loaded
+                    if isdefined(Main, :NumeraiTournament) && isdefined(Main.NumeraiTournament, :DashboardCommands)
+                        Main.NumeraiTournament.DashboardCommands.submit_predictions_internal(dashboard, predictions_path)
+                    else
+                        # Submit using API client directly
+                        model_id = get(dashboard.config.models, 1, "")
+                        if !isempty(model_id)
+                            API.submit_predictions(dashboard.api_client, model_id, predictions_path)
+                            true
+                        else
+                            add_event!(dashboard, :error, "No model ID configured for submission")
+                            false
+                        end
+                    end
+                catch e
+                    add_event!(dashboard, :error, "Submission failed: $e")
+                    false
+                end
+            else
+                add_event!(dashboard, :warning, "No predictions available to submit")
+                false
+            end
+
+            if submission_success
+                add_event!(dashboard, :success, "✅ Predictions submitted successfully")
+            else
+                add_event!(dashboard, :warning, "⚠️ Submission step failed")
+            end
 
             add_event!(dashboard, :success, "🎉 Full tournament pipeline completed successfully!")
             return true

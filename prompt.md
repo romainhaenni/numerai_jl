@@ -1,73 +1,37 @@
 
 Fix More Issues:
-- in TUI, provide one panel that contains all the information (sticky to the top of the terminal):
-```
-🔧 SYSTEM DIAGNOSTICS:
-   CPU Usage: 89% (Load: 10.69, 6.34, 4.97)
-   Memory: 46.3 GB / 48.0 GB (96%)
-   Disk Space: 0.0 GB free / 0.0 GB total
-   Process Memory: 0.0 MB
-   Threads: 16 (Julia: 16)
-   Uptime: 0s
-
-⚙️  CONFIGURATION STATUS:
-   API Keys: ✅ Set via ENV (I3ME...BV7E, 337B...SBHE)
-   Tournament ID: 8
-   Data Directory: ✅ data
-   Models Directory: ✅ models
-   Feature Set: medium
-   Environment Variables: NUMERAI_PUBLIC_ID=***, NUMERAI_SECRET_KEY=***, JULIA_NUM_THREADS=16..., PATH=/Users/romain/src/Nu...
-
-📊 CURRENT MODEL STATUS:
-   Model: numeraijl
-   Active: No
-
-📁 LOCAL DATA FILES:
-   Model Files:
-   Data Files:
-     • features.json (283.9 KB, 2025-09-15 06:48)
-     • live.parquet (7.9 MB, 2025-09-15 06:45)
-     • train.parquet (2.2 GB, 2025-09-15 06:43)
-     • validation.parquet (3.3 GB, 2025-09-15 06:45)
-   Config Files:
-     • config.toml (956 B, 2025-09-12 10:40)
-
-💾 LAST KNOWN GOOD STATE:
-   ❌ No previous good state recorded
-
-🌐 NETWORK STATUS:
-   Connection: ✅ Connected
-   Last Check: 2025-09-15T07:46:33.622
-   API Latency: 0.0ms
-   Consecutive Failures: 0
-
-🔍 TROUBLESHOOTING SUGGESTIONS:
-   1. Check Numerai API status at https://status.numer.ai
-   2. Reduce API request frequency by increasing refresh_rate in config.toml
-   3. Try running: r to retry dashboard initialization
-
-⌨️  RECOVERY COMMANDS:
-   r  - Retry dashboard initialization
-   n  - Test network connectivity
-   c  - Check configuration files
-   d  - Download fresh tournament data
-   l  - View detailed error logs
-   s  - Start training (original functionality)
-   /save - Save current diagnostic report
-   /diag - Run full system diagnostics
-   /reset - Reset all error counters
-   /backup - Create configuration backup
-   q  - Quit dashboard
-   h  - Show help
-```
--> below this panel there is another panel that is listing up the revent events
--> the info and events panel are updating all the time so that these panels show really the current state of the pipeline and system
 
 - bug:
 ```
-⚠️  RENDERING ERROR DETAILS:
-   Error Type: MethodError
-   Message: MethodError(haskey, (TournamentDashboard(TournamentConfig("I3MEFCUZJQ4BEU5TSO7MY7XDIU2UBV7E", "337BEF4U2RZO6VOUHJGSOHAIWB7XT2M56PNL66HMS6KVWPZRC4XPMVEIVDLVSBHE", ["numeraijl"], "data", "models", true, 1.0, 12, 8, "medium", false, 1.0, 100.0, 10000.0, Dict{String, Any}("training" => Dict("progress_bar_width" => 20, "default_epochs" => 100), "refresh_rate" => 1.0, "network_timeout" => 5, "network_check_interval" => 60.0, "panels" => Dict("staking_panel_width" => 40, "predictions_panel_width" => 40, "events_panel_width" => 60, "training_panel_width" => 40, "events_panel_height" => 22, "system_panel_width" => 40, "help_panel_width" => 40, "model_panel_width" => 60), "charts" => Dict{String, Real}("correlation_bar_width" => 20, "sparkline_width" => 40, "sparkline_height" => 8, "histogram_width" => 40, "correlation_positive_threshold" => 0.02, "performance_sparkline_height" => 4, "correlation_negative_threshold" => -0.02, "histogram_bins" => 20, "mini_chart_width" => 10, "bar_chart_width" => 40, "performance_sparkline_width" => 30), "model_update_interval" => 30.0, "limits" => Dict("performance_history_max" => 100, "events_history_max" => 100, "api_error_history_max" => 50, "max_events_display" => 20)), 0.1, "target_cyrus_v4_20", false, 0.5, true, 52, 2), NumeraiTournament.API.NumeraiClient("I3MEFCUZJQ4BEU5TSO7MY7XDIU2UBV7E", "337BEF4U2RZO6VOUHJGSOHAIWB7XT2M56PNL66HMS6KVWPZRC4XPMVEIVDLVSBHE", Dict("Accept" => "application/json", "Content-Type" => "application/json", "Authorization" => "Token I3MEFCUZJQ4BEU5TSO7MY7XDIU2UBV7E\$337BEF4U2RZO6VOUHJGSOHAIWB7XT2M56PNL66HMS6KVWPZRC4XPMVEIVDLVSBHE"), 8), Dict{Symbol, Any}(:mmc => 0.0, :sharpe => 0.0, :fnc => 0.0, :is_active => false, :tc => 0.0, :name => "numeraijl", :corr => 0.0), Dict{Symbol, Any}[Dict(:mmc => 0.0, :sharpe => 0.0, :fnc => 0.0, :is_active => false, :tc => 0.0, :name => "numeraijl", :corr => 0.0)], Dict{Symbol, Any}[Dict(:type => :info, :message => "Dashboard started", :time => Dates.DateTime("2025-09-15T07:46:35.769")), Dict(:type => :info, :message => "Auto-submit enabled, starting automatic pipeline...", :time => Dates.DateTime("2025-09-15T07:46:35.775"))], Dict{Symbol, Any}(:memory_used => 0.0, :threads => 16, :uptime => 0, :model_active => false, :memory_total => 48.0, :cpu_usage => 0, :julia_version => "1.11.6"), Dict{Symbol, Any}(:loss => 0.0, :model_name => "numeraijl", :val_score => 0.0, :is_training => false, :current_epoch => 0, :eta => "N/A", :progress => 0, :total_epochs => 0), Float64[], Dict{Symbol, Any}[], true, false, false, 1.0, "", false, false, nothing, nothing, nothing, false, Dict{NumeraiTournament.Dashboard.ErrorCategory, Int64}(NumeraiTournament.Dashboard.API_ERROR => 0, NumeraiTournament.Dashboard.TIMEOUT_ERROR => 0, NumeraiTournament.Dashboard.AUTH_ERROR => 0, NumeraiTournament.Dashboard.NETWORK_ERROR => 0, NumeraiTournament.Dashboard.DATA_ERROR => 0, NumeraiTournament.Dashboard.VALIDATION_ERROR => 0, NumeraiTournament.Dashboard.SYSTEM_ERROR => 0), Dict{Symbol, Any}(:api_latency => 0.0, :last_check => Dates.DateTime("2025-09-15T07:46:33.622"), :is_connected => true, :consecutive_failures => 0), NumeraiTournament.Dashboard.CategorizedError[], NumeraiTournament.Dashboard.EnhancedDashboard.ProgressTracker(0.0, "", 0.0, 0.0, 0.0, "", 0.0, 0.0, 0.0, "", 0, 0, 0.0, 0.0, 0.0, "", 0, 0, false, false, false, false, Dates.DateTime("2025-09-15T09:46:33.622"))), :get_staking_info), 0x000000000000697b)
+📋 RECENT EVENTS:
+────────────────────────────────────────────────────────────
+   [08:10:11] ℹ️ Auto-submit enabled, starting automatic pipelin...
+   [08:10:11] ℹ️ Dashboard started
+┌ Info: Logging initialized
+│   log_file = "logs/numerai_20250915_101019.log"
+│   console_level = Info
+└   file_level = Debug
+┌ Info: Downloading dataset
+└   type = "train"
+┌ Info: Starting download
+└   file = "train"
+┌ Error: Download failed
+│   file = "train"
+│   error = "MethodError(Core.kwcall, ((name = \"train\",), NumeraiTournament.Dashboard.var\"#5#6\"{TournamentDashboard}(TournamentDashboard(TournamentConfig(\"I3MEFCUZJQ4BEU5TSO7MY7XDIU2UBV7E\", \"337BEF4U2RZO6VOUHJGSOHAIWB7XT2M56PNL66HMS6KVWPZRC4XPMVEIVDLVSBHE\", [\"numeraijl\"], \"data\", \"models\", true, 1.0, 12, 8, \"medium\", false, 1.0, 100.0, 10000.0, Dict{String, Any}(\"training\" => Dict(\"progress_bar_width\" => 20, \"default_epochs\" => 100), \"refresh_rate\" => 1.0, \"network_timeout\" => 5, \"network_check_interval\" => 60.0, \"panels\" => Dict(\"st" ⋯ 2926 bytes ⋯ "ournament.Dashboard.NETWORK_ERROR => 0, NumeraiTournament.Dashboard.DATA_ERROR => 0), Dict{Symbol, Any}(:api_latency => 0.0, :last_check => Dates.DateTime(\"2025-09-15T08:10:09.941\"), :is_connected => true, :consecutive_failures => 0), NumeraiTournament.Dashboard.CategorizedError[], NumeraiTournament.Dashboard.EnhancedDashboard.ProgressTracker(0.0, \"\", 0.0, 0.0, 0.0, \"\", 0.0, 0.0, 0.0, \"\", 0, 0, 0.0, 0.0, 0.0, \"\", 0, 0, false, false, false, false, Dates.DateTime(\"2025-09-15T10:10:09.941\")))), :start), 0x000000000000697b)"
+└ @ NumeraiTournament.API ~/src/Numerai/numerai_jl/src/logger.jl:229
+┌ Error: Download failed
+│   error =
+│    MethodError: no method matching (::NumeraiTournament.Dashboard.var"#5#6"{TournamentDashboard})(::Symbol; name::String)
+│    This method may not support any kwargs.
+│
+│    Closest candidates are:
+│      (::NumeraiTournament.Dashboard.var"#5#6")(::Any, Any...) got unsupported keyword argument "name"
+│       @ NumeraiTournament ~/src/Numerai/numerai_jl/src/tui/dashboard_commands.jl:138
+│
+└ @ NumeraiTournament.Dashboard ~/src/Numerai/numerai_jl/src/tui/dashboard_commands.jl:176
+┌ Error: Dashboard event
+│   message = "Failed to download data. Pipeline aborted."
+└ @ NumeraiTournament.Dashboard ~/src/Numerai/numerai_jl/src/logger.jl:229
 ```
 
 
@@ -77,7 +41,7 @@ Fix More Issues:
 - if there is training running show a progress bar or a spinner
 - if there is prediction running show a progress bar or a spinner
 - after the download of live, train and validation data, i can not see the system performing a training
-- typing the commands + Enter -> nothing happens
+- typing the commands + Enter -> nothing happens => i want to enter a command key and instantly the program to run this command (without approving it with the Enter key)
 
 ---
 study @specs/* to learn about the program specifications and @scratchpad.md to understand plan so far.

@@ -291,6 +291,9 @@ function run_dashboard(dashboard::TournamentDashboard)
         # Apply new integrated TUI system for real-time functionality
         NumeraiTournament.TUIIntegration.integrate_tui_system!(dashboard)
 
+        # Apply the WORKING TUI fixes to actually make features work
+        NumeraiTournament.TUIFixIntegration.integrate_working_tui!(dashboard)
+
         # Check if auto_submit is enabled and start automatic pipeline
         if dashboard.config.auto_submit
             add_event!(dashboard, :info, "Auto-submit enabled, starting automatic pipeline...")

@@ -99,6 +99,8 @@ include("tui/tui_fixes.jl")  # Must be loaded after dashboard.jl since it uses D
 include("tui/tui_enhanced.jl")  # Enhanced TUI fixes for v0.10.11
 include("tui/tui_realtime.jl")  # Real-time TUI implementation with proper progress tracking
 include("tui/tui_integration.jl")  # TUI integration module for connecting all components
+include("tui/working_tui.jl")  # Actually working TUI implementation
+include("tui/tui_fix_integration.jl")  # Integrates working TUI fixes into main dashboard
 include("scheduler/cron.jl")
 
 
@@ -147,8 +149,10 @@ using .TUIEnhanced: apply_tui_enhancements!, setup_instant_commands!, enable_aut
 using .TUIRealtime: RealTimeTracker, init_realtime_tracker, update_download_progress!,
                    update_upload_progress!, update_training_progress!, update_prediction_progress!,
                    render_realtime_dashboard!
-using .TUIIntegration: integrate_tui_system!, handle_instant_command, trigger_download,
-                      trigger_upload, trigger_training, trigger_prediction, monitor_operations
+using .TUIIntegration: integrate_tui_system!
+using .WorkingTUI: WorkingDashboard, init_working_dashboard!, render_working_dashboard!,
+                   handle_instant_key!, start_download!, start_training!
+using .TUIFixIntegration: integrate_working_tui!
 using .Utils: utc_now, utc_now_datetime, is_weekend_round,
              calculate_submission_window_end, is_submission_window_open,
              get_submission_window_info, get_disk_space_info

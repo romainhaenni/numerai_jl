@@ -11,7 +11,7 @@ The neural networks module provides state-of-the-art deep learning models specif
 ### 🧠 Multiple Architectures
 - **MLPModel**: Multi-layer perceptron with configurable layers
 - **ResNetModel**: Skip connections for deep networks  
-- **TabNetModel**: Attention mechanism optimized for tabular data
+- **TabNetModel**: *(Not yet implemented - planned for future release)*
 
 ### 🚀 Advanced Training Infrastructure
 - Early stopping with configurable patience
@@ -23,7 +23,7 @@ The neural networks module provides state-of-the-art deep learning models specif
 ### 🎯 Custom Loss Functions for Numerai
 - **Correlation-based loss**: Directly optimizes Pearson correlation
 - **MSE with correlation regularization**: Balanced approach
-- **Sparsity loss**: For attention mechanisms (TabNet)
+- **Sparsity loss**: For future attention mechanisms
 
 ### ⚡ GPU Acceleration
 - Full Metal.jl integration for Apple Silicon
@@ -96,23 +96,11 @@ model = ResNetModel("numerai_resnet",
                    learning_rate=0.001)
 ```
 
-### TabNetModel (Attention for Tabular Data)
-- **Purpose**: Attention-based architecture for tabular data
-- **Best for**: Feature selection, interpretable predictions
-- **Features**: Sequential attention, feature masking
-- **Parameters**:
-  - `n_d`: Decision prediction layer dimension
-  - `n_a`: Attention layer dimension  
-  - `n_steps`: Number of sequential attention steps
-
-```julia
-model = TabNetModel("numerai_tabnet",
-                   n_d=64,
-                   n_a=64,
-                   n_steps=4,
-                   learning_rate=0.02,
-                   batch_size=1024)
-```
+### TabNetModel (Planned Feature)
+- **Status**: Not yet implemented
+- **Purpose**: Will provide attention-based architecture for tabular data
+- **Timeline**: Future release (3-4 weeks development required for full implementation)
+- **Alternative**: Use MLPModel or ResNetModel for deep learning approaches
 
 ## Custom Loss Functions
 
@@ -313,7 +301,7 @@ train!(model, X_train, y_train,
 nn_models = [
     MLPModel("mlp1", hidden_layers=[128, 64]),
     ResNetModel("resnet1", hidden_layers=[128, 128]),
-    TabNetModel("tabnet1", n_steps=3)
+    # TabNetModel not yet implemented
 ]
 
 # Train all models
@@ -359,7 +347,7 @@ The neural networks module fully integrates with the existing Numerai pipeline:
 ### Model Selection
 - **MLPModel**: Start here for baseline performance
 - **ResNetModel**: Use for complex, non-linear patterns
-- **TabNetModel**: Choose when interpretability is important
+- **TabNetModel**: (Not yet implemented) Will provide interpretability features
 
 ### Hyperparameter Tuning
 - Start with small models and increase complexity

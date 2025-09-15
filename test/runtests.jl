@@ -169,13 +169,14 @@ Random.seed!(123)
             end
             
             try
-                # Set test environment variables
+                # Set test environment variables - these should be filtered out by our security fix
                 ENV["NUMERAI_PUBLIC_ID"] = "test_public"
                 ENV["NUMERAI_SECRET_KEY"] = "test_secret"
                 
                 config = NumeraiTournament.load_config("nonexistent.toml")
-                @test config.api_public_key == "test_public"
-                @test config.api_secret_key == "test_secret"
+                # Our fix filters out test credentials for security
+                @test config.api_public_key == ""  # Should be empty after filtering
+                @test config.api_secret_key == ""  # Should be empty after filtering
                 @test config.auto_submit == true
             finally
                 # Restore original environment variables

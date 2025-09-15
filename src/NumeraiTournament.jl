@@ -8,8 +8,48 @@ using TimeZones
 
 # Load environment variables from .env file if it exists
 function load_env_file(path::String = ".env")
-    if isfile(path)
-        lines = readlines(path)
+    # First try the provided path
+    env_path = path
+    
+    # If the file doesn't exist and it's a relative path, search for it
+    if !isfile(env_path) && !isabspath(path)
+        # Try to find the .env file by searching up the directory tree
+        # Start from current directory and work up
+        current_dir = pwd()
+        found = false
+        
+        # Search up to 5 levels up from current directory
+        for _ in 1:5
+            test_path = joinpath(current_dir, path)
+            if isfile(test_path)
+                env_path = test_path
+                found = true
+                break
+            end
+            parent = dirname(current_dir)
+            if parent == current_dir  # Reached root
+                break
+            end
+            current_dir = parent
+        end
+        
+        # If still not found, try the package directory
+        if !found
+            # Get the directory where this module file is located
+            module_dir = dirname(@__FILE__)
+            # Go up one level to get project root
+            project_root = dirname(module_dir)
+            test_path = joinpath(project_root, path)
+            if isfile(test_path)
+                env_path = test_path
+                found = true
+            end
+        end
+    end
+    
+    # Now load the file if it exists
+    if isfile(env_path)
+        lines = readlines(env_path)
         for line in lines
             line = strip(line)
             # Skip empty lines and comments
@@ -25,7 +65,9 @@ function load_env_file(path::String = ".env")
                 ENV[key] = val
             end
         end
+        return true  # Return true if file was loaded
     end
+    return false  # Return false if file was not found
 end
 
 include("logger.jl")
@@ -134,9 +176,17 @@ function load_config(path::String="config.toml")::TournamentConfig
     default_public_id = get(ENV, "NUMERAI_PUBLIC_ID", "")
     default_secret_key = get(ENV, "NUMERAI_SECRET_KEY", "")
     
-    # Warn if API credentials are not set
+    # Filter out test credentials that may have been set by test environments
+    if default_public_id in ["test_public", "test_public_id", "test", "placeholder", ""]
+        default_public_id = ""
+    end
+    if default_secret_key in ["test_secret", "test_secret_key", "test", "placeholder", ""]
+        default_secret_key = ""
+    end
+    
+    # Warn if API credentials are not set or are test values
     if isempty(default_public_id) || isempty(default_secret_key)
-        @log_warn "NUMERAI_PUBLIC_ID and/or NUMERAI_SECRET_KEY environment variables not set. API operations will fail without valid credentials."
+        @log_warn "NUMERAI_PUBLIC_ID and/or NUMERAI_SECRET_KEY environment variables not set or contain test values. API operations will fail without valid credentials."
     end
     
     # Default TUI configuration
@@ -235,9 +285,29 @@ function load_config(path::String="config.toml")::TournamentConfig
     # Load ML configuration section or use defaults
     ml_config = get(config, "ml", Dict{String, Any}())
     
+    # Get credentials from config file, but filter out test values
+    config_public_id = get(config, "api_public_key", default_public_id)
+    config_secret_key = get(config, "api_secret_key", default_secret_key)
+    
+    # Filter out test credentials from config.toml as well
+    if config_public_id in ["test_public", "test_public_id", "test", "placeholder", ""]
+        config_public_id = default_public_id
+    end
+    if config_secret_key in ["test_secret", "test_secret_key", "test", "placeholder", ""]
+        config_secret_key = default_secret_key
+    end
+    
+    # Final check - use empty strings if still test values
+    if config_public_id in ["test_public", "test_public_id", "test", "placeholder"]
+        config_public_id = ""
+    end
+    if config_secret_key in ["test_secret", "test_secret_key", "test", "placeholder"]
+        config_secret_key = ""
+    end
+    
     return TournamentConfig(
-        get(config, "api_public_key", default_public_id),
-        get(config, "api_secret_key", default_secret_key),
+        config_public_id,
+        config_secret_key,
         get(config, "models", String[]),  # Empty array instead of default_model
         get(config, "data_dir", "data"),
         get(config, "model_dir", "models"),

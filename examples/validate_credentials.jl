@@ -83,7 +83,8 @@ function test_api_connection(public_id, secret_key)
     println("Testing API Connection...")
     println("-"^60)
     
-    url = "https://api.numer.ai/graphql"
+    # Use the same tournament API endpoint as the main application
+    url = "https://api-tournament.numer.ai"
     
     # Test public API (no auth required)
     query_public = """

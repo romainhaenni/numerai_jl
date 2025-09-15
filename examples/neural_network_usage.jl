@@ -114,9 +114,8 @@ custom_configs = [
     NumeraiTournament.Pipeline.ModelConfig("mlp", 
         Dict(:hidden_layers=>[32, 16], :epochs=>20, :gpu_enabled=>false), 
         name="mlp_light"),
-    NumeraiTournament.Pipeline.ModelConfig("tabnet", 
-        Dict(:n_d=>16, :n_a=>16, :n_steps=>2, :epochs=>25, :gpu_enabled=>false), 
-        name="tabnet_light"),
+    # TabNet model was removed - not implemented yet
+    # Could be added in future as an advanced attention-based model
 ]
 
 custom_pipeline = NumeraiTournament.Pipeline.MLPipeline(

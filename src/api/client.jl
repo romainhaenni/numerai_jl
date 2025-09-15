@@ -18,7 +18,7 @@ using .Retry: with_retry, with_graphql_retry, with_download_retry, RetryConfig, 
 # Import UTC utility function
 include("../utils.jl")
 
-const GRAPHQL_ENDPOINT = "https://api-tournament.numer.ai"
+const GRAPHQL_ENDPOINT = "https://api-tournament.numer.ai/graphql"
 const DATA_BASE_URL = "https://numerai-public-datasets.s3-us-west-2.amazonaws.com"
 
 # Tournament ID constants

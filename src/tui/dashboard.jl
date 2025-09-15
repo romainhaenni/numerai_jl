@@ -206,7 +206,7 @@ function TournamentDashboard(config)
         nothing, nothing, nothing, false,  # selected_model_details, selected_model_stats, wizard_state, wizard_active
         error_counts, network_status, Vector{CategorizedError}(),  # error tracking fields
         EnhancedDashboard.ProgressTracker(),  # Initialize progress tracker
-        nothing,  # realtime_tracker - will be initialized by integration
+        Main.NumeraiTournament.TUIRealtime.init_realtime_tracker(),  # Initialize realtime tracker properly
         active_operations  # active operations tracking
     )
 end
@@ -289,7 +289,17 @@ function run_dashboard(dashboard::TournamentDashboard)
         add_event!(dashboard, :info, "Dashboard started")
 
         # Apply unified TUI fix for all features
-        NumeraiTournament.UnifiedTUIFix.apply_unified_fix!(dashboard)
+        Main.NumeraiTournament.UnifiedTUIFix.apply_unified_fix!(dashboard)
+
+        # Configure realtime tracker
+        if !isnothing(dashboard.realtime_tracker)
+            # Enable auto-training if configured
+            if dashboard.config.auto_submit || get(dashboard.config, :auto_train_after_download, false)
+                Main.NumeraiTournament.TUIRealtime.enable_auto_training!(dashboard.realtime_tracker)
+            end
+            # Enable instant commands
+            Main.NumeraiTournament.TUIRealtime.setup_instant_commands!(dashboard, dashboard.realtime_tracker)
+        end
 
         # Check if auto_submit is enabled and start automatic pipeline
         if dashboard.config.auto_submit
@@ -483,7 +493,7 @@ function input_loop(dashboard::TournamentDashboard)
     # Check if unified fix has been applied
     if haskey(dashboard.active_operations, :unified_fix) && dashboard.active_operations[:unified_fix]
         # Use the unified input loop with instant commands
-        NumeraiTournament.UnifiedTUIFix.unified_input_loop(dashboard)
+        Main.NumeraiTournament.UnifiedTUIFix.unified_input_loop(dashboard)
     else
         # Fallback to basic input loop
         basic_input_loop(dashboard)
@@ -499,9 +509,43 @@ function basic_input_loop(dashboard::TournamentDashboard)
             continue
         end
 
-        # Handle basic commands
+        # Handle instant commands without Enter key
+        handled = false
         if key == "q" || key == "Q"
             dashboard.running = false
+            handled = true
+        elseif key == "d" || key == "D"
+            add_event!(dashboard, :info, "🎯 Starting download...")
+            @async download_data_internal(dashboard)
+            handled = true
+        elseif key == "t" || key == "T"
+            add_event!(dashboard, :info, "🎯 Starting training...")
+            @async train_models_internal(dashboard)
+            handled = true
+        elseif key == "s" || key == "S"
+            add_event!(dashboard, :info, "🎯 Starting submission...")
+            @async submit_predictions_internal(dashboard)
+            handled = true
+        elseif key == "p" || key == "P"
+            dashboard.paused = !dashboard.paused
+            status = dashboard.paused ? "paused" : "resumed"
+            add_event!(dashboard, :info, "⏸ Dashboard $status")
+            handled = true
+        elseif key == "h" || key == "H"
+            dashboard.show_help = !dashboard.show_help
+            handled = true
+        elseif key == "n" || key == "N"
+            add_event!(dashboard, :info, "🆕 Starting model creation wizard...")
+            # Would start model wizard here
+            handled = true
+        elseif key == "r" || key == "R"
+            add_event!(dashboard, :info, "🔄 Refreshing dashboard...")
+            update_model_performances!(dashboard)
+            handled = true
+        end
+
+        if handled
+            add_event!(dashboard, :success, "✅ Command executed: $key")
         end
 
         sleep(0.01)
@@ -545,13 +589,13 @@ function render_sticky_dashboard(dashboard::TournamentDashboard)
 
     # If unified fix is active, use its rendering with sticky panels
     if haskey(dashboard.active_operations, :unified_fix) && dashboard.active_operations[:unified_fix]
-        NumeraiTournament.UnifiedTUIFix.render_with_sticky_panels(dashboard)
+        Main.NumeraiTournament.UnifiedTUIFix.render_with_sticky_panels(dashboard)
         return
     end
 
     # If realtime tracker is available and active, use it for rendering
     if isdefined(dashboard, :realtime_tracker) && !isnothing(dashboard.realtime_tracker)
-        TUIRealtime.render_realtime_dashboard!(dashboard.realtime_tracker, dashboard)
+        Main.NumeraiTournament.TUIRealtime.render_realtime_dashboard!(dashboard.realtime_tracker, dashboard)
         return
     end
 

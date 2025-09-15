@@ -160,6 +160,12 @@ function download_data_internal(dashboard::TournamentDashboard)
                     dashboard.progress_tracker, :download,
                     active=true, file=file_name, progress=0.0
                 )
+                # Also update realtime tracker if available
+                if !isnothing(dashboard.realtime_tracker)
+                    dashboard.realtime_tracker.download_active = true
+                    dashboard.realtime_tracker.download_file = file_name
+                    dashboard.realtime_tracker.download_progress = 0.0
+                end
                 add_event!(dashboard, :info, "📥 Downloading $file_name...")
             elseif phase == :progress
                 # Real-time progress update
@@ -170,6 +176,13 @@ function download_data_internal(dashboard::TournamentDashboard)
                     dashboard.progress_tracker, :download,
                     progress=progress, current_mb=current_mb, total_mb=total_mb
                 )
+                # Also update realtime tracker if available
+                if !isnothing(dashboard.realtime_tracker)
+                    should_train = Main.NumeraiTournament.TUIRealtime.update_download_progress!(
+                        dashboard.realtime_tracker, progress * 100,
+                        dashboard.realtime_tracker.download_file, total_mb, current_mb / total_mb
+                    )
+                end
             elseif phase == :complete
                 file_name = get(kwargs, :name, "unknown")
                 size_mb = get(kwargs, :size_mb, 0.0)
@@ -177,6 +190,13 @@ function download_data_internal(dashboard::TournamentDashboard)
                     dashboard.progress_tracker, :download,
                     active=false, progress=100.0, total_mb=size_mb, current_mb=size_mb
                 )
+                # Also update realtime tracker if available
+                if !isnothing(dashboard.realtime_tracker)
+                    should_train = Main.NumeraiTournament.TUIRealtime.update_download_progress!(
+                        dashboard.realtime_tracker, 100.0, file_name, size_mb, 0.0
+                    )
+                    dashboard.realtime_tracker.download_active = false
+                end
                 add_event!(dashboard, :success, "✅ Downloaded $file_name ($(round(size_mb, digits=1)) MB)")
             end
         end
@@ -240,6 +260,15 @@ function train_models_internal(dashboard::TournamentDashboard)
             epoch=0, total_epochs=100
         )
 
+        # Also update realtime tracker if available
+        if !isnothing(dashboard.realtime_tracker)
+            dashboard.realtime_tracker.training_active = true
+            dashboard.realtime_tracker.training_model = dashboard.model[:name]
+            dashboard.realtime_tracker.training_progress = 0.0
+            dashboard.realtime_tracker.training_epoch = 0
+            dashboard.realtime_tracker.training_total_epochs = 100
+        end
+
         # Run the actual training
         run_real_training(dashboard)
 
@@ -253,6 +282,19 @@ function train_models_internal(dashboard::TournamentDashboard)
                 loss=get(dashboard.training_info, :loss, 0.0),
                 val_score=get(dashboard.training_info, :val_score, 0.0)
             )
+
+            # Also update realtime tracker if available
+            if !isnothing(dashboard.realtime_tracker)
+                Main.NumeraiTournament.TUIRealtime.update_training_progress!(
+                    dashboard.realtime_tracker,
+                    dashboard.training_info[:progress],
+                    current_epoch,
+                    100,
+                    get(dashboard.training_info, :loss, 0.0),
+                    dashboard.model[:name]
+                )
+            end
+
             sleep(1)
         end
 
@@ -405,6 +447,13 @@ function submit_predictions_internal(dashboard::TournamentDashboard, predictions
             active=true, file=basename(predictions_path), progress=0.0
         )
 
+        # Also update realtime tracker if available
+        if !isnothing(dashboard.realtime_tracker)
+            dashboard.realtime_tracker.upload_active = true
+            dashboard.realtime_tracker.upload_file = basename(predictions_path)
+            dashboard.realtime_tracker.upload_progress = 0.0
+        end
+
         # Submit for each model
         total_models = length(config.models)
         for (idx, model_name) in enumerate(config.models)
@@ -430,6 +479,13 @@ function submit_predictions_internal(dashboard::TournamentDashboard, predictions
                         dashboard.progress_tracker, :upload,
                         progress=segment_progress
                     )
+                    # Also update realtime tracker if available
+                    if !isnothing(dashboard.realtime_tracker)
+                        Main.NumeraiTournament.TUIRealtime.update_upload_progress!(
+                            dashboard.realtime_tracker, segment_progress,
+                            dashboard.realtime_tracker.upload_file, 0.0
+                        )
+                    end
                 elseif phase == :complete
                     submission_id = get(kwargs, :submission_id, "")
                     size_mb = get(kwargs, :size_mb, 0.0)

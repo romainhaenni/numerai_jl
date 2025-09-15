@@ -3283,6 +3283,10 @@ export TournamentDashboard, run_dashboard, add_event!, start_training, save_perf
        # Model wizard functions
        start_model_wizard, handle_wizard_input, render_wizard,
        # Full pipeline function
-       run_full_pipeline
+       run_full_pipeline,
+       # Sticky panel functions
+       render_sticky_dashboard, render_top_sticky_panel, render_bottom_sticky_panel,
+       # System info functions
+       update_system_info!
 
 end

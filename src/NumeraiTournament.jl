@@ -93,10 +93,15 @@ include("performance/optimization.jl")
 include("compounding.jl")
 include("tui/charts.jl")
 include("tui/panels.jl")
+include("tui/enhanced_dashboard.jl")
 include("tui/dashboard.jl")
+include("tui/tui_fixes.jl")
 include("scheduler/cron.jl")
 
 export run_tournament, TournamentConfig, TournamentDashboard, run_dashboard, TournamentScheduler, load_config,
+       add_event!, start_training, update_system_info!, render_sticky_dashboard,
+       render_top_sticky_panel, render_bottom_sticky_panel,
+       TUIFixes, download_tournament_data,
        XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel,
        RidgeModel, LassoModel, ElasticNetModel,
        MLPModel, ResNetModel, NeuralNetworkModel,
@@ -125,7 +130,13 @@ using .MetalAcceleration: has_metal_gpu, get_gpu_info, gpu_standardize!
 using .GPUBenchmarks: run_comprehensive_gpu_benchmark
 using .Performance: optimize_for_m4_max
 using .Scheduler: TournamentScheduler, start_scheduler, download_latest_data, train_models
-using .Dashboard: TournamentDashboard, run_dashboard
+using .EnhancedDashboard: ProgressTracker, update_progress_tracker!,
+                         create_spinner, create_progress_bar, center_text, format_duration
+using .Dashboard: TournamentDashboard, run_dashboard, add_event!, start_training,
+                  update_system_info!, render_sticky_dashboard, render_top_sticky_panel,
+                  render_bottom_sticky_panel
+using .TUIFixes: create_download_callback, create_upload_callback, create_training_callback,
+                 handle_direct_command, download_tournament_data_with_training
 using .API: NumeraiClient, download_dataset, submit_predictions as api_submit_predictions, get_models, get_model_performance
 using .Pipeline: MLPipeline, save_pipeline, load_pipeline
 import .Pipeline: train!, predict

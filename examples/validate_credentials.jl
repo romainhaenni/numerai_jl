@@ -51,11 +51,8 @@ function validate_credential_format(public_id, secret_key)
     else
         println("✓ NUMERAI_PUBLIC_ID is set ($(length(public_id)) characters)")
         
-        # Check for example credentials
-        if public_id == "I3MEFCUZJQ4BEU5TSO7MY7XDIU2UBV7E"
-            push!(issues, "✗ NUMERAI_PUBLIC_ID appears to be an example credential")
-            push!(issues, "  You need to get real credentials from https://numer.ai/account")
-        elseif length(public_id) != 32
+        # Check for invalid credentials
+        if length(public_id) != 32
             push!(issues, "⚠ NUMERAI_PUBLIC_ID should be 32 characters (found $(length(public_id)))")
         end
     end
@@ -65,11 +62,8 @@ function validate_credential_format(public_id, secret_key)
     else
         println("✓ NUMERAI_SECRET_KEY is set ($(length(secret_key)) characters)")
         
-        # Check for example credentials
-        if secret_key == "337BEF4U2RZO6VOUHJGSOHAIWB7XT2M56PNL66HMS6KVWPZRC4XPMVEIVDLVSBHE"
-            push!(issues, "✗ NUMERAI_SECRET_KEY appears to be an example credential")
-            push!(issues, "  You need to get real credentials from https://numer.ai/account")
-        elseif length(secret_key) != 64
+        # Check for invalid credentials
+        if length(secret_key) != 64
             push!(issues, "⚠ NUMERAI_SECRET_KEY should be 64 characters (found $(length(secret_key)))")
         end
     end
@@ -84,7 +78,7 @@ function test_api_connection(public_id, secret_key)
     println("-"^60)
     
     # Use the same tournament API endpoint as the main application
-    url = "https://api-tournament.numer.ai"
+    url = "https://api-tournament.numer.ai/graphql"
     
     # Test public API (no auth required)
     query_public = """
@@ -122,12 +116,12 @@ function test_api_connection(public_id, secret_key)
     if !isempty(public_id) && !isempty(secret_key)
         query_auth = """
         {
-            user {
+            account {
                 username
                 email
-                apiTokens {
+                models {
                     name
-                    scopes
+                    id
                 }
             }
         }
@@ -165,16 +159,18 @@ function test_api_connection(public_id, secret_key)
                         println("✗ API error: $error_msg")
                         return false
                     end
-                elseif haskey(data, :data) && haskey(data.data, :user) && !isnothing(data.data.user)
-                    user = data.data.user
+                elseif haskey(data, :data) && haskey(data.data, :account) && !isnothing(data.data.account)
+                    account = data.data.account
                     println("✓ Authentication successful!")
-                    println("  Username: $(user.username)")
-                    if !isnothing(user.email)
-                        println("  Email: $(user.email)")
+                    println("  Username: $(account.username)")
+                    if haskey(account, :email) && !isnothing(account.email)
+                        println("  Email: $(account.email)")
                     end
-                    if haskey(user, :apiTokens) && !isempty(user.apiTokens)
-                        println("  API Token: $(user.apiTokens[1].name)")
-                        println("  Scopes: $(join(user.apiTokens[1].scopes, ", "))")
+                    if haskey(account, :models) && !isempty(account.models)
+                        println("  Models: $(length(account.models)) model(s) found")
+                        for model in account.models
+                            println("    - $(model.name)")
+                        end
                     end
                     return true
                 else

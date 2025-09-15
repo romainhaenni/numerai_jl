@@ -4,8 +4,9 @@ module TUIFixes
 using Dates
 using Printf
 using ..EnhancedDashboard
+using ..Dashboard: add_event!, start_training, update_model_performances!, start_model_wizard, download_tournament_data
 
-export apply_tui_fixes!, update_progress_callbacks, handle_post_download_training
+export apply_tui_fixes!, update_progress_callbacks, handle_post_download_training, handle_direct_command, read_key_improved
 
 # Fix 1: Command execution without Enter key
 function fix_command_input_handling!(input_loop_fn)
@@ -87,7 +88,7 @@ function handle_direct_command(dashboard, key)
         end
     elseif key == "d" || key == "D"
         add_event!(dashboard, :info, "Starting data download...")
-        @async download_tournament_data_with_training(dashboard)
+        @async download_tournament_data(dashboard)
     elseif key == "h" || key == "H"
         dashboard.show_help = !dashboard.show_help
         status = dashboard.show_help ? "shown" : "hidden"

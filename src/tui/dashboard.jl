@@ -24,6 +24,10 @@ using ..Logger: @log_info, @log_warn, @log_error
 include("enhanced_dashboard.jl")
 using .EnhancedDashboard
 
+# Import TUI fixes for improved keyboard handling and progress tracking
+include("tui_fixes.jl")
+using .TUIFixes
+
 # Import UTC utility function (already part of parent module)
 # Import callbacks (already part of parent module)
 using ..Models.Callbacks: CallbackInfo, CallbackResult, DashboardCallback, CONTINUE
@@ -465,12 +469,9 @@ function read_key()
 end
 
 function input_loop(dashboard::TournamentDashboard)
-    # Add debug logging for keyboard issues
-    last_key_time = time()
-    key_press_count = 0
-
+    # Use improved keyboard handling from TUIFixes
     while dashboard.running
-        key = read_key()
+        key = TUIFixes.read_key_improved()
 
         # Skip empty keys
         if isempty(key)
@@ -504,7 +505,7 @@ function input_loop(dashboard::TournamentDashboard)
                 add_event!(dashboard, :info, "Model details closed")
             end
         elseif dashboard.command_mode
-            # Handle command mode input
+            # Handle command mode input with slash commands (requires Enter)
             if key == "\r" || key == "\n"  # Enter - execute command
                 execute_command(dashboard, dashboard.command_buffer)
                 dashboard.command_buffer = ""
@@ -524,57 +525,9 @@ function input_loop(dashboard::TournamentDashboard)
             dashboard.command_mode = true
             dashboard.command_buffer = ""
             add_event!(dashboard, :info, "Command mode: type command and press Enter")
-        elseif key == "q" || key == "Q"
-            add_event!(dashboard, :info, "Shutting down...")
-            dashboard.running = false
-        elseif key == "p" || key == "P"
-            dashboard.paused = !dashboard.paused
-            status = dashboard.paused ? "paused" : "resumed"
-            add_event!(dashboard, :info, "Dashboard $status")
-        elseif key == "s" || key == "S"
-            add_event!(dashboard, :info, "Starting training pipeline...")
-            # Run training asynchronously to avoid blocking the UI
-            @async start_training(dashboard)
-        elseif key == "r" || key == "R"
-            # Refresh data asynchronously
-            add_event!(dashboard, :info, "Refreshing data...")
-            @async begin
-                try
-                    update_model_performances!(dashboard)
-                    add_event!(dashboard, :success, "Data refreshed successfully")
-                    # Save good state after successful refresh
-                    save_last_known_good_state(dashboard)
-                catch e
-                    add_event!(dashboard, :error, "Failed to refresh data: $(sprint(showerror, e))")
-                end
-            end
-        elseif key == "n" || key == "N"  # Start new model wizard
-            add_event!(dashboard, :info, "Starting model creation wizard...")
-            try
-                start_model_wizard(dashboard)
-            catch e
-                add_event!(dashboard, :error, "Failed to start model wizard: $(sprint(showerror, e))")
-            end
-        elseif key == "c" || key == "C"  # Check configuration files
-            add_event!(dashboard, :info, "Checking configuration...")
-            check_configuration_files(dashboard)
-        elseif key == "d" || key == "D"  # Download fresh tournament data
-            add_event!(dashboard, :info, "Starting data download...")
-            # Run download asynchronously and trigger training after completion
-            @async download_tournament_data_and_train(dashboard)
-        elseif key == "l" || key == "L"  # View detailed error logs
-            view_detailed_error_logs(dashboard)
-        elseif key == "h" || key == "H"
-            dashboard.show_help = !dashboard.show_help
-            status = dashboard.show_help ? "shown" : "hidden"
-            add_event!(dashboard, :info, "Help $status")
-        elseif key == "\r" || key == "\n"  # Enter key
-            show_model_details(dashboard)
-        elseif key == "\e"  # ESC key (standalone)
-            if dashboard.show_help
-                dashboard.show_help = false
-                add_event!(dashboard, :info, "Help hidden")
-            end
+        else
+            # Use TUIFixes instant keyboard command handler (no Enter required)
+            TUIFixes.handle_direct_command(dashboard, key)
         end
 
         # Small delay to prevent CPU spinning

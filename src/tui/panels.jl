@@ -368,6 +368,7 @@ function create_help_panel(config=nothing)::Panel
     /submit - Submit predictions
     /stake [amount] - Update stake
     /download - Download latest data
+    /pipeline - Run full pipeline (download→train→predict→submit)
     """
     
     # Get panel width from config

@@ -4,6 +4,8 @@ using ..API
 using ..DataLoader
 using ..Pipeline
 using Dates
+using CSV
+using DataFrames
 
 # Execute slash commands
 function execute_command(dashboard, command::String)
@@ -66,14 +68,210 @@ function execute_command(dashboard, command::String)
     elseif main_cmd == "new"
         add_event!(dashboard, :info, "Starting new model wizard...")
         start_model_wizard(dashboard)
+    elseif main_cmd == "pipeline"
+        add_event!(dashboard, :info, "Starting full tournament pipeline...")
+        run_full_pipeline(dashboard)
     else
         add_event!(dashboard, :warning, "Unknown command: /$cmd")
-        add_event!(dashboard, :info, "Available commands: /train, /submit, /stake, /download, /refresh, /new, /help, /quit")
+        add_event!(dashboard, :info, "Available commands: /train, /submit, /stake, /download, /refresh, /new, /pipeline, /help, /quit")
         add_event!(dashboard, :info, "Recovery commands: /diag, /reset, /backup, /network, /save")
     end
 end
 
 # Command implementations
+
+# Run the full tournament pipeline (download → train → predict → submit)
+function run_full_pipeline(dashboard::TournamentDashboard)
+    @async begin
+        try
+            add_event!(dashboard, :info, "🚀 Starting full tournament pipeline...")
+            
+            # Step 1: Download latest data
+            add_event!(dashboard, :info, "📥 Step 1/4: Downloading tournament data...")
+            if !download_data_internal(dashboard)
+                add_event!(dashboard, :error, "Failed to download data. Pipeline aborted.")
+                return false
+            end
+            add_event!(dashboard, :success, "✅ Tournament data downloaded successfully")
+            
+            # Step 2: Train models  
+            add_event!(dashboard, :info, "🧠 Step 2/4: Training models...")
+            if !train_models_internal(dashboard)
+                add_event!(dashboard, :error, "Failed to train models. Pipeline aborted.")
+                return false
+            end
+            add_event!(dashboard, :success, "✅ Models trained successfully")
+            
+            # Step 3: Generate predictions
+            add_event!(dashboard, :info, "🔮 Step 3/4: Generating predictions...")
+            predictions_path = generate_predictions_internal(dashboard)
+            if isnothing(predictions_path)
+                add_event!(dashboard, :error, "Failed to generate predictions. Pipeline aborted.")
+                return false
+            end
+            add_event!(dashboard, :success, "✅ Predictions generated: $(basename(predictions_path))")
+            
+            # Step 4: Submit predictions
+            add_event!(dashboard, :info, "📤 Step 4/4: Submitting predictions...")
+            if !submit_predictions_internal(dashboard, predictions_path)
+                add_event!(dashboard, :error, "Failed to submit predictions. Pipeline aborted.")
+                return false
+            end
+            add_event!(dashboard, :success, "✅ Predictions submitted successfully")
+            
+            add_event!(dashboard, :success, "🎉 Full tournament pipeline completed successfully!")
+            return true
+            
+        catch e
+            add_event!(dashboard, :error, "Pipeline failed: $e")
+            return false
+        end
+    end
+end
+
+# Internal function for downloading data
+function download_data_internal(dashboard::TournamentDashboard)
+    try
+        config = dashboard.config
+        data_dir = config.data_dir
+        
+        # Create data directory if it doesn't exist
+        if !isdir(data_dir)
+            mkpath(data_dir)
+        end
+        
+        # Download all dataset components
+        train_path = joinpath(data_dir, "train.parquet")
+        val_path = joinpath(data_dir, "validation.parquet")
+        live_path = joinpath(data_dir, "live.parquet")
+        features_path = joinpath(data_dir, "features.json")
+        
+        API.download_dataset(dashboard.api_client, "train", train_path)
+        API.download_dataset(dashboard.api_client, "validation", val_path)
+        API.download_dataset(dashboard.api_client, "live", live_path)
+        API.download_dataset(dashboard.api_client, "features", features_path)
+        
+        return true
+    catch e
+        @error "Download failed" error=e
+        return false
+    end
+end
+
+# Internal function for training models
+function train_models_internal(dashboard::TournamentDashboard)
+    try
+        # Use the existing training functionality
+        dashboard.training_info[:is_training] = true
+        dashboard.training_info[:model_name] = dashboard.model[:name]
+        dashboard.training_info[:progress] = 0
+        dashboard.training_info[:total_epochs] = 100
+        
+        # Run the actual training
+        run_real_training(dashboard)
+        
+        # Wait for training to complete
+        while dashboard.training_info[:is_training]
+            sleep(1)
+        end
+        
+        return dashboard.training_info[:progress] >= 100
+    catch e
+        @error "Training failed" error=e
+        dashboard.training_info[:is_training] = false
+        return false
+    end
+end
+
+# Internal function for generating predictions
+function generate_predictions_internal(dashboard::TournamentDashboard)
+    try
+        config = dashboard.config
+        data_dir = config.data_dir
+        model_dir = config.model_dir
+        
+        # Load live data
+        live_path = joinpath(data_dir, "live.parquet")
+        if !isfile(live_path)
+            @error "Live data not found"
+            return nothing
+        end
+        
+        live_df = DataLoader.load_training_data(live_path)
+        
+        # Get feature columns
+        features_path = joinpath(data_dir, "features.json")
+        feature_cols = if isfile(features_path)
+            features, _ = DataLoader.load_features_json(features_path; feature_set=config.feature_set)
+            features
+        else
+            DataLoader.get_feature_columns(live_df)
+        end
+        
+        # Load the trained model or create a new pipeline
+        model_config = Pipeline.ModelConfig(
+            "xgboost",
+            Dict(
+                :n_estimators => 100,
+                :max_depth => 5,
+                :learning_rate => 0.01,
+                :subsample => 0.8
+            )
+        )
+        
+        pipeline = Pipeline.MLPipeline(
+            feature_cols=feature_cols,
+            target_col=config.target_col,
+            model_config=model_config,
+            neutralize=config.enable_neutralization
+        )
+        
+        # Load saved model if available
+        model_path = joinpath(model_dir, "model_latest.jld2")
+        if isfile(model_path)
+            pipeline = Pipeline.load_pipeline(model_path)
+        end
+        
+        # Generate predictions
+        predictions = Pipeline.predict(pipeline, live_df)
+        
+        # Save predictions
+        timestamp = Dates.format(Dates.now(), "yyyymmdd_HHMMSS")
+        predictions_path = joinpath(data_dir, "predictions_$(timestamp).csv")
+        
+        # Create submission DataFrame
+        submission_df = DataFrame(
+            id = live_df[!, "id"],
+            prediction = predictions
+        )
+        
+        CSV.write(predictions_path, submission_df)
+        
+        return predictions_path
+        
+    catch e
+        @error "Prediction generation failed" error=e
+        return nothing
+    end
+end
+
+# Internal function for submitting predictions
+function submit_predictions_internal(dashboard::TournamentDashboard, predictions_path::String)
+    try
+        config = dashboard.config
+        
+        # Submit for each model
+        for model_name in config.models
+            API.submit_predictions(dashboard.api_client, model_name, predictions_path)
+        end
+        
+        return true
+    catch e
+        @error "Submission failed" error=e
+        return false
+    end
+end
+
 function submit_predictions_command(dashboard)
     @async begin
         try

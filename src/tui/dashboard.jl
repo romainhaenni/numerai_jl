@@ -26,8 +26,6 @@ include("../utils.jl")
 include("../ml/callbacks.jl")
 using .Callbacks: CallbackInfo, CallbackResult, DashboardCallback, CONTINUE
 
-include("dashboard_commands.jl")
-
 # Error categorization types
 @enum ErrorCategory begin
     API_ERROR
@@ -229,6 +227,9 @@ function create_dashboard_training_callback(dashboard::TournamentDashboard)
     return create_dashboard_callback(update_fn, frequency=1, name="training_progress")
 end
 
+# Include dashboard commands after TournamentDashboard is defined
+include("dashboard_commands.jl")
+
 """
 Mark training as completed in dashboard
 """
@@ -254,13 +255,12 @@ function run_dashboard(dashboard::TournamentDashboard)
         # Check if auto_submit is enabled and start automatic pipeline
         if dashboard.config.auto_submit
             add_event!(dashboard, :info, "Auto-submit enabled, starting automatic pipeline...")
-            # Start the training pipeline automatically
+            # Start the full tournament pipeline automatically
             @async begin
                 sleep(2)  # Give dashboard time to initialize
-                add_event!(dashboard, :info, "Starting automatic data download...")
-                # Note: Actual implementation would call download, train, predict, submit
-                # For now, we just start training as an example
-                start_training(dashboard)
+                add_event!(dashboard, :info, "Starting full tournament pipeline...")
+                # Run the complete pipeline: download → train → predict → submit
+                run_full_pipeline(dashboard)
             end
         else
             add_event!(dashboard, :info, "Manual mode - press 's' to start training")
@@ -2713,6 +2713,8 @@ export TournamentDashboard, run_dashboard, add_event!, start_training, save_perf
        # Callback integration functions
        create_dashboard_training_callback, complete_training!,
        # Model wizard functions
-       start_model_wizard, handle_wizard_input, render_wizard
+       start_model_wizard, handle_wizard_input, render_wizard,
+       # Full pipeline function
+       run_full_pipeline
 
 end

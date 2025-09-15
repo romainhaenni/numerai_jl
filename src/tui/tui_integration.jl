@@ -25,7 +25,7 @@ export integrate_tui_system!,
 # Integrate the real-time TUI system with the main dashboard
 function integrate_tui_system!(dashboard)
     # Initialize the real-time tracker
-    if !isdefined(dashboard, :realtime_tracker)
+    if !isdefined(dashboard, :realtime_tracker) || isnothing(dashboard.realtime_tracker)
         dashboard.realtime_tracker = TUIRealtime.init_realtime_tracker()
     end
 
@@ -38,11 +38,11 @@ function integrate_tui_system!(dashboard)
     # Start monitoring thread for real-time updates
     @async monitor_operations(dashboard)
 
-    # Override the input loop to use instant commands
-    @async instant_command_loop(dashboard)
+    # Don't create a separate input loop - the main dashboard already has one
+    # The dashboard input_loop will use our improved keyboard handling
 
-    # Start real-time rendering
-    @async realtime_render_loop(dashboard)
+    # Don't create a separate render loop - integrate with existing dashboard rendering
+    # The dashboard update_loop will call our render function
 
     Dashboard.add_event!(dashboard, :success, "TUI integration complete - all features active")
 end
@@ -53,91 +53,82 @@ function monitor_operations(dashboard)
 
     while dashboard.running
         try
-            # Check for active downloads
-            if haskey(dashboard.active_operations, :download) && dashboard.active_operations[:download]
-                # Simulate progress (replace with actual download progress)
-                if tracker.download_progress < 100.0
-                    progress = min(tracker.download_progress + rand(0.5:0.1:2.0), 100.0)
-                    file = "train_data.parquet"
-                    size = 1234.5  # MB
-                    speed = 10.5 + rand(-2:0.1:2)  # MB/s
+            # Monitor actual progress from dashboard.progress_tracker
+            if dashboard.progress_tracker.is_downloading
+                progress = dashboard.progress_tracker.download_progress
+                file = dashboard.progress_tracker.download_file
+                size = dashboard.progress_tracker.download_size_mb
+                speed = dashboard.progress_tracker.download_speed
 
-                    should_train = TUIRealtime.update_download_progress!(
-                        tracker, progress, file, size, speed
-                    )
+                should_train = TUIRealtime.update_download_progress!(
+                    tracker, progress, file, size, speed
+                )
 
-                    if should_train && tracker.auto_train_enabled
+                if progress >= 100.0 && should_train && tracker.auto_train_enabled
+                    # Check if all required files are downloaded
+                    if check_all_downloads_complete(dashboard)
                         # Trigger automatic training
-                        @async trigger_training(dashboard)
-                    end
-
-                    if progress >= 100.0
-                        dashboard.active_operations[:download] = false
-                        Dashboard.add_event!(dashboard, :success, "Download complete: $file")
+                        Dashboard.add_event!(dashboard, :info, "All downloads complete - starting automatic training")
+                        @async Dashboard.start_training(dashboard)
                     end
                 end
             end
 
-            # Check for active uploads
-            if haskey(dashboard.active_operations, :upload) && dashboard.active_operations[:upload]
-                if tracker.upload_progress < 100.0
-                    progress = min(tracker.upload_progress + rand(1.0:0.1:3.0), 100.0)
-                    file = "predictions.csv"
-                    size = 45.6  # MB
+            # Monitor actual upload progress
+            if dashboard.progress_tracker.is_uploading
+                progress = dashboard.progress_tracker.upload_progress
+                file = dashboard.progress_tracker.upload_file
+                size = dashboard.progress_tracker.upload_size_mb
 
-                    TUIRealtime.update_upload_progress!(tracker, progress, file, size)
-
-                    if progress >= 100.0
-                        dashboard.active_operations[:upload] = false
-                        Dashboard.add_event!(dashboard, :success, "Upload complete: $file")
-                    end
-                end
+                TUIRealtime.update_upload_progress!(tracker, progress, file, size)
             end
 
-            # Check for active training
-            if haskey(dashboard.active_operations, :training) && dashboard.active_operations[:training]
-                if tracker.training_progress < 100.0
-                    progress = min(tracker.training_progress + rand(0.2:0.1:1.0), 100.0)
-                    epoch = Int(floor(progress / 10)) + 1
-                    total_epochs = 10
-                    loss = 0.5 * exp(-progress/20) + rand() * 0.01
-                    model = "XGBoost_v1"
+            # Monitor actual training progress
+            if dashboard.progress_tracker.is_training || dashboard.training_info[:is_training]
+                progress = max(dashboard.progress_tracker.training_progress, dashboard.training_info[:progress])
+                epoch = max(dashboard.progress_tracker.training_epoch, dashboard.training_info[:current_epoch])
+                total_epochs = max(dashboard.progress_tracker.training_total_epochs, dashboard.training_info[:total_epochs])
+                loss = dashboard.training_info[:loss]
+                model = !isempty(dashboard.progress_tracker.training_model) ? dashboard.progress_tracker.training_model : dashboard.training_info[:model_name]
 
-                    TUIRealtime.update_training_progress!(
-                        tracker, progress, epoch, total_epochs, loss, model
-                    )
-
-                    if progress >= 100.0
-                        dashboard.active_operations[:training] = false
-                        Dashboard.add_event!(dashboard, :success, "Training complete: $model")
-                    end
-                end
+                TUIRealtime.update_training_progress!(
+                    tracker, progress, epoch, total_epochs, loss, model
+                )
             end
 
-            # Check for active predictions
-            if haskey(dashboard.active_operations, :prediction) && dashboard.active_operations[:prediction]
-                if tracker.prediction_progress < 100.0
-                    progress = min(tracker.prediction_progress + rand(2.0:0.1:5.0), 100.0)
-                    rows = Int(floor(progress * 50000 / 100))
-                    total_rows = 50000
-                    model = "XGBoost_v1"
+            # Monitor actual prediction progress
+            if dashboard.progress_tracker.is_predicting
+                progress = dashboard.progress_tracker.prediction_progress
+                rows = dashboard.progress_tracker.prediction_rows
+                total_rows = dashboard.progress_tracker.prediction_total_rows
+                model = dashboard.progress_tracker.prediction_model
 
-                    TUIRealtime.update_prediction_progress!(
-                        tracker, progress, rows, total_rows, model
-                    )
-
-                    if progress >= 100.0
-                        dashboard.active_operations[:prediction] = false
-                        Dashboard.add_event!(dashboard, :success, "Predictions complete: $model")
-                    end
-                end
+                TUIRealtime.update_prediction_progress!(
+                    tracker, progress, rows, total_rows, model
+                )
             end
 
-            # Update system status
-            if any(values(get(dashboard, :active_operations, Dict())))
-                tracker.system_status = "Processing"
+            # Update system status based on actual operations
+            if dashboard.progress_tracker.is_downloading
+                tracker.system_status = "Downloading"
+            elseif dashboard.progress_tracker.is_uploading
+                tracker.system_status = "Uploading"
+            elseif dashboard.progress_tracker.is_training || dashboard.training_info[:is_training]
+                tracker.system_status = "Training"
+            elseif dashboard.progress_tracker.is_predicting
+                tracker.system_status = "Predicting"
             else
                 tracker.system_status = "Idle"
+            end
+
+            # Copy events to tracker
+            for event in dashboard.events
+                if !haskey(event, :added_to_tracker)
+                    level = event[:type]
+                    message = event[:message]
+                    TUIRealtime.add_tracker_event!(tracker, level, message)
+                    event[:added_to_tracker] = true
+                end
             end
 
         catch e
@@ -148,55 +139,32 @@ function monitor_operations(dashboard)
     end
 end
 
-# Real-time rendering loop
-function realtime_render_loop(dashboard)
-    tracker = dashboard.realtime_tracker
-    last_render = time()
+# Helper function to check if all required downloads are complete
+function check_all_downloads_complete(dashboard)
+    data_dir = dashboard.config.data_dir
 
-    while dashboard.running
-        current_time = time()
+    # Check for required files
+    required_files = ["train.parquet", "validation.parquet", "live.parquet"]
 
-        # Adaptive refresh rate
-        refresh_interval = if any(values(get(dashboard, :active_operations, Dict())))
-            0.2  # 200ms when operations active
-        else
-            1.0  # 1s when idle
+    for file in required_files
+        filepath = joinpath(data_dir, file)
+        if !isfile(filepath)
+            return false
         end
-
-        if current_time - last_render >= refresh_interval
-            try
-                TUIRealtime.render_realtime_dashboard!(tracker, dashboard)
-                last_render = current_time
-            catch e
-                @error "Error in realtime rendering" exception=e
-            end
-        end
-
-        sleep(0.05)  # Small sleep to prevent CPU spinning
     end
+
+    return true
 end
 
-# Instant command loop - processes single key presses without Enter
-function instant_command_loop(dashboard)
-    # Set terminal to raw mode for instant key capture
-    ccall(:jl_tty_set_mode, Int32, (Ptr{Cvoid}, Int32), stdin.handle, 1)
-
-    try
-        while dashboard.running
-            # Read single character without waiting for Enter
-            if bytesavailable(stdin) > 0
-                key = read(stdin, Char)
-
-                # Process instant commands
-                handle_instant_command(dashboard, key)
-            end
-
-            sleep(0.01)  # Small sleep to prevent CPU spinning
-        end
-    finally
-        # Restore terminal mode
-        ccall(:jl_tty_set_mode, Int32, (Ptr{Cvoid}, Int32), stdin.handle, 0)
+# This function will be called from the main dashboard input loop
+# No need for a separate input loop that conflicts with the main one
+function process_instant_key(dashboard, key::String)
+    # Convert string key to char if it's a single character
+    if length(key) == 1
+        handle_instant_command(dashboard, key[1])
+        return true  # Key was handled
     end
+    return false  # Key not handled
 end
 
 # Handle instant keyboard commands

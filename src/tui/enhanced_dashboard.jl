@@ -2,8 +2,9 @@ module EnhancedDashboard
 
 using Dates
 using Printf
-using ..API
-using ..Utils
+# Import from parent module
+import ..API
+import ..Utils
 
 export render_enhanced_dashboard, render_unified_status_panel, render_events_panel,
        create_progress_bar, create_spinner,

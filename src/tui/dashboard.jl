@@ -543,8 +543,15 @@ function input_loop(dashboard::TournamentDashboard)
             dashboard.command_buffer = ""
             add_event!(dashboard, :info, "Command mode: type command and press Enter")
         else
-            # Use TUIFixes instant keyboard command handler (no Enter required)
-            NumeraiTournament.TUIFixes.handle_direct_command(dashboard, key)
+            # First try TUIIntegration instant commands if available
+            if isdefined(dashboard, :realtime_tracker) && !isnothing(dashboard.realtime_tracker)
+                if NumeraiTournament.TUIIntegration.process_instant_key(dashboard, key)
+                    # Key was handled by TUIIntegration
+                end
+            else
+                # Fall back to TUIFixes instant keyboard command handler (no Enter required)
+                NumeraiTournament.TUIFixes.handle_direct_command(dashboard, key)
+            end
         end
 
         # Small delay to prevent CPU spinning
@@ -586,6 +593,12 @@ function render_sticky_dashboard(dashboard::TournamentDashboard)
     - Middle panel: Dynamic content area
     - Bottom panel: Event logs (sticky)
     """
+
+    # If realtime tracker is available and active, use it for rendering
+    if isdefined(dashboard, :realtime_tracker) && !isnothing(dashboard.realtime_tracker)
+        TUIRealtime.render_realtime_dashboard!(dashboard.realtime_tracker, dashboard)
+        return
+    end
 
     # Get terminal dimensions
     terminal_height, terminal_width = try

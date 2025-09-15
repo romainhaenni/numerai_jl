@@ -2242,30 +2242,7 @@ function download_tournament_data(dashboard::TournamentDashboard)
     end
 end
 
-function run_full_pipeline(dashboard::TournamentDashboard)
-    """
-    Run the complete tournament pipeline: download → train → predict → submit
-    """
-    add_event!(dashboard, :info, "Starting full tournament pipeline...")
-
-    try
-        # Step 1: Download data
-        download_tournament_data(dashboard)
-
-        # Wait for download to complete
-        while dashboard.progress_tracker.is_downloading
-            sleep(0.1)
-        end
-
-        # Step 2: Train models (handled by auto-trigger in download_tournament_data)
-        # The training will be started automatically if auto_submit is enabled
-
-        add_event!(dashboard, :info, "Pipeline initiated. Training will start automatically.")
-
-    catch e
-        add_event!(dashboard, :error, "Pipeline failed: $e")
-    end
-end
+# Function run_full_pipeline is defined in dashboard_commands.jl
 
 function view_detailed_error_logs(dashboard::TournamentDashboard)
     """

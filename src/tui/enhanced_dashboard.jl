@@ -2,11 +2,7 @@ module EnhancedDashboard
 
 using Dates
 using Printf
-
-# Helper function for formatted output
-sprintf(fmt::String, args...) = @sprintf(fmt, args...)
 using ..API
-using ..Utils
 
 export render_enhanced_dashboard, create_progress_bar, create_spinner,
        format_duration, center_text, create_metric_bar
@@ -213,16 +209,24 @@ function render_enhanced_dashboard(dashboard, progress_tracker::ProgressTracker)
     model_status = dashboard.model[:is_active] ? "🟢 Active" : "🔴 Inactive"
     push!(lines, "Model: $(dashboard.model[:name]) ($model_status)")
 
-    # Tournament info
-    try
-        stake_info = get_staking_info(dashboard)
-        round_str = "Round #$(stake_info[:current_round])"
-        submission_str = stake_info[:submission_status]
-        time_left = stake_info[:time_remaining]
-        push!(lines, "Tournament: $round_str │ Submission: $submission_str │ Time Left: $time_left")
-    catch
-        push!(lines, "Tournament: Loading... │ Submission: Loading... │ Time Left: N/A")
+    # Tournament info - simplified without API call for now
+    round_str = "Round #000"  # Will be updated when API is called
+    submission_str = "Pending"
+    time_left = "00:00:00"
+
+    # Try to get actual info if available
+    if haskey(dashboard, :get_staking_info)
+        try
+            stake_info = dashboard.get_staking_info(dashboard)
+            round_str = "Round #$(stake_info[:current_round])"
+            submission_str = stake_info[:submission_status]
+            time_left = stake_info[:time_remaining]
+        catch
+            # Keep defaults
+        end
     end
+
+    push!(lines, "Tournament: $round_str │ Submission: $submission_str │ Time Left: $time_left")
 
     push!(lines, "")
 
@@ -237,10 +241,10 @@ function render_enhanced_dashboard(dashboard, progress_tracker::ProgressTracker)
     mmc_bar = create_metric_bar(mmc, -0.05, 0.05, 20)
     fnc_bar = create_metric_bar(fnc, -0.05, 0.05, 20)
 
-    push!(lines, @sprintf("CORR:   %s %+.4f", corr_bar, corr))
-    push!(lines, @sprintf("MMC:    %s %+.4f", mmc_bar, mmc))
-    push!(lines, @sprintf("FNC:    %s %+.4f", fnc_bar, fnc))
-    push!(lines, @sprintf("TC:     %+.4f │ Sharpe: %+.3f", tc, sharpe))
+    push!(lines, "CORR:   $corr_bar " * @sprintf("%+.4f", corr))
+    push!(lines, "MMC:    $mmc_bar " * @sprintf("%+.4f", mmc))
+    push!(lines, "FNC:    $fnc_bar " * @sprintf("%+.4f", fnc))
+    push!(lines, "TC:     " * @sprintf("%+.4f", tc) * " │ Sharpe: " * @sprintf("%+.3f", sharpe))
 
     # Staking info if available
     if haskey(dashboard.model, :stake) && dashboard.model[:stake] > 0
@@ -248,8 +252,10 @@ function render_enhanced_dashboard(dashboard, progress_tracker::ProgressTracker)
         at_risk = stake * 0.25
         expected = stake * corr * 0.5
         push!(lines, "")
-        push!(lines, @sprintf("💰 Stake: %.2f NMR │ At Risk: %.2f NMR │ Expected: %+.2f NMR",
-                              stake, at_risk, expected))
+        stake_str = @sprintf("%.2f", stake)
+        risk_str = @sprintf("%.2f", at_risk)
+        expected_str = @sprintf("%+.2f", expected)
+        push!(lines, "💰 Stake: $stake_str NMR │ At Risk: $risk_str NMR │ Expected: $expected_str NMR")
     end
 
     push!(lines, "─" ^ terminal_width)
@@ -266,11 +272,16 @@ function render_enhanced_dashboard(dashboard, progress_tracker::ProgressTracker)
     cpu_bar = create_progress_bar(cpu_usage, 100, width=25, show_percent=false)
     mem_bar = create_progress_bar(mem_pct, 100, width=25, show_percent=false)
 
-    push!(lines, @sprintf("CPU:    %s %3d%%", cpu_bar, cpu_usage))
-    push!(lines, @sprintf("Memory: %s %3d%% (%.1f/%.1f GB)", mem_bar, Int(mem_pct), mem_used, mem_total))
-    push!(lines, @sprintf("Threads: %d │ Julia %s",
-                          dashboard.system_info[:threads],
-                          get(dashboard.system_info, :julia_version, VERSION)))
+    cpu_str = @sprintf("%3d%%", cpu_usage)
+    push!(lines, "CPU:    $cpu_bar $cpu_str")
+
+    mem_str = @sprintf("%3d%%", Int(mem_pct))
+    mem_detail = @sprintf("(%.1f/%.1f GB)", mem_used, mem_total)
+    push!(lines, "Memory: $mem_bar $mem_str $mem_detail")
+
+    threads = dashboard.system_info[:threads]
+    julia_ver = get(dashboard.system_info, :julia_version, VERSION)
+    push!(lines, "Threads: $threads │ Julia $julia_ver")
 
     push!(lines, "─" ^ terminal_width)
 

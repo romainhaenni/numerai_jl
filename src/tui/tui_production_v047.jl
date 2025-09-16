@@ -882,15 +882,31 @@ function render_dashboard(dashboard::ProductionDashboardV047)
             mem_info = Utils.get_memory_info()
             cpu_usage = Utils.get_cpu_usage()
 
-            dashboard.cpu_usage = cpu_usage
-            dashboard.memory_used = mem_info.used_gb
-            dashboard.memory_total = mem_info.total_gb
-            dashboard.disk_free = disk_info.free_gb
-            dashboard.disk_total = disk_info.total_gb
+            # Debug logging to verify values are being retrieved
+            if dashboard.debug_mode
+                @info "System stats update" disk_free=disk_info.free_gb disk_total=disk_info.total_gb mem_used=mem_info.used_gb mem_total=mem_info.total_gb cpu=cpu_usage
+            end
+
+            # Only update if we got valid values
+            if disk_info.total_gb > 0
+                dashboard.disk_free = disk_info.free_gb
+                dashboard.disk_total = disk_info.total_gb
+            end
+
+            if mem_info.total_gb > 0
+                dashboard.memory_used = mem_info.used_gb
+                dashboard.memory_total = mem_info.total_gb
+            end
+
+            if cpu_usage >= 0
+                dashboard.cpu_usage = cpu_usage
+            end
+
             dashboard.last_system_update = time()
             dashboard.force_render = true
 
         catch e
+            @error "System stats update failed" exception=e
             if dashboard.debug_mode
                 add_event!(dashboard, :error, "System stats update failed: $e")
             end
@@ -1167,28 +1183,35 @@ function run_dashboard(config::Any, api_client::Any)
 
     # Auto-start pipeline if configured
     if dashboard.auto_start_enabled && !dashboard.auto_start_initiated
-        add_event!(dashboard, :info, "⏱️ Auto-start enabled, waiting $(dashboard.auto_start_delay) seconds...")
+        # Check if API client is available before enabling auto-start
+        if dashboard.api_client === nothing
+            add_event!(dashboard, :error, "❌ Auto-start disabled: No API client available")
+            add_event!(dashboard, :info, "💡 Please check your NUMERAI_PUBLIC_ID and NUMERAI_SECRET_KEY in .env file")
+            dashboard.auto_start_enabled = false  # Disable auto-start if no API client
+        else
+            add_event!(dashboard, :info, "⏱️ Auto-start enabled, waiting $(dashboard.auto_start_delay) seconds...")
 
-        @async begin
-            sleep(dashboard.auto_start_delay)
-            # Mark as initiated AFTER the delay, right before trying to start
-            dashboard.auto_start_initiated = true
+            @async begin
+                sleep(dashboard.auto_start_delay)
+                # Mark as initiated AFTER the delay, right before trying to start
+                dashboard.auto_start_initiated = true
 
-            if dashboard.running && !dashboard.pipeline_active
-                add_event!(dashboard, :success, "🚀 Auto-starting pipeline NOW!")
-                # Ensure we actually call start_pipeline
-                try
-                    start_pipeline(dashboard)
-                    add_event!(dashboard, :success, "✅ Pipeline started successfully!")
-                catch e
-                    add_event!(dashboard, :error, "❌ Failed to auto-start pipeline: $e")
-                    dashboard.auto_start_initiated = false  # Reset flag on failure
-                end
-            else
-                reason = !dashboard.running ? "dashboard stopped" : "pipeline already active"
-                add_event!(dashboard, :warn, "⚠️ Auto-start cancelled: $reason")
-                if !dashboard.pipeline_active
-                    dashboard.auto_start_initiated = false  # Reset flag if not started
+                if dashboard.running && !dashboard.pipeline_active
+                    add_event!(dashboard, :success, "🚀 Auto-starting pipeline NOW!")
+                    # Ensure we actually call start_pipeline
+                    try
+                        start_pipeline(dashboard)
+                        add_event!(dashboard, :success, "✅ Pipeline started successfully!")
+                    catch e
+                        add_event!(dashboard, :error, "❌ Failed to auto-start pipeline: $e")
+                        dashboard.auto_start_initiated = false  # Reset flag on failure
+                    end
+                else
+                    reason = !dashboard.running ? "dashboard stopped" : "pipeline already active"
+                    add_event!(dashboard, :warn, "⚠️ Auto-start cancelled: $reason")
+                    if !dashboard.pipeline_active
+                        dashboard.auto_start_initiated = false  # Reset flag if not started
+                    end
                 end
             end
         end

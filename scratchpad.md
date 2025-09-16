@@ -1,40 +1,88 @@
-# Numerai Tournament System - TUI Implementation Status
+# Numerai Tournament System - TUI Implementation Fix Plan
 
-## 🎯 v0.10.50 - REAL TUI Status Assessment (September 2025)
+## 🚨 CRITICAL DISCOVERY: Test vs Production Mismatch
+The test suite is testing the WRONG TUI implementation! Production uses `TUIProductionV047` but tests validate the old `Dashboard.TournamentDashboard`.
 
-### ✅ CONFIRMED WORKING (Verified by Tests):
-1. ✅ **System monitoring** - REAL VALUES: CPU 21.7%, Memory 5.2/9.0 GB, Disk 537.5/926.4 GB
-2. ✅ **Module loading** - All TUI functions exist and load correctly
-3. ✅ **Configuration** - auto_start_pipeline=true, auto_train_after_download=true
-4. ✅ **API connection** - Client creates successfully, authentication working
-5. ✅ **Function chain** - run_tui_v1043, create_dashboard, run_dashboard all exist
+## 📋 Priority Fix List (In Order)
 
-### 🔧 IMPLEMENTED BUT UNTESTED (Code Exists):
-6. ✅ **Auto-start pipeline** - Implementation in tui_production_v047.jl exists with proper logic
-7. ✅ **Keyboard handling** - Channel-based system with 1ms polling implemented
-8. ✅ **Download progress** - Multiple implementations with progress callbacks, MB/s, ETA
-9. ✅ **Upload progress** - Byte tracking and visual progress bars implemented
-10. ✅ **Training progress** - Epoch tracking and real-time updates implemented
+### 1. 🔴 CRITICAL - Fix Disk Space Display (User can see it's broken)
+- **Issue**: Shows "0.0/0.0 GB free" instead of real values
+- **Location**: `tui_production_v047.jl` lines 878-898
+- **Root Cause**: System monitoring update logic might be failing silently
+- **Fix**: Add proper error handling and logging to disk space monitoring
 
-### 🤔 REPORTED USER ISSUES (Implementation vs Runtime):
-The implementation is COMPLETE but users report issues:
-- **Pipeline not auto-starting**: Config=true, implementation exists, should work
-- **Disk showing 0.0/0.0**: Tests prove it returns real values (537.5/926.4 GB)
-- **Keyboard unresponsive**: Channel system implemented with proper raw mode
-- **No progress bars**: All progress tracking implemented with visual bars
+### 2. 🔴 CRITICAL - Fix Auto-Start Pipeline
+- **Issue**: Pipeline doesn't auto-start despite config=true
+- **Location**: `tui_production_v047.jl` lines 1168-1197
+- **Root Cause**: API client might be nil or pipeline start fails silently
+- **Fix**: Add proper API client validation and pipeline start error handling
 
-### 🧐 ANALYSIS:
-**The TUI v0.10.47+ implementation is FUNCTIONALLY COMPLETE.** All reported issues appear to be:
-1. **Runtime/execution bugs** - Code works in tests but fails during actual TUI operation
-2. **Display/UI bugs** - Data exists but not rendering correctly in the interface
-3. **Event handling bugs** - Implementations exist but may not trigger properly during runtime
-4. **User experience issues** - Features work but aren't obvious or intuitive
+### 3. 🔴 CRITICAL - Fix Keyboard Input
+- **Issue**: Keyboard commands don't work
+- **Location**: `tui_production_v047.jl` lines 1069-1157
+- **Root Cause**: Raw mode might fail on some terminals
+- **Fix**: Add fallback to line-by-line input and better terminal detection
 
-### 📋 ACTUAL STATUS:
-- **Implementation completeness**: 10/10 ✅
-- **Test verification**: 5/10 (basic functionality only) ⚠️
-- **Runtime reliability**: Unknown/disputed 🤷‍♂️
-- **User experience**: Poor based on reports 😞
+### 4. 🟡 HIGH - Add Progress Bars for Downloads
+- **Issue**: No visible progress during downloads
+- **Location**: `tui_production_v047.jl` lines 278-336
+- **Fix**: Ensure download callbacks properly update progress
 
-### 🎯 CONCLUSION:
-This is NOT a "features missing" problem - it's a "features implemented but broken during execution" problem. The v0.10.47+ TUI has comprehensive implementations for all requested features, but something breaks between the working test environment and the actual TUI runtime.
+### 5. 🟡 HIGH - Add Progress Bars for Training
+- **Issue**: No visible progress during training
+- **Location**: `tui_production_v047.jl` lines 488-522
+- **Fix**: Ensure training callbacks properly update progress
+
+### 6. 🟡 HIGH - Add Progress Bars for Upload
+- **Issue**: No visible progress during uploads
+- **Location**: `tui_production_v047.jl` lines 607-671
+- **Fix**: Ensure upload callbacks properly update progress
+
+### 7. 🟢 MEDIUM - Fix Auto-Training After Download
+- **Issue**: Training doesn't start after download completes
+- **Location**: `tui_production_v047.jl` download completion handler
+- **Fix**: Add proper download completion detection and auto-train trigger
+
+### 8. 🟢 MEDIUM - Update Test Suite
+- **Issue**: Tests validate wrong TUI implementation
+- **Fix**: Update tests to use TUIProductionV047 instead of Dashboard.TournamentDashboard
+
+## 🔧 Technical Implementation Details
+
+### For Disk Space Fix:
+1. Check if `Utils.get_disk_space_info()` is being called
+2. Add logging to see what values are returned
+3. Ensure dashboard fields are updated correctly
+4. Add error recovery if system command fails
+
+### For Auto-Start Pipeline:
+1. Validate API client is not nil before starting
+2. Add proper error handling in `start_pipeline` function
+3. Log pipeline start attempts and failures
+4. Ensure config parsing works correctly
+
+### For Keyboard Input:
+1. Test raw mode detection
+2. Add fallback to readline() if raw mode fails
+3. Log keyboard input events for debugging
+4. Test on different terminal types
+
+### For Progress Bars:
+1. Verify callback functions are registered
+2. Ensure progress updates are propagated to dashboard
+3. Add logging for progress updates
+4. Test with real downloads/training/uploads
+
+## 📊 Current Status
+- Implementation: 10/10 ✅ (Code exists)
+- Runtime Reliability: 2/10 ❌ (Major issues)
+- User Experience: 1/10 ❌ (Nothing works as expected)
+- Test Coverage: 0/10 ❌ (Tests validate wrong code)
+
+## 🎯 Success Criteria
+1. Disk space shows real values immediately on startup
+2. Pipeline auto-starts when configured
+3. Keyboard commands work without pressing Enter
+4. Progress bars visible for all operations
+5. Auto-training triggers after downloads
+6. All tests validate production code

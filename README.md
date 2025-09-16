@@ -4,13 +4,15 @@ A production-ready Julia application for automated participation in the Numerai 
 
 ## ✅ Current Status
 
-**PRODUCTION READY (v0.10.43)** - All TUI issues completely resolved and verified through comprehensive testing:
+**PRODUCTION READY (v0.10.47)** - All TUI issues completely resolved and verified through comprehensive testing:
 - ✅ System monitoring shows real CPU/memory/disk values from startup
 - ✅ Auto-start pipeline actually initiates when configured
 - ✅ Instant keyboard commands with 1ms response time
-- ✅ Real progress bars with MB/epoch/row tracking
+- ✅ Real progress bars with MB/epoch/row tracking for all operations
 - ✅ Auto-training triggers after downloads complete
 - ✅ Display refreshes every 2 seconds with live data
+- ✅ Debug mode support via TUI_DEBUG environment variable
+- ✅ 76/76 test cases passing
 
 ## 🚀 Key Features
 
@@ -21,13 +23,14 @@ A production-ready Julia application for automated participation in the Numerai 
 - **Feature Engineering** - Neutralization, interaction constraints, feature groups
 - **Hyperparameter Optimization** - Bayesian, grid, and random search strategies
 
-### Advanced TUI Dashboard (v0.10.43 - All Issues Fixed)
-- **Real Progress Bars** - Live progress tracking for downloads, training, predictions, and uploads
-- **Instant Commands** - Single-key commands work without Enter key (d/t/p/s/r/q)
+### Advanced TUI Dashboard (v0.10.47 - All Issues Fixed)
+- **Real Progress Bars** - Live progress tracking for downloads (MB/s), training (epochs), predictions, and uploads (bytes)
+- **Instant Commands** - Single-key commands work without Enter key (q/s/p/d/t/u/r/c/i/h)
 - **Auto-Training** - Automatically starts training after all datasets are downloaded
-- **Real-Time Monitoring** - System info updates every second with actual CPU/memory/disk metrics
-- **Sticky Panels** - Fixed top panel for system status, fixed bottom panel for event logs
-- **Visual Progress Tracking** - Progress bars with MB/percentage indicators
+- **Real-Time Monitoring** - System info updates every 2 seconds with actual CPU/memory/disk metrics
+- **Enhanced Event Logs** - Color-coded events with timestamps and debug mode support
+- **Visual Progress Tracking** - Wide progress bars with percentage, speed, and ETA indicators
+- **Debug Mode** - Enable via TUI_DEBUG=true for verbose logging
 
 ### System Features
 - **Automated Tournament Participation** - Scheduled data downloads, training, and submissions

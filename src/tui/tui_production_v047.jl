@@ -300,11 +300,17 @@ function download_datasets(dashboard::ProductionDashboardV047, datasets::Vector{
                     dashboard.operation_details[:speed_mb_s] = speed_mb_s
                     dashboard.operation_details[:eta_seconds] = eta_seconds
                     dashboard.operation_details[:elapsed_time] = elapsed_time
-                    dashboard.operation_details[:phase] = "Downloading ($dataset)"
+                    dashboard.operation_details[:phase] = "Downloading $dataset"
+                    dashboard.operation_details[:dataset] = dataset
 
                     # Store actual download size
                     if total_mb > 0
                         dashboard.download_sizes[dataset] = total_mb
+                    end
+
+                    # Log progress periodically for debugging
+                    if dashboard.debug_mode && progress > 0 && Int(progress) % 10 == 0
+                        add_event!(dashboard, :info, "📊 $dataset: $(round(progress, digits=1))% ($(round(current_mb, digits=1))/$(round(total_mb, digits=1)) MB @ $(round(speed_mb_s, digits=1)) MB/s)")
                     end
 
                     dashboard.force_render = true
@@ -331,7 +337,9 @@ function download_datasets(dashboard::ProductionDashboardV047, datasets::Vector{
                 end
             end
 
-            # Use real API download
+            # Use real API download with error handling
+            add_event!(dashboard, :info, "⬇️ Starting download: $dataset (this may take a moment...)")
+
             API.download_dataset(
                 dashboard.api_client,
                 dataset,
@@ -339,6 +347,11 @@ function download_datasets(dashboard::ProductionDashboardV047, datasets::Vector{
                 show_progress=true,
                 progress_callback=progress_callback
             )
+
+            # Verify file was created
+            if !isfile(output_path)
+                throw("Download failed - file not created: $output_path")
+            end
 
             # Load the downloaded data
             dashboard.datasets[dataset] = DataLoader.load_data(output_path)
@@ -362,16 +375,27 @@ function download_datasets(dashboard::ProductionDashboardV047, datasets::Vector{
     dashboard.pipeline_stage = :idle
     dashboard.operation_progress = 0.0
 
-    # Auto-training trigger with verification
-    if success && dashboard.auto_train_enabled && length(dashboard.downloads_completed) >= 2
-        add_event!(dashboard, :info, "🤖 Downloads complete. Auto-training will start in 2 seconds...")
-        @async begin
-            sleep(2.0)
-            if dashboard.running && !dashboard.pipeline_active && !dashboard.training_in_progress
-                add_event!(dashboard, :info, "🏋️ Auto-training starting now!")
-                train_models(dashboard)
+    # Auto-training trigger with verification - check if all 3 datasets are downloaded
+    if success && dashboard.auto_train_enabled && length(dashboard.downloads_completed) >= 3
+        # Verify we have train, validation, and live datasets
+        has_all = "train" in dashboard.downloads_completed &&
+                  "validation" in dashboard.downloads_completed &&
+                  "live" in dashboard.downloads_completed
+
+        if has_all
+            add_event!(dashboard, :info, "🤖 All datasets downloaded. Auto-training will start in 2 seconds...")
+            @async begin
+                sleep(2.0)
+                if dashboard.running && !dashboard.training_in_progress
+                    add_event!(dashboard, :info, "🏋️ Auto-training starting now!")
+                    train_models(dashboard)
+                end
             end
+        else
+            add_event!(dashboard, :info, "⏳ Downloaded $(length(dashboard.downloads_completed))/3 datasets. Waiting for all...")
         end
+    elseif dashboard.auto_train_enabled
+        add_event!(dashboard, :info, "📊 Downloaded $(length(dashboard.downloads_completed))/3 datasets")
     end
 
     return success
@@ -555,10 +579,34 @@ function submit_predictions(dashboard::ProductionDashboardV047)
         feature_cols = filter(x -> startswith(x, "feature_"), names(live_data))
         X_live = Matrix(live_data[:, feature_cols])
 
-        # Generate predictions
+        # Generate predictions with progress
         dashboard.operation_description = "Generating predictions"
         dashboard.operation_details[:phase] = "Predicting"
-        predictions = predict(dashboard.models[1], X_live)
+        dashboard.operation_details[:total_rows] = size(X_live, 1)
+
+        add_event!(dashboard, :info, "🔮 Generating predictions for $(size(X_live, 1)) rows...")
+
+        # Create prediction progress callback
+        prediction_callback = function(progress_pct)
+            dashboard.operation_progress = progress_pct
+            dashboard.operation_details[:progress] = progress_pct
+            dashboard.operation_details[:rows_processed] = Int(round(size(X_live, 1) * progress_pct / 100))
+            dashboard.force_render = true
+        end
+
+        # Generate predictions (simulate progress if model doesn't support callbacks)
+        predictions = try
+            # Try with callback first
+            predict(dashboard.models[1], X_live; progress_callback=prediction_callback)
+        catch
+            # Fall back to no callback
+            dashboard.operation_progress = 50.0
+            dashboard.force_render = true
+            result = predict(dashboard.models[1], X_live)
+            dashboard.operation_progress = 100.0
+            dashboard.force_render = true
+            result
+        end
 
         # Create submission
         submission = DataFrame(
@@ -712,13 +760,18 @@ function handle_input(dashboard::ProductionDashboardV047, key::Char)
         add_event!(dashboard, :info, "🔤 Key pressed: '$key' (ASCII: $(Int(key)))")
     end
 
+    # Provide immediate feedback for all commands
     if key == 'q' || key == 'Q'
-        add_event!(dashboard, :info, "🛑 Quit command received")
+        add_event!(dashboard, :info, "🛑 Quit command received - exiting...")
         dashboard.running = false
 
     elseif key == 's' || key == 'S'
         add_event!(dashboard, :info, "🚀 Start pipeline command received")
-        start_pipeline(dashboard)
+        if dashboard.api_client === nothing
+            add_event!(dashboard, :error, "❌ Cannot start: No API credentials configured")
+        else
+            start_pipeline(dashboard)
+        end
 
     elseif key == 'p' || key == 'P'
         dashboard.paused = !dashboard.paused
@@ -726,15 +779,19 @@ function handle_input(dashboard::ProductionDashboardV047, key::Char)
         add_event!(dashboard, :info, "⏸️ Pipeline $status")
 
     elseif key == 'd' || key == 'D'
-        add_event!(dashboard, :info, "📥 Download command received")
-        @async download_datasets(dashboard, ["train", "validation", "live"])
+        add_event!(dashboard, :info, "📥 Download command received - starting downloads...")
+        if dashboard.api_client === nothing
+            add_event!(dashboard, :error, "❌ Cannot download: No API credentials configured")
+        else
+            @async download_datasets(dashboard, ["train", "validation", "live"])
+        end
 
     elseif key == 't' || key == 'T'
-        add_event!(dashboard, :info, "🏋️ Train command received")
+        add_event!(dashboard, :info, "🏋️ Train command received - checking data...")
         @async train_models(dashboard)
 
     elseif key == 'u' || key == 'U'
-        add_event!(dashboard, :info, "📤 Upload command received")
+        add_event!(dashboard, :info, "📤 Upload command received - preparing submission...")
         @async submit_predictions(dashboard)
 
     elseif key == 'r' || key == 'R'
@@ -892,7 +949,7 @@ function render_dashboard(dashboard::ProductionDashboardV047)
             end
         end
 
-        # Submission progress with bytes
+        # Submission/prediction progress
         if dashboard.current_operation == :submitting
             if haskey(dashboard.operation_details, :bytes_uploaded) && haskey(dashboard.operation_details, :total_bytes)
                 bytes_uploaded = dashboard.operation_details[:bytes_uploaded]
@@ -900,6 +957,10 @@ function render_dashboard(dashboard::ProductionDashboardV047)
                 uploaded_mb = round(bytes_uploaded / 1024 / 1024, digits=1)
                 total_mb = round(total_bytes / 1024 / 1024, digits=1)
                 push!(op_lines, "Uploaded: $uploaded_mb / $total_mb MB")
+            elseif haskey(dashboard.operation_details, :rows_processed) && haskey(dashboard.operation_details, :total_rows)
+                rows_done = dashboard.operation_details[:rows_processed]
+                rows_total = dashboard.operation_details[:total_rows]
+                push!(op_lines, "Predictions: $rows_done / $rows_total rows")
             end
         end
 
@@ -1013,6 +1074,8 @@ function run_dashboard(config::Any, api_client::Any)
                         if char_bytes <= 0x7f
                             key = Char(char_bytes)
                             put!(dashboard.keyboard_channel, key)
+                            # Force immediate render after keyboard input
+                            dashboard.force_render = true
                         end
                     end
                     sleep(0.001)  # 1ms polling for responsive input
@@ -1037,7 +1100,12 @@ function run_dashboard(config::Any, api_client::Any)
 
     # Give terminal setup time
     sleep(0.1)
-    add_event!(dashboard, :success, "⌨️ Press any key to test input, or 'h' for help")
+    add_event!(dashboard, :success, "⌨️ Keyboard ready! Press 'h' for help or 's' to start pipeline")
+
+    # Test keyboard input
+    if dashboard.debug_mode
+        add_event!(dashboard, :info, "🔍 Debug mode: All keyboard inputs will be logged")
+    end
 
     # Auto-start pipeline if configured
     if dashboard.auto_start_enabled && !dashboard.auto_start_initiated

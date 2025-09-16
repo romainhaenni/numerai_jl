@@ -116,49 +116,26 @@ function get_disk_space_info(path::String = pwd())
             @debug "df command output: $output"
             lines = split(output, '\n')
 
-            # Parse the output (second line has the data)
+            # Parse the output - combine all lines for multiline filesystem names
             if length(lines) >= 2
-                # The data is usually on the second line
-                # Format: filesystem 1024-blocks used available capacity ...
-                data_line = lines[2]
+                # Join all lines to handle filesystem names split across lines
+                full_output = join(lines[2:end], " ")
 
-                # On some systems, filesystem name might be on a separate line
-                if !occursin(r"\d+\s+\d+\s+\d+", data_line) && length(lines) >= 3
-                    data_line = lines[3]
-                end
+                # Use regex to extract the numeric values we need
+                # Pattern: any amount of non-digits, then groups of digits
+                # macOS format: filesystem blocks used avail capacity% iused ifree %iused mounted
+                # Linux format: filesystem blocks used avail use% mounted
 
-                # Split by whitespace and extract numeric columns
-                parts = split(data_line)
+                # Match consecutive digit groups (at least 3 needed)
+                matches = collect(eachmatch(r"\d+", full_output))
 
-                # Find the numeric columns - looking for 1024-blocks, used, available
-                # On macOS: Filesystem 1024-blocks Used Available Capacity iused ifree %iused Mounted
-                # The pattern is: filesystem, then blocks, used, available
+                if length(matches) >= 3
+                    # First 3 numeric values are: total_blocks, used_blocks, available_blocks
+                    total_kb = parse(Float64, matches[1].match)
+                    used_kb = parse(Float64, matches[2].match)
+                    avail_kb = parse(Float64, matches[3].match)
 
-                # First find the filesystem name (first non-header element)
-                # Then the next 3 numeric values are what we need
-                numeric_values = Float64[]
-                for part in parts
-                    # Try to parse as number, skip if it fails
-                    if occursin(r"^\d+$", part)
-                        try
-                            push!(numeric_values, parse(Float64, part))
-                            # We only need the first 3 numeric values
-                            if length(numeric_values) >= 3
-                                break
-                            end
-                        catch
-                            continue
-                        end
-                    end
-                end
-
-                # We need at least 3 numeric values (blocks, used, available)
-                if length(numeric_values) >= 3
-                    # The first 3 numeric values are blocks, used, available
-                    total_kb = numeric_values[1]
-                    used_kb = numeric_values[2]
-                    avail_kb = numeric_values[3]
-
+                    # Convert from KB to GB
                     total_gb = total_kb / (1024 * 1024)
                     used_gb = used_kb / (1024 * 1024)
                     free_gb = avail_kb / (1024 * 1024)
@@ -172,16 +149,18 @@ function get_disk_space_info(path::String = pwd())
                     )
                     @debug "Successfully parsed disk space info" result
                     return result
+                else
+                    @warn "Could not find enough numeric values in df output" matches_found=length(matches)
                 end
             end
         end
     catch e
-        # If anything fails, return zeros
-        @warn "Failed to get disk space info" error=e path=path
+        # If anything fails, log the error but don't warn repeatedly
+        @debug "Failed to get disk space info" error=e path=path
     end
 
     # Return default values if we couldn't get disk info
-    @warn "Returning default disk space values - disk space parsing failed"
+    @debug "Returning default disk space values"
     return (
         free_gb = 0.0,
         total_gb = 0.0,

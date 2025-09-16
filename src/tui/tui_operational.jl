@@ -7,6 +7,7 @@ using Printf
 using Statistics
 using DataFrames
 using CSV
+using REPL
 using ..API
 using ..Pipeline
 using ..Models
@@ -362,26 +363,75 @@ function format_uptime(seconds::Int)
     end
 end
 
+# Global keyboard input channel and task for non-blocking input
+const KEYBOARD_CHANNEL = Channel{Char}(32)
+const KEYBOARD_TASK = Ref{Task}()
+
+# Initialize keyboard input monitoring
+function init_keyboard_input()
+    if !isdefined(KEYBOARD_TASK, :x) || istaskdone(KEYBOARD_TASK.x)
+        KEYBOARD_TASK.x = @async begin
+            try
+                terminal = REPL.TerminalMenus.terminal
+
+                # Enable raw mode for the entire session
+                if isa(stdin, Base.TTY)
+                    raw_enabled = REPL.TerminalMenus.enableRawMode(terminal)
+
+                    if raw_enabled
+                        try
+                            while true
+                                # Read a key - this will block until a key is pressed
+                                key_code = REPL.TerminalMenus.readKey(terminal.in_stream)
+
+                                # Convert to character if it's a regular ASCII key
+                                if key_code <= 127
+                                    char = Char(key_code)
+                                    # Put the character in the channel (non-blocking)
+                                    if isopen(KEYBOARD_CHANNEL)
+                                        put!(KEYBOARD_CHANNEL, char)
+                                    end
+                                end
+                                # Ignore special keys for now
+                            end
+                        finally
+                            # Restore normal mode when done
+                            REPL.TerminalMenus.disableRawMode(terminal)
+                        end
+                    end
+                end
+            catch e
+                # Task ended, possibly due to shutdown
+            end
+        end
+    end
+end
+
+# Clean up keyboard input monitoring
+function cleanup_keyboard_input()
+    try
+        if isdefined(KEYBOARD_TASK, :x) && !istaskdone(KEYBOARD_TASK.x)
+            # This will trigger the finally block in the task
+            Base.throwto(KEYBOARD_TASK.x, InterruptException())
+        end
+        close(KEYBOARD_CHANNEL)
+    catch
+        # Ignore cleanup errors
+    end
+end
+
 # Read a single key without Enter (non-blocking)
 function read_key_nonblocking()
     key = ""
 
-    if isa(stdin, Base.TTY)
-        try
-            # Set raw mode
-            ccall(:jl_tty_set_mode, Int32, (Ptr{Cvoid}, Int32), stdin.handle, 1)
-
-            # Check if data available
-            if bytesavailable(stdin) > 0
-                char = read(stdin, Char)
-                key = string(char)
-            end
-
-            # Restore normal mode
-            ccall(:jl_tty_set_mode, Int32, (Ptr{Cvoid}, Int32), stdin.handle, 0)
-        catch
-            # Ignore errors
+    try
+        # Check if there's a key available in the channel
+        if isready(KEYBOARD_CHANNEL)
+            char = take!(KEYBOARD_CHANNEL)
+            key = string(char)
         end
+    catch
+        # Channel might be closed or other error
     end
 
     return lowercase(key)
@@ -774,6 +824,9 @@ function run_operational_dashboard(config)
         add_event!(dashboard, :info, "🚀 Dashboard started - All operations fully functional")
         add_event!(dashboard, :info, "Press command keys directly (no Enter needed)")
 
+        # Initialize keyboard input monitoring
+        init_keyboard_input()
+
         # Initial system update
         update_system_info!(dashboard)
 
@@ -804,6 +857,9 @@ function run_operational_dashboard(config)
         end
 
     finally
+        # Clean up keyboard input
+        cleanup_keyboard_input()
+
         # Show cursor
         print("\033[?25h")
         # Clear screen

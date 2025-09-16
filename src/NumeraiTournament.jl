@@ -98,6 +98,7 @@ include("tui/enhanced_dashboard.jl")
 include("tui/dashboard.jl")
 # TUI Production Implementation - Real API integration with actual progress tracking
 include("tui/tui_production.jl")
+include("tui/tui_production_v047.jl")  # v0.10.47 with all reported issues fixed
 include("scheduler/cron.jl")
 
 
@@ -143,6 +144,7 @@ using .Dashboard: TournamentDashboard, run_dashboard, add_event!, start_training
                   render_bottom_sticky_panel
 # Old TUI modules removed - using only TUIProduction
 using .TUIProduction: run_dashboard as run_tui_production, ProductionDashboard
+using .TUIProductionV047: run_dashboard as run_tui_v047, ProductionDashboardV047
 using .Utils: utc_now, utc_now_datetime, is_weekend_round,
              calculate_submission_window_end, is_submission_window_open,
              get_submission_window_info, get_disk_space_info
@@ -781,9 +783,9 @@ function run_full_pipeline(dashboard::TournamentDashboard)
     end
 end
 
-# Wrapper function for backwards compatibility with old TUI interface
+# Wrapper function for v0.10.43 - now runs v0.10.47 with all fixes
 function run_tui_v1043(config::TournamentConfig)
-    """Run the production TUI dashboard with real API integration"""
+    """Run the production TUI dashboard v0.10.47 with all reported issues fixed"""
     # Create API client with proper field names from TournamentConfig struct
     try
         if isempty(config.api_public_key) || isempty(config.api_secret_key)
@@ -796,7 +798,7 @@ function run_tui_v1043(config::TournamentConfig)
         end
 
         api_client = API.NumeraiClient(config.api_public_key, config.api_secret_key)
-        @log_info "Successfully created API client for TUI"
+        @log_info "Successfully created API client for TUI v0.10.47"
     catch e
         @log_error "Failed to create API client: $e"
         println("\n❌ ERROR: Could not create API client!")
@@ -808,8 +810,9 @@ function run_tui_v1043(config::TournamentConfig)
         return
     end
 
-    # Run the production dashboard with real API operations
-    run_tui_production(config, api_client)
+    # Run the v0.10.47 dashboard with all fixes for reported issues
+    println("\n🚀 Starting TUI v0.10.47 with complete fixes...")
+    run_tui_v047(config, api_client)
 end
 
 end

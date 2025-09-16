@@ -192,6 +192,7 @@ mutable struct TournamentConfig
     # Tournament configuration
     tournament_id::Int  # 8 for Classic, 11 for Signals
     auto_train_after_download::Bool  # Automatically start training after download completes
+    auto_start_pipeline::Bool  # Automatically start the download pipeline on TUI startup
     # Feature set configuration
     feature_set::String
     # Compounding configuration
@@ -288,6 +289,7 @@ function load_config(path::String="config.toml")::TournamentConfig
             Sys.CPU_THREADS,
             8,       # tournament_id default (Classic)
             true,    # auto_train_after_download default
+            true,    # auto_start_pipeline default
             "medium",  # feature_set default
             false,  # compounding_enabled
             1.0,    # min_compound_amount
@@ -361,6 +363,7 @@ function load_config(path::String="config.toml")::TournamentConfig
         get(config, "max_workers", Sys.CPU_THREADS),
         get(config, "tournament_id", 8),  # Classic by default
         get(config, "auto_train_after_download", true),  # Auto-train after download default
+        get(config, "auto_start_pipeline", true),  # Auto-start pipeline on TUI startup
         get(config, "feature_set", "medium"),
         get(config, "compounding_enabled", false),
         get(config, "min_compound_amount", 1.0),

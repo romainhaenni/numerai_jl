@@ -130,22 +130,34 @@ function get_disk_space_info(path::String = pwd())
                 # Split by whitespace and extract numeric columns
                 parts = split(data_line)
 
-                # Find the numeric columns (blocks, used, available)
-                # They should appear consecutively after the filesystem name
-                numeric_indices = Int[]
-                for (i, part) in enumerate(parts)
-                    # Match pure numeric values (including those starting with -)
-                    if occursin(r"^-?\d+$", part)
-                        push!(numeric_indices, i)
+                # Find the numeric columns - looking for 1024-blocks, used, available
+                # On macOS: Filesystem 1024-blocks Used Available Capacity iused ifree %iused Mounted
+                # The pattern is: filesystem, then blocks, used, available
+
+                # First find the filesystem name (first non-header element)
+                # Then the next 3 numeric values are what we need
+                numeric_values = Float64[]
+                for part in parts
+                    # Try to parse as number, skip if it fails
+                    if occursin(r"^\d+$", part)
+                        try
+                            push!(numeric_values, parse(Float64, part))
+                            # We only need the first 3 numeric values
+                            if length(numeric_values) >= 3
+                                break
+                            end
+                        catch
+                            continue
+                        end
                     end
                 end
 
                 # We need at least 3 numeric values (blocks, used, available)
-                if length(numeric_indices) >= 3
+                if length(numeric_values) >= 3
                     # The first 3 numeric values are blocks, used, available
-                    total_kb = parse(Float64, parts[numeric_indices[1]])
-                    used_kb = parse(Float64, parts[numeric_indices[2]])
-                    avail_kb = parse(Float64, parts[numeric_indices[3]])
+                    total_kb = numeric_values[1]
+                    used_kb = numeric_values[2]
+                    avail_kb = numeric_values[3]
 
                     total_gb = total_kb / (1024 * 1024)
                     used_gb = used_kb / (1024 * 1024)

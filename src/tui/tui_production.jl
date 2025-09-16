@@ -125,6 +125,13 @@ function create_dashboard(config::Any, api_client::Any)
         2.0
     end
 
+    # Log configuration values for debugging
+    @log_info "Dashboard Configuration:"
+    @log_info "  - Auto-start enabled: $auto_start_pipeline_val"
+    @log_info "  - Auto-start delay: $auto_start_delay_val seconds"
+    @log_info "  - Auto-train after download: $auto_train_after_download_val"
+    @log_info "  - System Info - CPU: $cpu_usage%, Memory: $(mem_info.used_gb)/$(mem_info.total_gb) GB, Disk: $(disk_info.free_gb)/$(disk_info.total_gb) GB"
+
     dashboard = ProductionDashboard(
         true,  # running
         false, # paused
@@ -634,15 +641,26 @@ end
 function render_dashboard(dashboard::ProductionDashboard)
     # Update system stats
     if time() - dashboard.last_render_time > 2.0
-        disk_info = Utils.get_disk_space_info()
-        mem_info = Utils.get_memory_info()
-        dashboard.cpu_usage = Utils.get_cpu_usage()
-        dashboard.memory_used = mem_info.used_gb
-        dashboard.memory_total = mem_info.total_gb
-        dashboard.disk_free = disk_info.free_gb
-        dashboard.disk_total = disk_info.total_gb
-        dashboard.force_render = true
-        dashboard.last_render_time = time()
+        try
+            disk_info = Utils.get_disk_space_info()
+            mem_info = Utils.get_memory_info()
+            cpu_usage = Utils.get_cpu_usage()
+
+            # Log the values for debugging
+            @log_debug "System monitoring update - CPU: $cpu_usage%, Memory: $(mem_info.used_gb)/$(mem_info.total_gb) GB, Disk: $(disk_info.free_gb)/$(disk_info.total_gb) GB"
+
+            # Update dashboard values
+            dashboard.cpu_usage = cpu_usage
+            dashboard.memory_used = mem_info.used_gb
+            dashboard.memory_total = mem_info.total_gb
+            dashboard.disk_free = disk_info.free_gb
+            dashboard.disk_total = disk_info.total_gb
+            dashboard.force_render = true
+            dashboard.last_render_time = time()
+        catch e
+            @log_error "Failed to update system stats: $e"
+            # Keep previous values if update fails
+        end
     end
 
     if !dashboard.force_render
@@ -838,13 +856,21 @@ function run_dashboard(config::Any, api_client::Any)
     # Auto-start if configured
     if dashboard.auto_start_enabled && !dashboard.auto_start_initiated
         dashboard.auto_start_initiated = true
+        add_event!(dashboard, :info, "⏱️ Auto-start enabled, waiting $(dashboard.auto_start_delay) seconds...")
         @async begin
             sleep(dashboard.auto_start_delay)
             if dashboard.running && !dashboard.pipeline_active
-                add_event!(dashboard, :info, "🚀 Auto-starting pipeline")
+                add_event!(dashboard, :info, "🚀 Auto-starting pipeline now!")
                 start_pipeline(dashboard)
+            else
+                reason = !dashboard.running ? "dashboard not running" : "pipeline already active"
+                add_event!(dashboard, :warn, "⚠️ Auto-start cancelled: $reason")
             end
         end
+    elseif !dashboard.auto_start_enabled
+        add_event!(dashboard, :info, "ℹ️ Auto-start disabled in configuration")
+    else
+        add_event!(dashboard, :info, "ℹ️ Auto-start already initiated")
     end
 
     # Main render loop

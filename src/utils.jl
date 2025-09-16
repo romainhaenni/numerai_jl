@@ -116,7 +116,7 @@ function get_disk_space_info(path::String = pwd())
             # Parse the output (second line has the data)
             if length(lines) >= 2
                 # The data is usually on the second line
-                # Format: filesystem blocks used available capacity ...
+                # Format: filesystem 1024-blocks used available capacity ...
                 data_line = lines[2]
 
                 # On some systems, filesystem name might be on a separate line
@@ -124,29 +124,25 @@ function get_disk_space_info(path::String = pwd())
                     data_line = lines[3]
                 end
 
-                # Split by whitespace and find the numeric columns
-                # Skip the filesystem name, look for consecutive numeric values
+                # Split by whitespace and extract numeric columns
                 parts = split(data_line)
-                numeric_parts = Float64[]
 
-                # Find consecutive numeric values (blocks, used, available)
-                for part in parts
-                    if occursin(r"^\d+$", part)
-                        push!(numeric_parts, parse(Float64, part))
-                        if length(numeric_parts) == 3
-                            break
-                        end
-                    elseif length(numeric_parts) > 0 && length(numeric_parts) < 3
-                        # Reset if we encounter non-numeric after starting to collect
-                        numeric_parts = Float64[]
+                # Find the numeric columns (blocks, used, available)
+                # They should appear consecutively after the filesystem name
+                numeric_indices = Int[]
+                for (i, part) in enumerate(parts)
+                    # Match pure numeric values (including those starting with -)
+                    if occursin(r"^-?\d+$", part)
+                        push!(numeric_indices, i)
                     end
                 end
 
-                if length(numeric_parts) >= 3
-                    # Values are in KB, convert to GB
-                    total_kb = numeric_parts[1]
-                    used_kb = numeric_parts[2]
-                    avail_kb = numeric_parts[3]
+                # We need at least 3 numeric values (blocks, used, available)
+                if length(numeric_indices) >= 3
+                    # The first 3 numeric values are blocks, used, available
+                    total_kb = parse(Float64, parts[numeric_indices[1]])
+                    used_kb = parse(Float64, parts[numeric_indices[2]])
+                    avail_kb = parse(Float64, parts[numeric_indices[3]])
 
                     total_gb = total_kb / (1024 * 1024)
                     used_gb = used_kb / (1024 * 1024)

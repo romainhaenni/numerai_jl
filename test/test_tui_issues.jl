@@ -2,7 +2,7 @@
 
 # Test script to verify TUI issues are fixed
 using Pkg
-Pkg.activate(@__DIR__)
+Pkg.activate(dirname(@__DIR__))
 
 # Load the main module
 using NumeraiTournament

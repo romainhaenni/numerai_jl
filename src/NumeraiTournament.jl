@@ -91,38 +91,21 @@ include("ml/hyperopt.jl")
 include("ml/pipeline.jl")
 include("performance/optimization.jl")
 include("compounding.jl")
+# TUI modules - keeping for backward compatibility with scheduler
 include("tui/charts.jl")
 include("tui/panels.jl")
 include("tui/enhanced_dashboard.jl")
-include("tui/tui_realtime.jl")  # Real-time TUI tracking module
 include("tui/dashboard.jl")
-include("tui/tui_fixed.jl")  # NEW FIXED TUI - Actually working implementation
-include("tui/tui_complete_fix.jl")  # Complete TUI fix with all issues resolved
-include("tui/tui_ultimate_fix.jl")  # Ultimate TUI fix with all features working
-include("tui/tui_working.jl")  # NEW: Actually working TUI implementation with all fixes
-include("tui/tui_real.jl")  # REAL: TUI with actual API/ML operations, not simulated
-include("tui/tui_operational.jl")  # OPERATIONAL: Fully working TUI with all features
-include("tui/tui_v10_34_fix.jl")  # v0.10.34: Complete fix with all TUI issues resolved
-include("tui/tui_v10_35_ultimate_fix.jl")  # v0.10.35: ULTIMATE fix with ALL features properly working
-include("tui/tui_v10_36_complete_fix.jl")  # v0.10.36: COMPLETE fix with REAL system monitoring
-include("tui/tui_v10_39_production.jl")  # v0.10.39: Production ready with all issues fixed
-include("tui/tui_v10_41_fixed.jl")  # v0.10.41: COMPLETE fix with ALL reported issues resolved
-include("tui/tui_v10_43_complete.jl")  # v0.10.43: ACTUAL COMPLETE FIX with all issues truly resolved
+# TUI Production Implementation - Real API integration with actual progress tracking
+include("tui/tui_production.jl")
 include("scheduler/cron.jl")
 
 
 export run_tournament, TournamentConfig, TournamentDashboard, run_dashboard, TournamentScheduler, load_config,
        add_event!, start_training, update_system_info!, render_sticky_dashboard,
        render_top_sticky_panel, render_bottom_sticky_panel,
-       TUICompleteFix, TUIUltimateFix, download_tournament_data,
-       run_real_dashboard, RealDashboard,
-       run_operational_dashboard, OperationalDashboard,
-       run_tui_v1034, TUIv1034Dashboard,
-       run_tui_v1035, TUIv1035Dashboard,
-       run_tui_v1036, TUIv1036Dashboard,
-       run_tui_v1039,
-       run_tui_v1041,
-       run_tui_v1043,
+       download_tournament_data,
+       run_tui_production,
        # Dashboard command functions
        run_full_pipeline,
        XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel,
@@ -158,23 +141,8 @@ using .EnhancedDashboard: ProgressTracker, update_progress_tracker!,
 using .Dashboard: TournamentDashboard, run_dashboard, add_event!, start_training,
                   update_system_info!, render_sticky_dashboard, render_top_sticky_panel,
                   render_bottom_sticky_panel
-using .TUIRealtime: RealTimeTracker, init_realtime_tracker,
-                   update_download_progress!, update_upload_progress!,
-                   update_training_progress!, update_prediction_progress!,
-                   render_realtime_dashboard!, setup_instant_commands!,
-                   enable_auto_training!
-using .TUIFixed: FixedDashboard, run_fixed_dashboard as run_truly_fixed_dashboard, add_event!
-using .TUICompleteFix: apply_complete_tui_fix!, run_fixed_dashboard
-using .TUIUltimateFix: apply_ultimate_fix!, run_ultimate_dashboard
-using .TUIWorking: WorkingDashboard, run_working_dashboard, update_progress!, instant_command_handler
-using .TUIReal: RealDashboard, run_real_dashboard
-using .TUIOperational: OperationalDashboard, run_operational_dashboard
-using .TUIv1034Fix: TUIv1034Dashboard, run_tui_v1034
-using .TUIv1035UltimateFix: TUIv1035Dashboard, run_tui_v1035
-using .TUIv1036CompleteFix: TUIv1036Dashboard, run_tui_v1036
-using .TUIv1039: run as run_tui_v1039
-using .TUIv1041Fixed: run_tui_v1041
-using .TUIv1043Complete: run_tui_v1043
+# Old TUI modules removed - using only TUIProduction
+using .TUIProduction: run_dashboard as run_tui_production, ProductionDashboard
 using .Utils: utc_now, utc_now_datetime, is_weekend_round,
              calculate_submission_window_end, is_submission_window_open,
              get_submission_window_info, get_disk_space_info
@@ -811,6 +779,16 @@ function run_full_pipeline(dashboard::TournamentDashboard)
             return false
         end
     end
+end
+
+# Wrapper function for backwards compatibility with old TUI interface
+function run_tui_v1043(config::TournamentConfig)
+    """Run the production TUI dashboard with real API integration"""
+    # Create API client
+    api_client = API.NumeraiClient(config.api[:public_id], config.api[:secret_key])
+
+    # Run the production dashboard with real API operations
+    run_tui_production(config, api_client)
 end
 
 end

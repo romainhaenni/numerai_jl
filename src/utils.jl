@@ -116,24 +116,46 @@ function get_disk_space_info(path::String = pwd())
             @debug "df command output: $output"
             lines = split(output, '\n')
 
-            # Parse the output - combine all lines for multiline filesystem names
+            # Parse the output - handle multiline filesystem names
             if length(lines) >= 2
-                # Join all lines to handle filesystem names split across lines
-                full_output = join(lines[2:end], " ")
+                # For macOS/Linux, the header is on line 1, data starts on line 2
+                # Format: Filesystem 1024-blocks Used Available Capacity% ...
+                # Some systems may split the filesystem name across lines
 
-                # Use regex to extract the numeric values we need
-                # Pattern: any amount of non-digits, then groups of digits
-                # macOS format: filesystem blocks used avail capacity% iused ifree %iused mounted
-                # Linux format: filesystem blocks used avail use% mounted
+                # Combine all non-header lines
+                data_parts = String[]
+                for i in 2:length(lines)
+                    line = strip(lines[i])
+                    if !isempty(line)
+                        append!(data_parts, split(line))
+                    end
+                end
 
-                # Match consecutive digit groups (at least 3 needed)
-                matches = collect(eachmatch(r"\d+", full_output))
+                # Find numeric columns, skipping filesystem name
+                # Look for the pattern of large numbers that represent disk blocks
+                numeric_cols = []
+                for part in data_parts
+                    # Skip filesystem name and percentages
+                    if !occursin("%", part) && !occursin("/", part)
+                        # Try to parse as number
+                        try
+                            num = parse(Float64, part)
+                            # Disk blocks should be large numbers (at least 1000 KB)
+                            if num > 100  # Filter out small numbers
+                                push!(numeric_cols, num)
+                            end
+                        catch
+                            continue
+                        end
+                    end
+                end
 
-                if length(matches) >= 3
-                    # First 3 numeric values are: total_blocks, used_blocks, available_blocks
-                    total_kb = parse(Float64, matches[1].match)
-                    used_kb = parse(Float64, matches[2].match)
-                    avail_kb = parse(Float64, matches[3].match)
+                # We need at least 3 numeric values: total, used, available
+                if length(numeric_cols) >= 3
+                    # The first 3 large numbers should be: total_blocks, used_blocks, available_blocks
+                    total_kb = numeric_cols[1]
+                    used_kb = numeric_cols[2]
+                    avail_kb = numeric_cols[3]
 
                     # Convert from KB to GB
                     total_gb = total_kb / (1024 * 1024)
@@ -150,7 +172,7 @@ function get_disk_space_info(path::String = pwd())
                     @debug "Successfully parsed disk space info" result
                     return result
                 else
-                    @warn "Could not find enough numeric values in df output" matches_found=length(matches)
+                    @warn "Could not find enough numeric values in df output" found=length(numeric_cols)
                 end
             end
         end

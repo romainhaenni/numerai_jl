@@ -251,10 +251,30 @@ function download_datasets(dashboard::ProductionDashboardV047, datasets::Vector{
         else
             dashboard.config.data_dir
         end
+
+        # Ensure data directory exists
+        if !isdir(data_dir)
+            try
+                mkpath(data_dir)
+                add_event!(dashboard, :info, "📁 Created data directory: $data_dir")
+            catch e
+                add_event!(dashboard, :error, "❌ Failed to create data directory: $e")
+                success = false
+                continue
+            end
+        end
+
         output_path = joinpath(data_dir, "$dataset.parquet")
 
         try
-            add_event!(dashboard, :info, "📊 Downloading: $dataset")
+            # Check if API client is available
+            if dashboard.api_client === nothing
+                add_event!(dashboard, :error, "❌ No API client available - cannot download")
+                success = false
+                continue
+            end
+
+            add_event!(dashboard, :info, "📊 Downloading: $dataset to $output_path")
 
             # Enhanced progress callback with real metrics
             progress_callback = function(status; kwargs...)
@@ -628,9 +648,16 @@ function start_pipeline(dashboard::ProductionDashboardV047)
         return
     end
 
+    # Check API client before starting
+    if dashboard.api_client === nothing
+        add_event!(dashboard, :error, "❌ Cannot start pipeline: No API client configured")
+        add_event!(dashboard, :info, "💡 Please check your API credentials in .env file")
+        return
+    end
+
     dashboard.pipeline_active = true
     dashboard.pipeline_start_time = time()
-    add_event!(dashboard, :info, "🚀 Starting complete tournament pipeline")
+    add_event!(dashboard, :success, "🚀 Starting complete tournament pipeline")
 
     @async begin
         try
@@ -665,9 +692,15 @@ function start_pipeline(dashboard::ProductionDashboardV047)
 
         catch e
             add_event!(dashboard, :error, "❌ Pipeline error: $(string(e))")
+            if dashboard.debug_mode
+                add_event!(dashboard, :error, "📍 Stack trace: $(stacktrace(catch_backtrace()))")
+            end
         finally
             dashboard.pipeline_active = false
+            dashboard.pipeline_stage = :idle
+            dashboard.current_operation = :idle
             dashboard.force_render = true
+            add_event!(dashboard, :info, "🔄 Pipeline finished")
         end
     end
 end

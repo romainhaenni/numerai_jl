@@ -784,8 +784,29 @@ end
 # Wrapper function for backwards compatibility with old TUI interface
 function run_tui_v1043(config::TournamentConfig)
     """Run the production TUI dashboard with real API integration"""
-    # Create API client
-    api_client = API.NumeraiClient(config.api[:public_id], config.api[:secret_key])
+    # Create API client with proper field names from TournamentConfig struct
+    try
+        if isempty(config.api_public_key) || isempty(config.api_secret_key)
+            @log_error "API credentials are missing or empty"
+            println("\n❌ ERROR: API credentials are not configured properly!")
+            println("Please ensure your .env file contains:")
+            println("  NUMERAI_PUBLIC_ID=your_public_id_here")
+            println("  NUMERAI_SECRET_KEY=your_secret_key_here")
+            return
+        end
+
+        api_client = API.NumeraiClient(config.api_public_key, config.api_secret_key)
+        @log_info "Successfully created API client for TUI"
+    catch e
+        @log_error "Failed to create API client: $e"
+        println("\n❌ ERROR: Could not create API client!")
+        println("Error details: $e")
+        println("\nPlease check:")
+        println("1. Your API credentials in .env file")
+        println("2. Your internet connection")
+        println("3. Try running: julia --project=. examples/validate_credentials.jl")
+        return
+    end
 
     # Run the production dashboard with real API operations
     run_tui_production(config, api_client)

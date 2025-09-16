@@ -289,20 +289,27 @@ function run_dashboard(dashboard::TournamentDashboard)
     try
         add_event!(dashboard, :info, "Dashboard started")
 
-        # Use the new REAL TUI implementation with actual API/ML operations
+        # Use the new OPERATIONAL TUI implementation with all features working
         try
-            # Use the TUIReal module which connects to real operations
-            add_event!(dashboard, :info, "Starting REAL TUI dashboard with actual operations...")
-            Main.NumeraiTournament.run_real_dashboard(dashboard.config, dashboard.api_client)
-            return  # Exit after real dashboard completes
+            # Use the TUIOperational module which has all features properly implemented
+            add_event!(dashboard, :info, "Starting OPERATIONAL TUI dashboard with all features...")
+            Main.NumeraiTournament.run_operational_dashboard(dashboard.config)
+            return  # Exit after operational dashboard completes
         catch e1
-            # Fallback to the fixed TUI if working not available
+            # Fallback to the real TUI if operational not available
             try
-                add_event!(dashboard, :info, "Trying fixed TUI dashboard...")
-                Main.NumeraiTournament.run_truly_fixed_dashboard(dashboard.config, dashboard.api_client)
-                return  # Exit after fixed dashboard completes
+                add_event!(dashboard, :info, "Trying real TUI dashboard...")
+                Main.NumeraiTournament.run_real_dashboard(dashboard.config, dashboard.api_client)
+                return  # Exit after real dashboard completes
             catch e2
-                add_event!(dashboard, :warning, "Fixed TUI not available: $(sprint(showerror, e2)), trying fallbacks...")
+                # Fallback to the fixed TUI if real not available
+                try
+                    add_event!(dashboard, :info, "Trying fixed TUI dashboard...")
+                    Main.NumeraiTournament.run_truly_fixed_dashboard(dashboard.config, dashboard.api_client)
+                    return  # Exit after fixed dashboard completes
+                catch e3
+                    add_event!(dashboard, :warning, "Fixed TUI not available: $(sprint(showerror, e3)), trying fallbacks...")
+                end
             end
         end
 

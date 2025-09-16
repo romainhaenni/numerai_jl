@@ -99,6 +99,7 @@ include("tui/dashboard.jl")
 include("tui/tui_fixed.jl")  # NEW FIXED TUI - Actually working implementation
 include("tui/tui_complete_fix.jl")  # Complete TUI fix with all issues resolved
 include("tui/tui_ultimate_fix.jl")  # Ultimate TUI fix with all features working
+include("tui/tui_working.jl")  # NEW: Actually working TUI implementation with all fixes
 include("scheduler/cron.jl")
 
 
@@ -146,9 +147,10 @@ using .TUIRealtime: RealTimeTracker, init_realtime_tracker,
                    update_training_progress!, update_prediction_progress!,
                    render_realtime_dashboard!, setup_instant_commands!,
                    enable_auto_training!
-using .TUIFixed: FixedDashboard, run_fixed_dashboard as run_truly_fixed_dashboard
+using .TUIFixed: FixedDashboard, run_fixed_dashboard as run_truly_fixed_dashboard, add_event!
 using .TUICompleteFix: apply_complete_tui_fix!, run_fixed_dashboard
 using .TUIUltimateFix: apply_ultimate_fix!, run_ultimate_dashboard
+using .TUIWorking: WorkingDashboard, run_working_dashboard, update_progress!, instant_command_handler
 using .Utils: utc_now, utc_now_datetime, is_weekend_round,
              calculate_submission_window_end, is_submission_window_open,
              get_submission_window_info, get_disk_space_info

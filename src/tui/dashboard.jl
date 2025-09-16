@@ -289,14 +289,21 @@ function run_dashboard(dashboard::TournamentDashboard)
     try
         add_event!(dashboard, :info, "Dashboard started")
 
-        # Use the new fixed TUI implementation that actually works
+        # Use the new WORKING TUI implementation that has ALL features properly implemented
         try
-            # Load and use the fixed TUI module
-            add_event!(dashboard, :info, "Starting fixed TUI dashboard with all features working...")
-            Main.NumeraiTournament.run_truly_fixed_dashboard(dashboard.config, dashboard.api_client)
-            return  # Exit after fixed dashboard completes
-        catch e
-            add_event!(dashboard, :warning, "Fixed TUI not available: $(sprint(showerror, e)), trying fallbacks...")
+            # Use the TUIWorking module which has all features actually working
+            add_event!(dashboard, :info, "Starting WORKING TUI dashboard with ALL features functional...")
+            Main.NumeraiTournament.run_working_dashboard(dashboard.config, dashboard.api_client)
+            return  # Exit after working dashboard completes
+        catch e1
+            # Fallback to the fixed TUI if working not available
+            try
+                add_event!(dashboard, :info, "Trying fixed TUI dashboard...")
+                Main.NumeraiTournament.run_truly_fixed_dashboard(dashboard.config, dashboard.api_client)
+                return  # Exit after fixed dashboard completes
+            catch e2
+                add_event!(dashboard, :warning, "Fixed TUI not available: $(sprint(showerror, e2)), trying fallbacks...")
+            end
         end
 
         # Fallback attempts (keeping for compatibility)

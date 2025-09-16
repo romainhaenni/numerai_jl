@@ -15,7 +15,7 @@ using ..Logger: @log_info, @log_warn, @log_error
 using ..Utils
 using ..Models.Callbacks: TrainingCallback, CallbackInfo, CallbackResult, CONTINUE
 
-export FixedDashboard, run_fixed_dashboard
+export FixedDashboard, run_fixed_dashboard, add_event!
 
 # Progress tracking state
 mutable struct ProgressState
@@ -225,10 +225,13 @@ end
 
 # Create progress bar
 function create_progress_bar(progress::Float64, width::Int=40, label::String="")
-    filled = Int(round(progress * width / 100))
+    # Handle both percentage (0-100) and fraction (0.0-1.0) inputs
+    normalized_progress = progress > 1.0 ? progress : progress * 100.0
+
+    filled = Int(round(normalized_progress * width / 100))
     empty = width - filled
     bar = "█" ^ filled * "░" ^ empty
-    percentage = @sprintf("%.1f%%", progress)
+    percentage = @sprintf("%.1f%%", normalized_progress)
 
     if label != ""
         return "$label [$bar] $percentage"

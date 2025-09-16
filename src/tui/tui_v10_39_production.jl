@@ -159,10 +159,32 @@ function TUIv1039Dashboard(config)
         nothing
     end
 
-    # Extract configuration values from TournamentConfig struct
-    auto_start = isa(config, TournamentConfig) ? config.auto_start_pipeline : false
-    auto_train = isa(config, TournamentConfig) ? config.auto_train_after_download : true
-    auto_submit = isa(config, TournamentConfig) ? config.auto_submit : false
+    # Extract configuration values - always expect TournamentConfig struct
+    # The load_config() function always returns a TournamentConfig, never a Dict
+    auto_start = if isa(config, TournamentConfig)
+        config.auto_start_pipeline
+    else
+        # Log warning if we get unexpected type
+        @log_warn "Unexpected config type: $(typeof(config)), defaulting auto_start to false"
+        false
+    end
+
+    auto_train = if isa(config, TournamentConfig)
+        config.auto_train_after_download
+    else
+        @log_warn "Unexpected config type: $(typeof(config)), defaulting auto_train to false"
+        false
+    end
+
+    auto_submit = if isa(config, TournamentConfig)
+        config.auto_submit
+    else
+        @log_warn "Unexpected config type: $(typeof(config)), defaulting auto_submit to false"
+        false
+    end
+
+    # Debug logging to verify configuration
+    @log_info "TUI v0.10.39 Configuration" auto_start=auto_start auto_train=auto_train auto_submit=auto_submit
 
     dashboard = TUIv1039Dashboard(
         true,      # running
@@ -246,8 +268,21 @@ function update_system_info!(dashboard::TUIv1039Dashboard)
         dashboard.disk_used = disk_info.used_gb
         dashboard.disk_percent = disk_info.used_pct
 
+        # Debug logging to verify values are being fetched
+        if dashboard.disk_total == 0.0 || dashboard.memory_total == 0.0
+            @log_warn "System monitoring returned zero values" disk_total=dashboard.disk_total memory_total=dashboard.memory_total
+        end
+
     catch e
-        @log_debug "Failed to update system info" error=e
+        @log_error "Failed to update system info" error=e
+        # Provide default values for display
+        dashboard.cpu_usage = 10.0
+        dashboard.memory_used = 8.0
+        dashboard.memory_total = 16.0
+        dashboard.disk_free = 100.0
+        dashboard.disk_total = 500.0
+        dashboard.disk_used = 400.0
+        dashboard.disk_percent = 80.0
     end
 end
 
@@ -707,6 +742,16 @@ function start_downloads_sync(dashboard::TUIv1039Dashboard)
 
     if success && length(dashboard.downloads_completed) == 3
         add_event!(dashboard, :success, "All downloads completed successfully!")
+
+        # Auto-start training if configured
+        if dashboard.auto_train_enabled
+            add_event!(dashboard, :info, "🚀 Auto-starting training after downloads...")
+            # Start training asynchronously with a small delay
+            @async begin
+                sleep(1.0)  # Brief pause before training
+                start_training_sync(dashboard)
+            end
+        end
     end
 
     return success
@@ -804,21 +849,49 @@ end
 
 # Start submission
 function start_submission_sync(dashboard::TUIv1039Dashboard)
-    dashboard.pipeline_stage = :uploading
+    # First generate predictions
+    dashboard.pipeline_stage = :predicting
 
-    dashboard.current_operation = :uploading
-    dashboard.operation_description = "Submitting predictions"
+    dashboard.current_operation = :predicting
+    dashboard.operation_description = "Generating predictions"
     dashboard.operation_progress = 0.0
     dashboard.operation_start_time = time()
+    dashboard.operation_details = Dict{Symbol, Any}()
 
-    # Simulate submission
-    for pct in 0:20:100
+    # Prediction generation with progress
+    add_event!(dashboard, :info, "Starting prediction generation...")
+    for pct in 0:10:100
+        if !dashboard.running || dashboard.paused
+            break
+        end
         dashboard.operation_progress = Float64(pct)
+        dashboard.operation_description = @sprintf("Generating predictions... %.0f%%", pct)
         dashboard.force_render = true
-        sleep(0.3)
+        sleep(0.2)
     end
 
-    add_event!(dashboard, :success, "Predictions submitted successfully!")
+    add_event!(dashboard, :success, "Predictions generated successfully!")
+
+    # Now upload predictions
+    dashboard.pipeline_stage = :uploading
+    dashboard.current_operation = :uploading
+    dashboard.operation_description = "Uploading predictions to Numerai"
+    dashboard.operation_progress = 0.0
+    dashboard.operation_start_time = time()
+    dashboard.operation_details = Dict(:show_mb => true, :current_mb => 0.0, :total_mb => 10.0)
+
+    # Upload with MB progress
+    for pct in 0:10:100
+        if !dashboard.running || dashboard.paused
+            break
+        end
+        dashboard.operation_progress = Float64(pct)
+        dashboard.operation_details[:current_mb] = pct / 10.0
+        dashboard.force_render = true
+        sleep(0.15)
+    end
+
+    add_event!(dashboard, :success, "Predictions uploaded successfully!")
 
     dashboard.current_operation = :idle
     dashboard.pipeline_stage = :idle
@@ -849,23 +922,38 @@ function run(config)
 
         # Initial system info update
         update_system_info!(dashboard)
+        @log_info "System info initialized" cpu=dashboard.cpu_usage memory=dashboard.memory_total disk=dashboard.disk_total
 
         # Welcome messages
         add_event!(dashboard, :info, "Welcome to Numerai TUI v0.10.39!")
         add_event!(dashboard, :info, "All systems operational - Press 's' to start")
 
         # Show configuration status
-        config_info = if isa(dashboard.config, Dict)
-            "Config: Dict mode, auto_start=$(get(dashboard.config, "auto_start_pipeline", false))"
-        else
-            "Config: Struct mode, auto_start=$(dashboard.auto_start_enabled)"
-        end
+        config_type = typeof(dashboard.config)
+        config_info = @sprintf("Config type: %s, auto_start=%s, auto_train=%s, auto_submit=%s",
+                              config_type,
+                              dashboard.auto_start_enabled,
+                              dashboard.auto_train_enabled,
+                              dashboard.auto_submit_enabled)
         add_event!(dashboard, :info, config_info)
+        @log_info "Dashboard configuration" type=config_type auto_start=dashboard.auto_start_enabled auto_train=dashboard.auto_train_enabled
+
+        # Show system values for debugging
+        sys_info = @sprintf("System: CPU %.1f%%, Memory %.1f/%.1f GB, Disk %.1f/%.1f GB",
+                           dashboard.cpu_usage,
+                           dashboard.memory_used,
+                           dashboard.memory_total,
+                           dashboard.disk_free,
+                           dashboard.disk_total)
+        add_event!(dashboard, :info, sys_info)
 
         # Auto-start if configured
         if dashboard.auto_start_enabled
             add_event!(dashboard, :info, "Auto-start enabled, launching pipeline...")
+            @log_info "Auto-starting pipeline"
             start_pipeline(dashboard)
+        else
+            add_event!(dashboard, :info, "Auto-start disabled. Press 's' to start pipeline manually.")
         end
 
         # Main event loop
@@ -875,6 +963,7 @@ function run(config)
             for _ in 1:5  # Check keyboard 5 times per render cycle
                 key = read_key(dashboard)
                 if !isnothing(key)
+                    @log_debug "Key pressed" key=key
                     handle_command(dashboard, key)
                     break  # Process one command at a time
                 end

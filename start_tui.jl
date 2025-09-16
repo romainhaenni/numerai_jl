@@ -32,8 +32,8 @@ elseif headless
     println("Starting in headless mode...")
     NumeraiTournament.run_headless()
 else
-    # Start the TUI dashboard v0.10.36 - COMPLETE FIX with REAL system monitoring
-    println("Starting Numerai Tournament TUI Dashboard v0.10.36 - COMPLETE FIX...")
+    # Start the TUI dashboard v0.10.38 - PRODUCTION READY with all fixes
+    println("Starting Numerai Tournament TUI Dashboard v0.10.38 - PRODUCTION READY...")
     println("✅ Real CPU/Memory/Disk monitoring")
     println("✅ Progress bars for all operations")
     println("✅ Instant keyboard commands (no Enter key)")

@@ -105,6 +105,7 @@ include("tui/tui_operational.jl")  # OPERATIONAL: Fully working TUI with all fea
 include("tui/tui_v10_34_fix.jl")  # v0.10.34: Complete fix with all TUI issues resolved
 include("tui/tui_v10_35_ultimate_fix.jl")  # v0.10.35: ULTIMATE fix with ALL features properly working
 include("tui/tui_v10_36_complete_fix.jl")  # v0.10.36: COMPLETE fix with REAL system monitoring
+include("tui/tui_v10_39_production.jl")  # v0.10.39: Production ready with all issues fixed
 include("scheduler/cron.jl")
 
 
@@ -117,6 +118,7 @@ export run_tournament, TournamentConfig, TournamentDashboard, run_dashboard, Tou
        run_tui_v1034, TUIv1034Dashboard,
        run_tui_v1035, TUIv1035Dashboard,
        run_tui_v1036, TUIv1036Dashboard,
+       run_tui_v1039,
        # Dashboard command functions
        run_full_pipeline,
        XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel,
@@ -166,6 +168,7 @@ using .TUIOperational: OperationalDashboard, run_operational_dashboard
 using .TUIv1034Fix: TUIv1034Dashboard, run_tui_v1034
 using .TUIv1035UltimateFix: TUIv1035Dashboard, run_tui_v1035
 using .TUIv1036CompleteFix: TUIv1036Dashboard, run_tui_v1036
+using .TUIv1039: run as run_tui_v1039
 using .Utils: utc_now, utc_now_datetime, is_weekend_round,
              calculate_submission_window_end, is_submission_window_open,
              get_submission_window_info, get_disk_space_info

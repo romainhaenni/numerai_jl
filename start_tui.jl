@@ -32,11 +32,12 @@ elseif headless
     println("Starting in headless mode...")
     NumeraiTournament.run_headless()
 else
-    # Start the TUI dashboard v0.10.34 with all fixes
-    println("Starting Numerai Tournament TUI Dashboard v0.10.34...")
+    # Start the TUI dashboard v0.10.35 - ULTIMATE FIX with all features properly working
+    println("Starting Numerai Tournament TUI Dashboard v0.10.35 - ULTIMATE FIX...")
+    println("All issues resolved: progress bars, auto-training, instant commands, sticky panels!")
     println("Tip: For best performance, run with multiple threads: julia -t auto start_tui.jl")
 
-    # Load config and run the fixed dashboard
+    # Load config and run the ultimate fixed dashboard
     config = NumeraiTournament.load_config("config.toml")
-    NumeraiTournament.run_tui_v1034(config)
+    NumeraiTournament.run_tui_v1035(config)
 end

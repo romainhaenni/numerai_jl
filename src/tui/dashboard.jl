@@ -289,12 +289,12 @@ function run_dashboard(dashboard::TournamentDashboard)
     try
         add_event!(dashboard, :info, "Dashboard started")
 
-        # Use the new WORKING TUI implementation that has ALL features properly implemented
+        # Use the new REAL TUI implementation with actual API/ML operations
         try
-            # Use the TUIWorking module which has all features actually working
-            add_event!(dashboard, :info, "Starting WORKING TUI dashboard with ALL features functional...")
-            Main.NumeraiTournament.run_working_dashboard(dashboard.config, dashboard.api_client)
-            return  # Exit after working dashboard completes
+            # Use the TUIReal module which connects to real operations
+            add_event!(dashboard, :info, "Starting REAL TUI dashboard with actual operations...")
+            Main.NumeraiTournament.run_real_dashboard(dashboard.config, dashboard.api_client)
+            return  # Exit after real dashboard completes
         catch e1
             # Fallback to the fixed TUI if working not available
             try

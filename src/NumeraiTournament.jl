@@ -100,6 +100,7 @@ include("tui/tui_fixed.jl")  # NEW FIXED TUI - Actually working implementation
 include("tui/tui_complete_fix.jl")  # Complete TUI fix with all issues resolved
 include("tui/tui_ultimate_fix.jl")  # Ultimate TUI fix with all features working
 include("tui/tui_working.jl")  # NEW: Actually working TUI implementation with all fixes
+include("tui/tui_real.jl")  # REAL: TUI with actual API/ML operations, not simulated
 include("scheduler/cron.jl")
 
 
@@ -107,6 +108,7 @@ export run_tournament, TournamentConfig, TournamentDashboard, run_dashboard, Tou
        add_event!, start_training, update_system_info!, render_sticky_dashboard,
        render_top_sticky_panel, render_bottom_sticky_panel,
        TUICompleteFix, TUIUltimateFix, download_tournament_data,
+       run_real_dashboard, RealDashboard,
        # Dashboard command functions
        run_full_pipeline,
        XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel,
@@ -151,6 +153,7 @@ using .TUIFixed: FixedDashboard, run_fixed_dashboard as run_truly_fixed_dashboar
 using .TUICompleteFix: apply_complete_tui_fix!, run_fixed_dashboard
 using .TUIUltimateFix: apply_ultimate_fix!, run_ultimate_dashboard
 using .TUIWorking: WorkingDashboard, run_working_dashboard, update_progress!, instant_command_handler
+using .TUIReal: RealDashboard, run_real_dashboard
 using .Utils: utc_now, utc_now_datetime, is_weekend_round,
              calculate_submission_window_end, is_submission_window_open,
              get_submission_window_info, get_disk_space_info

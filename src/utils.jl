@@ -115,21 +115,38 @@ function get_disk_space_info(path::String = pwd())
 
             # Parse the output (second line has the data)
             if length(lines) >= 2
-                # Handle case where filesystem name is on separate line
-                data_line = if occursin(r"^\s*\d+", lines[2])
-                    lines[2]
-                else
-                    # Filesystem name is on first line, data on second
-                    length(lines) >= 3 ? lines[3] : lines[2]
+                # The data is usually on the second line
+                # Format: filesystem blocks used available capacity ...
+                data_line = lines[2]
+
+                # On some systems, filesystem name might be on a separate line
+                if !occursin(r"\d+\s+\d+\s+\d+", data_line) && length(lines) >= 3
+                    data_line = lines[3]
                 end
 
-                # Parse the data line
+                # Split by whitespace and find the numeric columns
+                # Skip the filesystem name, look for consecutive numeric values
                 parts = split(data_line)
-                if length(parts) >= 4
+                numeric_parts = Float64[]
+
+                # Find consecutive numeric values (blocks, used, available)
+                for part in parts
+                    if occursin(r"^\d+$", part)
+                        push!(numeric_parts, parse(Float64, part))
+                        if length(numeric_parts) == 3
+                            break
+                        end
+                    elseif length(numeric_parts) > 0 && length(numeric_parts) < 3
+                        # Reset if we encounter non-numeric after starting to collect
+                        numeric_parts = Float64[]
+                    end
+                end
+
+                if length(numeric_parts) >= 3
                     # Values are in KB, convert to GB
-                    total_kb = parse(Float64, parts[2])
-                    used_kb = parse(Float64, parts[3])
-                    avail_kb = parse(Float64, parts[4])
+                    total_kb = numeric_parts[1]
+                    used_kb = numeric_parts[2]
+                    avail_kb = numeric_parts[3]
 
                     total_gb = total_kb / (1024 * 1024)
                     used_gb = used_kb / (1024 * 1024)

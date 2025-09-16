@@ -1,15 +1,14 @@
 
 Fix More Issues:
-
+- when i start the program, the pipeline is not initiated, ie. no auto download and no training
+- The TUI status information `Disk: 0.0/0.0 GB free` is not updating, resp. does not show real system values
+- if I type any command then nothing happens
 - if there is a download running then show a progress bar
 - if there is a upload running then show a progress bar
 - if there is training running show a progress bar or a spinner
 - if there is prediction running show a progress bar or a spinner
 - after the download of live, train and validation data, i can not see the system performing a training
-- typing the commands + Enter -> nothing happens => i want to enter a command key and instantly the program to run this command (without approving it with the Enter key)
-- there is no training after downloads
-- The TUI status information (system status, recent events, training progress) are not updating
-- provide a sticky panel at the top with always up-to-date system information, provide a panel below sticky to the bottom with event logs (show the latest 30 messages)
+
 
 ---
 study @specs/* to learn about the program specifications and @scratchpad.md to understand plan so far.

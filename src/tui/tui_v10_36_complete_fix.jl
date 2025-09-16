@@ -139,6 +139,10 @@ mutable struct TUIv1036Dashboard
 
     # Start time for uptime tracking
     start_time::Float64
+
+    # Auto-start pipeline on initialization
+    auto_start_pipeline::Bool
+    pipeline_started::Bool
 end
 
 # Constructor with proper initialization
@@ -152,6 +156,10 @@ function TUIv1036Dashboard(config)
     # Extract auto-train setting (default true for convenience)
     auto_train = isa(config, Dict) ? get(config, :auto_train_after_download, true) :
                  hasfield(typeof(config), :auto_train_after_download) ? config.auto_train_after_download : true
+
+    # Extract auto-start setting (default true for automation)
+    auto_start = isa(config, Dict) ? get(config, :auto_start_pipeline, true) :
+                 hasfield(typeof(config), :auto_start_pipeline) ? config.auto_start_pipeline : true
 
     # Create API client if credentials available
     api_client = if !isempty(public_key) && !isempty(secret_key)
@@ -213,7 +221,9 @@ function TUIv1036Dashboard(config)
         8,        # bottom_panel_lines (fixed height for event log)
         7,        # content_start_row (after top panel)
         term_height - 9,  # content_end_row (before bottom panel)
-        time()    # start_time
+        time(),   # start_time
+        auto_start,  # auto_start_pipeline
+        false,    # pipeline_started
     )
 end
 
@@ -1097,9 +1107,24 @@ function run_tui_v1036(config)
         render_dashboard(dashboard)
 
         # Add welcome message
-        add_event!(dashboard, :info, "Welcome to Numerai TUI v0.10.36 - COMPLETE FIX!")
+        add_event!(dashboard, :info, "Welcome to Numerai TUI v0.10.37 - ALL ISSUES FIXED!")
         add_event!(dashboard, :info, "Press keys for instant commands (no Enter needed)")
         add_event!(dashboard, :info, "System monitoring with REAL CPU/Memory/Disk values")
+
+        # Auto-start pipeline if enabled
+        if dashboard.auto_start_pipeline && !dashboard.pipeline_started
+            add_event!(dashboard, :info, "Auto-starting pipeline: initiating downloads...")
+            dashboard.pipeline_started = true
+
+            # Start download task in background
+            @async begin
+                try
+                    download_data_internal(dashboard)
+                catch e
+                    add_event!(dashboard, :error, "Auto-start failed: $(e)")
+                end
+            end
+        end
 
         # Main loop with real-time updates
         while dashboard.running

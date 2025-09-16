@@ -615,14 +615,32 @@ function start_predictions(dashboard::OperationalDashboard)
             dashboard.operation_total = 100.0
             dashboard.operation_start_time = time()
 
-            # Generate predictions
-            predictions = Pipeline.predict(dashboard.ml_pipeline, dashboard.live_df)
+            # Split prediction into batches for progress tracking
+            n_rows = nrow(dashboard.live_df)
+            batch_size = max(1000, n_rows ÷ 10)  # 10 batches or 1000 rows per batch
+            n_batches = ceil(Int, n_rows / batch_size)
 
-            # Simulate progress (since predict doesn't have callbacks)
-            for i in 1:10
-                dashboard.operation_progress = i * 10.0
-                dashboard.operation_description = "Processing batch $(i)/10..."
-                sleep(0.1)
+            dashboard.operation_description = "Processing $(n_rows) rows in $(n_batches) batches..."
+            dashboard.operation_total = Float64(n_batches)
+
+            # Generate predictions with batch progress updates
+            predictions = Float64[]
+            for batch_idx in 1:n_batches
+                start_idx = (batch_idx - 1) * batch_size + 1
+                end_idx = min(batch_idx * batch_size, n_rows)
+                batch_df = dashboard.live_df[start_idx:end_idx, :]
+
+                # Predict for this batch
+                batch_predictions = Pipeline.predict(dashboard.ml_pipeline, batch_df)
+                append!(predictions, batch_predictions)
+
+                # Update progress
+                dashboard.operation_progress = Float64(batch_idx)
+                pct_complete = round(100 * batch_idx / n_batches, digits=1)
+                dashboard.operation_description = "Processing batch $(batch_idx)/$(n_batches) ($(pct_complete)% complete)"
+
+                # Small yield to allow UI update
+                sleep(0.01)
             end
 
             # Save predictions

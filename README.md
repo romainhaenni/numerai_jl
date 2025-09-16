@@ -4,7 +4,7 @@ A production-ready Julia application for automated participation in the Numerai 
 
 ## ✅ Current Status
 
-**PRODUCTION READY** - All systems operational with working API authentication and full tournament functionality.
+**PRODUCTION READY (v0.10.30)** - All systems operational with working API authentication and full tournament functionality. TUI dashboard issues have been completely resolved.
 
 ## 🚀 Key Features
 
@@ -15,12 +15,13 @@ A production-ready Julia application for automated participation in the Numerai 
 - **Feature Engineering** - Neutralization, interaction constraints, feature groups
 - **Hyperparameter Optimization** - Bayesian, grid, and random search strategies
 
-### Advanced TUI Dashboard
-- **6-Column Grid Layout** - Professional grid-based interface with responsive panels
-- **Real-Time Monitoring** - Live performance metrics, model status, and event logs
-- **Model Creation Wizard** - Interactive 6-step wizard for configuring new models (`/new` command or press 'n')
-- **Advanced Commands** - `/train`, `/submit`, `/stake`, `/download`, `/refresh`, `/diag`
-- **Visual Progress Tracking** - Training progress bars, prediction charts, sparklines
+### Advanced TUI Dashboard (v0.10.30 - All Issues Fixed)
+- **Real Progress Bars** - Live progress tracking for downloads, training, predictions, and uploads
+- **Instant Commands** - Single-key commands work without Enter key (d/t/p/s/r/q)
+- **Auto-Training** - Automatically starts training after all datasets are downloaded
+- **Real-Time Monitoring** - System info updates every second with actual CPU/memory/disk metrics
+- **Sticky Panels** - Fixed top panel for system status, fixed bottom panel for event logs
+- **Visual Progress Tracking** - Progress bars with MB/percentage indicators
 
 ### System Features
 - **Automated Tournament Participation** - Scheduled data downloads, training, and submissions

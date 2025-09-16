@@ -505,14 +505,8 @@ function read_key()
 end
 
 function input_loop(dashboard::TournamentDashboard)
-    # Check if unified fix has been applied
-    if haskey(dashboard.active_operations, :unified_fix) && dashboard.active_operations[:unified_fix]
-        # Use the unified input loop with instant commands
-        Main.NumeraiTournament.UnifiedTUIFix.unified_input_loop(dashboard)
-    else
-        # Fallback to basic input loop
-        basic_input_loop(dashboard)
-    end
+    # Use the basic input loop which already has instant command support
+    basic_input_loop(dashboard)
 end
 
 function basic_input_loop(dashboard::TournamentDashboard)
@@ -602,11 +596,7 @@ function render_sticky_dashboard(dashboard::TournamentDashboard)
     - Bottom panel: Event logs (sticky)
     """
 
-    # If unified fix is active, use its rendering with sticky panels
-    if haskey(dashboard.active_operations, :unified_fix) && dashboard.active_operations[:unified_fix]
-        Main.NumeraiTournament.UnifiedTUIFix.render_with_sticky_panels(dashboard)
-        return
-    end
+    # Note: TUICompleteFix handles sticky panels when applied
 
     # If realtime tracker is available and active, use it for rendering
     if isdefined(dashboard, :realtime_tracker) && !isnothing(dashboard.realtime_tracker)
@@ -2666,7 +2656,7 @@ function download_tournament_data(dashboard::TournamentDashboard)
             add_event!(dashboard, :info, "🚀 Starting automatic training after download...")
             @async begin
                 sleep(1)  # Brief pause before starting training
-                NumeraiTournament.UnifiedTUIFix.train_with_progress(dashboard)
+                train_models_internal(dashboard)
             end
         end
 

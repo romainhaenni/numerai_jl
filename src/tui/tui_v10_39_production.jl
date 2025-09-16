@@ -16,11 +16,12 @@ using Logging
 using CSV
 
 # Import parent modules
-using ..NumeraiTournament: TournamentConfig
 using ..Utils
 using ..API
 using ..Pipeline
 using ..DataLoader
+# Import TournamentConfig from parent
+import ..TournamentConfig
 
 # Define AbstractDashboard locally since TUI module may not exist
 abstract type AbstractDashboard end
@@ -161,25 +162,25 @@ function TUIv1039Dashboard(config)
 
     # Extract configuration values - always expect TournamentConfig struct
     # The load_config() function always returns a TournamentConfig, never a Dict
-    auto_start = if isa(config, TournamentConfig)
+    # We access fields directly without type checking since we know config is TournamentConfig
+    auto_start = try
         config.auto_start_pipeline
-    else
-        # Log warning if we get unexpected type
-        @log_warn "Unexpected config type: $(typeof(config)), defaulting auto_start to false"
+    catch
+        @log_warn "Could not access auto_start_pipeline, defaulting to false"
         false
     end
 
-    auto_train = if isa(config, TournamentConfig)
+    auto_train = try
         config.auto_train_after_download
-    else
-        @log_warn "Unexpected config type: $(typeof(config)), defaulting auto_train to false"
+    catch
+        @log_warn "Could not access auto_train_after_download, defaulting to false"
         false
     end
 
-    auto_submit = if isa(config, TournamentConfig)
+    auto_submit = try
         config.auto_submit
-    else
-        @log_warn "Unexpected config type: $(typeof(config)), defaulting auto_submit to false"
+    catch
+        @log_warn "Could not access auto_submit, defaulting to false"
         false
     end
 

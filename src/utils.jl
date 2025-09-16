@@ -116,33 +116,54 @@ function get_disk_space_info(path::String = pwd())
             @debug "df command output: $output"
             lines = split(output, '\n')
 
-            # Parse the output - handle multiline filesystem names
+            # Parse the output - handle different df output formats
             if length(lines) >= 2
-                # For macOS/Linux, the header is on line 1, data starts on line 2
-                # Format: Filesystem 1024-blocks Used Available Capacity% ...
-                # Some systems may split the filesystem name across lines
+                # Parse the data line (skip header)
+                # macOS format: Filesystem 1024-blocks Used Available Capacity iused ifree %iused Mounted
+                # Linux format: Filesystem 1K-blocks Used Available Use% Mounted
+                data_line = strip(lines[2])
+                parts = split(data_line)
 
-                # Combine all non-header lines
-                data_parts = String[]
-                for i in 2:length(lines)
-                    line = strip(lines[i])
-                    if !isempty(line)
-                        append!(data_parts, split(line))
+                # The 2nd, 3rd, and 4th columns should be: total, used, available (in KB)
+                if length(parts) >= 4
+                    try
+                        # Direct parsing of columns 2, 3, 4
+                        total_kb = parse(Float64, parts[2])
+                        used_kb = parse(Float64, parts[3])
+                        avail_kb = parse(Float64, parts[4])
+
+                        # Sanity check: values should be reasonable (> 1000 KB)
+                        if total_kb > 1000 && used_kb >= 0 && avail_kb >= 0
+                            # Convert from KB to GB
+                            total_gb = total_kb / (1024 * 1024)
+                            used_gb = used_kb / (1024 * 1024)
+                            free_gb = avail_kb / (1024 * 1024)
+                            used_pct = total_gb > 0 ? (used_gb / total_gb * 100) : 0.0
+
+                            result = (
+                                free_gb = free_gb,
+                                total_gb = total_gb,
+                                used_gb = used_gb,
+                                used_pct = used_pct
+                            )
+                            @debug "Successfully parsed disk space info" result
+                            return result
+                        else
+                            @debug "Disk values seem invalid" total=total_kb used=used_kb avail=avail_kb
+                        end
+                    catch e
+                        @debug "Failed to parse df columns directly" error=e columns=parts[2:min(4,length(parts))]
                     end
                 end
 
-                # Find numeric columns, skipping filesystem name
-                # Look for the pattern of large numbers that represent disk blocks
-                numeric_cols = []
-                for part in data_parts
-                    # Skip filesystem name and percentages
+                # Fallback: search for numeric values if direct parsing failed
+                numeric_vals = Float64[]
+                for part in parts
                     if !occursin("%", part) && !occursin("/", part)
-                        # Try to parse as number
                         try
                             num = parse(Float64, part)
-                            # Disk blocks should be large numbers (at least 1000 KB)
-                            if num > 100  # Filter out small numbers
-                                push!(numeric_cols, num)
+                            if num > 1000  # Must be KB values
+                                push!(numeric_vals, num)
                             end
                         catch
                             continue
@@ -150,29 +171,20 @@ function get_disk_space_info(path::String = pwd())
                     end
                 end
 
-                # We need at least 3 numeric values: total, used, available
-                if length(numeric_cols) >= 3
-                    # The first 3 large numbers should be: total_blocks, used_blocks, available_blocks
-                    total_kb = numeric_cols[1]
-                    used_kb = numeric_cols[2]
-                    avail_kb = numeric_cols[3]
-
-                    # Convert from KB to GB
-                    total_gb = total_kb / (1024 * 1024)
-                    used_gb = used_kb / (1024 * 1024)
-                    free_gb = avail_kb / (1024 * 1024)
+                if length(numeric_vals) >= 3
+                    total_gb = numeric_vals[1] / (1024 * 1024)
+                    used_gb = numeric_vals[2] / (1024 * 1024)
+                    free_gb = numeric_vals[3] / (1024 * 1024)
                     used_pct = total_gb > 0 ? (used_gb / total_gb * 100) : 0.0
 
-                    result = (
+                    return (
                         free_gb = free_gb,
                         total_gb = total_gb,
                         used_gb = used_gb,
                         used_pct = used_pct
                     )
-                    @debug "Successfully parsed disk space info" result
-                    return result
                 else
-                    @warn "Could not find enough numeric values in df output" found=length(numeric_cols)
+                    @debug "Could not find enough numeric values in df output" found=length(numeric_vals) parts=parts
                 end
             end
         end

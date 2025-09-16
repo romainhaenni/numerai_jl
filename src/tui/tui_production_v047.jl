@@ -360,15 +360,20 @@ function download_datasets(dashboard::ProductionDashboardV047, datasets::Vector{
                 " ($(round(dashboard.download_sizes[dataset], digits=1)) MB)" : ""
             add_event!(dashboard, :success, "✅ Downloaded $dataset$size_info")
 
+            # Only mark as completed if download succeeded
+            delete!(dashboard.downloads_in_progress, dataset)
+            push!(dashboard.downloads_completed, dataset)
+            dashboard.force_render = true
+
         catch e
             add_event!(dashboard, :error, "❌ Failed to download $dataset: $(string(e))")
             success = false
             dashboard.download_progress[dataset] = -1.0  # Mark as failed
-        end
 
-        delete!(dashboard.downloads_in_progress, dataset)
-        push!(dashboard.downloads_completed, dataset)
-        dashboard.force_render = true
+            # Remove from in-progress but don't add to completed
+            delete!(dashboard.downloads_in_progress, dataset)
+            dashboard.force_render = true
+        end
     end
 
     dashboard.current_operation = :idle
@@ -376,26 +381,39 @@ function download_datasets(dashboard::ProductionDashboardV047, datasets::Vector{
     dashboard.operation_progress = 0.0
 
     # Auto-training trigger with verification - check if all 3 datasets are downloaded
-    if success && dashboard.auto_train_enabled && length(dashboard.downloads_completed) >= 3
+    if dashboard.auto_train_enabled
         # Verify we have train, validation, and live datasets
-        has_all = "train" in dashboard.downloads_completed &&
-                  "validation" in dashboard.downloads_completed &&
-                  "live" in dashboard.downloads_completed
+        has_train = "train" in dashboard.downloads_completed
+        has_val = "validation" in dashboard.downloads_completed
+        has_live = "live" in dashboard.downloads_completed
+        has_all = has_train && has_val && has_live
 
         if has_all
-            add_event!(dashboard, :info, "🤖 All datasets downloaded. Auto-training will start in 2 seconds...")
+            add_event!(dashboard, :success, "✅ All 3 datasets downloaded successfully!")
+            add_event!(dashboard, :info, "🤖 Auto-training will start in 2 seconds...")
             @async begin
                 sleep(2.0)
                 if dashboard.running && !dashboard.training_in_progress
-                    add_event!(dashboard, :info, "🏋️ Auto-training starting now!")
+                    add_event!(dashboard, :info, "🏋️ Auto-training starting NOW!")
                     train_models(dashboard)
+                else
+                    if dashboard.training_in_progress
+                        add_event!(dashboard, :warn, "⚠️ Training already in progress")
+                    end
                 end
             end
         else
-            add_event!(dashboard, :info, "⏳ Downloaded $(length(dashboard.downloads_completed))/3 datasets. Waiting for all...")
+            # Show which datasets are still needed
+            missing = String[]
+            !has_train && push!(missing, "train")
+            !has_val && push!(missing, "validation")
+            !has_live && push!(missing, "live")
+            add_event!(dashboard, :info, "📊 Downloaded $(length(dashboard.downloads_completed))/3 datasets. Missing: $(join(missing, ", "))")
         end
-    elseif dashboard.auto_train_enabled
-        add_event!(dashboard, :info, "📊 Downloaded $(length(dashboard.downloads_completed))/3 datasets")
+    else
+        if length(dashboard.downloads_completed) == 3
+            add_event!(dashboard, :info, "ℹ️ All datasets downloaded. Auto-training is disabled. Press 't' to train manually.")
+        end
     end
 
     return success
@@ -1067,21 +1085,43 @@ function run_dashboard(config::Any, api_client::Any)
 
             while dashboard.running
                 try
+                    # Check for available input
                     if bytesavailable(stdin) > 0
                         char_bytes = read(stdin, UInt8)
 
-                        # Handle ASCII characters
-                        if char_bytes <= 0x7f
+                        # Handle ASCII characters and common extended chars
+                        if char_bytes > 0 && char_bytes <= 0x7f
                             key = Char(char_bytes)
+
+                            # Log the key press immediately in debug mode
+                            if dashboard.debug_mode
+                                add_event!(dashboard, :info, "🔑 Read key: '$key' (ASCII: $(Int(key)))")
+                            end
+
+                            # Put key in channel for processing
                             put!(dashboard.keyboard_channel, key)
                             # Force immediate render after keyboard input
                             dashboard.force_render = true
+                        elseif char_bytes == 0x1b  # ESC key or escape sequence
+                            # Check for escape sequences (arrow keys, etc.)
+                            if bytesavailable(stdin) >= 2
+                                read(stdin, UInt8)  # Skip [ or O
+                                read(stdin, UInt8)  # Skip the direction
+                                # Ignore arrow keys for now
+                            else
+                                # It's just ESC key
+                                put!(dashboard.keyboard_channel, '\e')
+                                dashboard.force_render = true
+                            end
                         end
+                    else
+                        # No input available, yield to other tasks
+                        yield()
                     end
                     sleep(0.001)  # 1ms polling for responsive input
                 catch e
                     if dashboard.debug_mode
-                        add_event!(dashboard, :error, "Keyboard error: $e")
+                        add_event!(dashboard, :error, "Keyboard read error: $e")
                     end
                     sleep(0.01)
                 end
@@ -1089,6 +1129,25 @@ function run_dashboard(config::Any, api_client::Any)
 
         catch e
             add_event!(dashboard, :error, "Terminal setup error: $e")
+            # Try alternative input method if raw mode fails
+            add_event!(dashboard, :warn, "⚠️ Falling back to standard input mode")
+
+            # Fallback: read line-by-line if raw mode fails
+            while dashboard.running
+                try
+                    if bytesavailable(stdin) > 0
+                        line = readline(stdin, keep=false)
+                        if !isempty(line)
+                            key = line[1]
+                            put!(dashboard.keyboard_channel, key)
+                            dashboard.force_render = true
+                        end
+                    end
+                    sleep(0.01)
+                catch
+                    sleep(0.1)
+                end
+            end
         finally
             try
                 REPL.Terminals.raw!(terminal, false)
@@ -1109,17 +1168,29 @@ function run_dashboard(config::Any, api_client::Any)
 
     # Auto-start pipeline if configured
     if dashboard.auto_start_enabled && !dashboard.auto_start_initiated
-        dashboard.auto_start_initiated = true
         add_event!(dashboard, :info, "⏱️ Auto-start enabled, waiting $(dashboard.auto_start_delay) seconds...")
 
         @async begin
             sleep(dashboard.auto_start_delay)
+            # Mark as initiated AFTER the delay, right before trying to start
+            dashboard.auto_start_initiated = true
+
             if dashboard.running && !dashboard.pipeline_active
                 add_event!(dashboard, :success, "🚀 Auto-starting pipeline NOW!")
-                start_pipeline(dashboard)
+                # Ensure we actually call start_pipeline
+                try
+                    start_pipeline(dashboard)
+                    add_event!(dashboard, :success, "✅ Pipeline started successfully!")
+                catch e
+                    add_event!(dashboard, :error, "❌ Failed to auto-start pipeline: $e")
+                    dashboard.auto_start_initiated = false  # Reset flag on failure
+                end
             else
                 reason = !dashboard.running ? "dashboard stopped" : "pipeline already active"
                 add_event!(dashboard, :warn, "⚠️ Auto-start cancelled: $reason")
+                if !dashboard.pipeline_active
+                    dashboard.auto_start_initiated = false  # Reset flag if not started
+                end
             end
         end
     elseif !dashboard.auto_start_enabled

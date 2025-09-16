@@ -110,9 +110,13 @@ using NumeraiTournament.DataLoader
         TUIFixed.handle_command(dashboard, 't')
         @test occursin("Starting training", dashboard.event_log.events[end])
 
-        # Test refresh command
+        # Wait a moment for async tasks to complete/fail
+        sleep(0.1)
+
+        # Test refresh command - find the Refreshing event (may not be last due to async)
         TUIFixed.handle_command(dashboard, 'r')
-        @test occursin("Refreshing", dashboard.event_log.events[end])
+        refresh_found = any(e -> occursin("Refreshing", e), dashboard.event_log.events)
+        @test refresh_found
     end
 
     @testset "Auto-training Trigger" begin

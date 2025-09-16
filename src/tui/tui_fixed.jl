@@ -409,10 +409,12 @@ function (cb::ProgressCallback)(info::CallbackInfo)::CallbackResult
     end
 
     # Check if training just started
-    if info.epoch == 1 && cb.dashboard.progress.training_progress == 0.0
+    if info.epoch == 1
         cb.dashboard.progress.current_operation = "Training"
         cb.dashboard.progress.training_active = true
-        add_event!(cb.dashboard, "Training started")
+        if cb.dashboard.progress.training_progress == 0.0
+            add_event!(cb.dashboard, "Training started")
+        end
     end
 
     # Check if training completed

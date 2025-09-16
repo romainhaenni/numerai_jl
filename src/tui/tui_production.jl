@@ -88,6 +88,13 @@ function create_dashboard(config::Any, api_client::Any)
     mem_info = Utils.get_memory_info()
     cpu_usage = Utils.get_cpu_usage()
 
+    # Handle both Dict and struct configs
+    tui_config = if isa(config, Dict)
+        get(config, :tui, Dict())
+    else
+        config.tui
+    end
+
     dashboard = ProductionDashboard(
         true,  # running
         false, # paused
@@ -112,10 +119,10 @@ function create_dashboard(config::Any, api_client::Any)
         true,   # force_render
         time(), # last_render_time
         [],     # events
-        get(config.tui, "auto_start_pipeline", false),
+        get(tui_config, "auto_start_pipeline", false),
         false,  # auto_start_initiated
-        get(config.tui, "auto_start_delay", 2.0),
-        get(config.tui, "auto_train_after_download", true),
+        get(tui_config, "auto_start_delay", 2.0),
+        get(tui_config, "auto_train_after_download", true),
         Set{String}(),
         Set{String}()
     )
@@ -148,7 +155,13 @@ function download_datasets(dashboard::ProductionDashboard, datasets::Vector{Stri
         dashboard.operation_description = "Downloading $dataset dataset"
         dashboard.pipeline_stage = :downloading_data
 
-        output_path = joinpath(dashboard.config.data_dir, "$dataset.parquet")
+        # Handle both Dict and struct configs
+        data_dir = if isa(dashboard.config, Dict)
+            get(dashboard.config, :data_dir, "data")
+        else
+            dashboard.config.data_dir
+        end
+        output_path = joinpath(data_dir, "$dataset.parquet")
 
         try
             add_event!(dashboard, :info, "📥 Starting download: $dataset")
@@ -241,7 +254,14 @@ function train_models(dashboard::ProductionDashboard)
         y_val = val_data.target
 
         # Train each configured model
-        for model_config in dashboard.config.models
+        # Handle both Dict and struct configs
+        models_config = if isa(dashboard.config, Dict)
+            get(dashboard.config, :models, [])
+        else
+            dashboard.config.models
+        end
+
+        for model_config in models_config
             model_name = model_config["name"]
             model_type = model_config["type"]
 
@@ -268,7 +288,13 @@ function train_models(dashboard::ProductionDashboard)
         add_event!(dashboard, :success, "✅ All models trained successfully")
 
         # Auto-submit if configured
-        if get(dashboard.config, "auto_submit", false)
+        auto_submit = if isa(dashboard.config, Dict)
+            get(dashboard.config, :auto_submit, false)
+        else
+            get(dashboard.config, "auto_submit", false)
+        end
+
+        if auto_submit
             @async begin
                 sleep(2.0)
                 submit_predictions(dashboard)
@@ -325,7 +351,18 @@ function submit_predictions(dashboard::ProductionDashboard)
         add_event!(dashboard, :info, "📤 Uploading predictions")
         dashboard.operation_progress = 50.0
 
-        model_name = first(dashboard.config.models)["name"]
+        # Handle both Dict and struct configs
+        models_config = if isa(dashboard.config, Dict)
+            get(dashboard.config, :models, [])
+        else
+            dashboard.config.models
+        end
+
+        model_name = if !isempty(models_config)
+            first(models_config)["name"]
+        else
+            "default_model"
+        end
         submission_id = API.submit_predictions(
             dashboard.api_client,
             model_name,

@@ -517,24 +517,73 @@ function train!(pipeline::MLPipeline, train_df::DataFrame, val_df::DataFrame;
     return pipeline
 end
 
-function predict(pipeline::MLPipeline, df::DataFrame; 
-                return_raw::Bool=false, verbose::Bool=false, target::Union{String, Nothing}=nothing)
+function predict(pipeline::MLPipeline, df::DataFrame;
+                return_raw::Bool=false, verbose::Bool=false, target::Union{String, Nothing}=nothing,
+                progress_callback=nothing)
     
+    predict_start_time = time()
+    n_samples = nrow(df)
+
+    # Initialize progress tracking
+    if progress_callback !== nothing
+        progress_callback(:start;
+                        total_rows=n_samples,
+                        pipeline_name=pipeline.model.name,
+                        start_time=predict_start_time)
+    end
+
     if verbose
         println("Preparing prediction data...")
     end
-    
+
+    # Data preparation phase
+    if progress_callback !== nothing
+        progress_callback(:progress;
+                        phase="Preparing feature data",
+                        progress=10.0,
+                        rows_processed=0,
+                        total_rows=n_samples,
+                        elapsed_time=time() - predict_start_time)
+    end
+
     feature_data = DataLoader.get_feature_columns(df, pipeline.feature_cols)
     feature_data = Preprocessor.fillna(feature_data, 0.5)
     X = Matrix{Float64}(feature_data)
+
+    if progress_callback !== nothing
+        progress_callback(:progress;
+                        phase="Feature preparation complete",
+                        progress=25.0,
+                        rows_processed=n_samples,
+                        total_rows=n_samples,
+                        elapsed_time=time() - predict_start_time)
+    end
     
     if pipeline.target_mode == :single
         # Single target mode with single model
         if verbose
             println("Generating predictions for $(size(X, 1)) samples using $(pipeline.model.name)...")
         end
-        
+
+        if progress_callback !== nothing
+            progress_callback(:progress;
+                            phase="Generating predictions (single target)",
+                            progress=50.0,
+                            rows_processed=0,
+                            total_rows=n_samples,
+                            elapsed_time=time() - predict_start_time)
+        end
+
         predictions = Models.predict(pipeline.model, X)
+
+        if progress_callback !== nothing
+            progress_callback(:progress;
+                            phase="Predictions generated",
+                            progress=80.0,
+                            rows_processed=n_samples,
+                            total_rows=n_samples,
+                            elapsed_time=time() - predict_start_time)
+        end
     else
         # Multi-target mode
         if pipeline.multi_target_models === nothing || isempty(pipeline.multi_target_models)
@@ -546,21 +595,69 @@ function predict(pipeline::MLPipeline, df::DataFrame;
             if !(target in pipeline.target_cols)
                 error("Target $target not found in pipeline targets: $(pipeline.target_cols)")
             end
-            
+
             if verbose
                 println("Generating predictions for target: $target")
             end
-            
+
+            if progress_callback !== nothing
+                progress_callback(:progress;
+                                phase="Generating predictions for target: $target",
+                                progress=50.0,
+                                rows_processed=0,
+                                total_rows=n_samples,
+                                elapsed_time=time() - predict_start_time)
+            end
+
             predictions = Models.predict(pipeline.multi_target_models[target], X)
+
+            if progress_callback !== nothing
+                progress_callback(:progress;
+                                phase="Single target predictions complete",
+                                progress=80.0,
+                                rows_processed=n_samples,
+                                total_rows=n_samples,
+                                elapsed_time=time() - predict_start_time)
+            end
         else
             # Return predictions for all targets as a Dict
             if verbose
                 println("Generating predictions for $(length(pipeline.target_cols)) targets...")
             end
-            
+
+            if progress_callback !== nothing
+                progress_callback(:progress;
+                                phase="Generating multi-target predictions",
+                                progress=40.0,
+                                rows_processed=0,
+                                total_rows=n_samples,
+                                elapsed_time=time() - predict_start_time)
+            end
+
             predictions_dict = Dict{String, Vector{Float64}}()
-            for target_col in pipeline.target_cols
+            n_targets = length(pipeline.target_cols)
+
+            for (i, target_col) in enumerate(pipeline.target_cols)
+                if progress_callback !== nothing
+                    target_progress = 40.0 + (i / n_targets) * 40.0
+                    progress_callback(:progress;
+                                    phase="Predicting target $i/$n_targets: $target_col",
+                                    progress=target_progress,
+                                    rows_processed=i * n_samples,
+                                    total_rows=n_targets * n_samples,
+                                    elapsed_time=time() - predict_start_time)
+                end
+
                 predictions_dict[target_col] = Models.predict(pipeline.multi_target_models[target_col], X)
+            end
+
+            if progress_callback !== nothing
+                progress_callback(:progress;
+                                phase="Multi-target predictions complete",
+                                progress=80.0,
+                                rows_processed=n_targets * n_samples,
+                                total_rows=n_targets * n_samples,
+                                elapsed_time=time() - predict_start_time)
             end
             
             # For this multi-target all predictions case, return the dict directly
@@ -608,7 +705,17 @@ function predict(pipeline::MLPipeline, df::DataFrame;
     if pipeline.config[:clip_predictions] && !return_raw
         predictions = Preprocessor.clip_predictions(predictions)
     end
-    
+
+    # Final progress update
+    if progress_callback !== nothing
+        total_time = time() - predict_start_time
+        progress_callback(:complete;
+                        total_rows=n_samples,
+                        pipeline_name=pipeline.model.name,
+                        total_time=total_time,
+                        predictions_generated=true)
+    end
+
     return predictions
 end
 

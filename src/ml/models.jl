@@ -17,7 +17,7 @@ using ..DataLoader
 
 # Import Callbacks module
 include("callbacks.jl")
-using .Callbacks
+using .Callbacks: TrainingCallback, create_dashboard_callback, create_callback_info, call_callback!, CONTINUE
 
 # Access GPU acceleration module from parent scope
 # (already included by main NumeraiTournament module)
@@ -199,7 +199,8 @@ function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Union{Ve
                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
                verbose::Bool=false,
                preprocess_gpu::Bool=true,
-               callbacks::Vector{TrainingCallback}=TrainingCallback[])
+               callbacks::Vector{TrainingCallback}=TrainingCallback[],
+               progress_callback=nothing)
     
     # Detect multi-target case and set up appropriate parameters
     is_multitarget = y_train isa Matrix{Float64}
@@ -263,7 +264,54 @@ function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Union{Ve
     
     # Initialize callback tracking
     start_time = time()
-    
+
+    # Add progress callback if provided
+    if progress_callback !== nothing
+        # Create a dashboard callback that forwards to the progress callback
+        dashboard_callback = create_dashboard_callback(
+            info -> begin
+                try
+                    # Calculate overall progress based on epochs and targets
+                    if is_multitarget
+                        # For multi-target: progress per target completion
+                        target_progress = (info.epoch / n_targets) * 100.0
+                        progress_callback(:progress;
+                                        phase="Training target $(info.epoch) of $n_targets",
+                                        progress=target_progress,
+                                        epoch=info.epoch,
+                                        total_epochs=n_targets,
+                                        model_name=model.name,
+                                        elapsed_time=info.elapsed_time)
+                    else
+                        # For single-target: progress based on iterations within training
+                        # XGBoost doesn't give us iteration-level progress easily, so approximate
+                        round_progress = min(99.0, (info.iteration / max(model.num_rounds, 1)) * 100.0)
+                        progress_callback(:progress;
+                                        phase="Training XGBoost model",
+                                        progress=round_progress,
+                                        epoch=info.iteration,
+                                        total_epochs=model.num_rounds,
+                                        model_name=model.name,
+                                        elapsed_time=info.elapsed_time)
+                    end
+                catch e
+                    @warn "Progress callback error" error=e
+                end
+                return CONTINUE
+            end;
+            frequency=1
+        )
+        push!(callbacks, dashboard_callback)
+
+        # Start progress
+        progress_callback(:start;
+                        model_name=model.name,
+                        is_multitarget=is_multitarget,
+                        n_targets=n_targets,
+                        num_rounds=model.num_rounds,
+                        start_time=start_time)
+    end
+
     # Add default logging callback if verbose and no callbacks provided
     if verbose && isempty(callbacks)
         push!(callbacks, create_logging_callback(frequency=max(1, model.num_rounds ÷ 10)))
@@ -414,7 +462,18 @@ function train!(model::XGBoostModel, X_train::Matrix{Float64}, y_train::Union{Ve
         info = create_callback_info(model.name, 1, 1, model.num_rounds, model.num_rounds, start_time)
         call_callback!(callback, info)
     end
-    
+
+    # Notify progress callback of completion
+    if progress_callback !== nothing
+        total_time = time() - start_time
+        progress_callback(:complete;
+                        model_name=model.name,
+                        total_time=total_time,
+                        is_multitarget=is_multitarget,
+                        n_targets=n_targets,
+                        num_rounds=model.num_rounds)
+    end
+
     return model
 end
 
@@ -424,7 +483,8 @@ function train!(model::LightGBMModel, X_train::Matrix{Float64}, y_train::Union{V
                feature_names::Union{Nothing, Vector{String}}=nothing,
                feature_groups::Union{Nothing, Dict{String, Vector{String}}}=nothing,
                verbose::Bool=false,
-               callbacks::Vector{TrainingCallback}=TrainingCallback[])
+               callbacks::Vector{TrainingCallback}=TrainingCallback[],
+               progress_callback=nothing)
     
     # Detect multi-target case and set up appropriate parameters
     is_multitarget = y_train isa Matrix{Float64}

@@ -195,12 +195,12 @@ function TUIv1043Dashboard(config)
     mem_info = Utils.get_memory_info()
     disk_info = Utils.get_disk_space_info()
 
-    # Ensure we have valid values
-    if disk_info.total_gb == 0.0
-        # Provide sensible defaults if system calls failed
-        disk_info = (free_gb=100.0, total_gb=500.0, used_gb=400.0, used_pct=80.0)
-    end
+    # Log the values we got for debugging
+    @log_info "Initial system info" cpu=cpu_usage disk_total=disk_info.total_gb disk_free=disk_info.free_gb mem_total=mem_info.total_gb
+
+    # Only provide fallback for memory info if needed
     if mem_info.total_gb == 0.0
+        @log_warn "Memory info unavailable, using fallback values"
         mem_info = (used_gb=8.0, total_gb=16.0, available_gb=8.0, used_pct=50.0)
     end
 
@@ -293,6 +293,8 @@ function update_system_info!(dashboard::TUIv1043Dashboard)
             dashboard.disk_total = new_disk.total_gb
             dashboard.disk_used = new_disk.used_gb
             dashboard.disk_percent = new_disk.used_pct
+        else
+            @log_warn "Disk space info returned zero total_gb, keeping previous values" current_total=dashboard.disk_total
         end
 
         @log_debug "System info updated" cpu=dashboard.cpu_usage mem_used=dashboard.memory_used disk_free=dashboard.disk_free

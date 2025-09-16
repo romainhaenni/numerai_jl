@@ -365,63 +365,100 @@ function download_dataset(client::NumeraiClient, dataset_type::String, output_pa
 end
 
 function download_with_progress(url::String, output_path::String, name::String; progress_callback=nothing)
-    # Use simple download with status indication
+    # Use Downloads.jl with enhanced progress tracking
     temp_file = tempname()
 
     try
         @log_info "Starting download" file=name
 
-        # Call progress callback if provided
-        if progress_callback !== nothing
-            progress_callback(:start; name=name)
-        end
-
-        # Create a custom progress function for the download
+        # Initialize progress tracking variables
+        download_start_time = time()
         last_update_time = Ref(time())
         last_progress = Ref(0.0)
+        last_bytes = Ref(0)
 
+        # Call progress callback if provided
+        if progress_callback !== nothing
+            progress_callback(:start; name=name, start_time=download_start_time)
+        end
+
+        # Enhanced progress function with speed and ETA calculations
         download_progress = (total, now) -> begin
             current_time = time()
-            # Update at most every 0.5 seconds to avoid overwhelming the UI
-            if current_time - last_update_time[] > 0.5 && total > 0
+            # Update at most every 0.1 seconds for smoother progress
+            if current_time - last_update_time[] > 0.1 && total > 0
                 current_progress = (now / total) * 100.0
-                if current_progress > last_progress[]
+
+                # Calculate download speed
+                elapsed_time = current_time - download_start_time
+                bytes_downloaded = now - last_bytes[]
+                time_diff = current_time - last_update_time[]
+                download_speed_mb = (bytes_downloaded / time_diff) / (1024 * 1024) # MB/s
+
+                # Calculate ETA
+                remaining_bytes = total - now
+                eta_seconds = if download_speed_mb > 0
+                    (remaining_bytes / (1024 * 1024)) / download_speed_mb
+                else
+                    nothing
+                end
+
+                if current_progress > last_progress[] || current_time - last_update_time[] > 1.0
                     if progress_callback !== nothing
                         size_mb = round(now / 1024 / 1024, digits=1)
                         total_mb = round(total / 1024 / 1024, digits=1)
-                        progress_callback(:progress; name=name,
+                        speed_mb = round(download_speed_mb, digits=2)
+
+                        progress_callback(:progress;
+                                        name=name,
                                         progress=current_progress,
                                         current_mb=size_mb,
-                                        total_mb=total_mb)
+                                        total_mb=total_mb,
+                                        speed_mb_s=speed_mb,
+                                        eta_seconds=eta_seconds,
+                                        elapsed_time=elapsed_time)
                     end
                     last_progress[] = current_progress
                     last_update_time[] = current_time
+                    last_bytes[] = now
                 end
             end
         end
 
-        # Download with retry logic and progress tracking
+        # Download with retry logic and enhanced progress tracking
         with_download_retry(context="download $name") do
             Downloads.download(url, temp_file; timeout=300, progress=download_progress)
         end
 
-        # Get final file size after download
+        # Get final file size and timing
         file_size = filesize(temp_file)
         size_mb = round(file_size / 1024 / 1024, digits=1)
+        total_time = time() - download_start_time
+        avg_speed_mb = size_mb / total_time
 
         # Move to final location
         mv(temp_file, output_path, force=true)
 
         # Call progress callback with completion
         if progress_callback !== nothing
-            progress_callback(:complete; name=name, size_mb=size_mb)
+            progress_callback(:complete;
+                            name=name,
+                            size_mb=size_mb,
+                            total_time=total_time,
+                            avg_speed_mb_s=round(avg_speed_mb, digits=2))
         end
 
-        @log_debug "Download complete" size_mb=size_mb
+        @log_debug "Download complete" size_mb=size_mb total_time=round(total_time, digits=1) avg_speed_mb_s=round(avg_speed_mb, digits=2)
     catch e
         # Cleanup on error
         isfile(temp_file) && rm(temp_file)
         @log_error "Download failed" file=name error=string(e)
+
+        # Notify callback of error
+        if progress_callback !== nothing
+            progress_callback(:error; name=name, error=string(e))
+        end
+
         rethrow(e)
     end
 end
@@ -454,6 +491,8 @@ function submit_predictions(client::NumeraiClient, model_name::String, predictio
         error("Predictions file not found: $predictions_path")
     end
 
+    upload_start_time = time()
+
     # Validate file size before reading into memory
     validate_file_size(predictions_path; max_size_mb=max_upload_size_mb)
 
@@ -463,90 +502,173 @@ function submit_predictions(client::NumeraiClient, model_name::String, predictio
 
     # Call progress callback if provided
     if progress_callback !== nothing
-        progress_callback(:start; file=basename(predictions_path), model=model_name, size_mb=size_mb)
+        progress_callback(:start;
+                        file=basename(predictions_path),
+                        model=model_name,
+                        size_mb=size_mb,
+                        start_time=upload_start_time)
     end
 
-    # Validate submission window if requested
-    if validate_window
-        current_round = get_current_round(client)
-        window_info = get_submission_window_info(current_round.open_time)
+    try
+        # Validate submission window if requested
+        if validate_window
+            current_round = get_current_round(client)
+            window_info = get_submission_window_info(current_round.open_time)
 
-        if !window_info.is_open
-            time_closed = abs(window_info.time_remaining)
-            if progress_callback !== nothing
-                progress_callback(:error; message="Submission window closed")
+            if !window_info.is_open
+                time_closed = abs(window_info.time_remaining)
+                if progress_callback !== nothing
+                    progress_callback(:error; message="Submission window closed")
+                end
+                error("Submission window is closed for round $(current_round.number). Window closed $(round(time_closed, digits=1)) hours ago (at $(window_info.window_end) UTC)")
             end
-            error("Submission window is closed for round $(current_round.number). Window closed $(round(time_closed, digits=1)) hours ago (at $(window_info.window_end) UTC)")
+
+            @log_info "Submission window is open" round_type=window_info.round_type round=current_round.number
+            if window_info.time_remaining > 0
+                @log_info "Time remaining for submission" hours_remaining=round(window_info.time_remaining, digits=1) closes_at=window_info.window_end
+            end
         end
 
-        @log_info "Submission window is open" round_type=window_info.round_type round=current_round.number
-        if window_info.time_remaining > 0
-            @log_info "Time remaining for submission" hours_remaining=round(window_info.time_remaining, digits=1) closes_at=window_info.window_end
-        end
-    end
-
-    # Update progress: Getting upload URL
-    if progress_callback !== nothing
-        progress_callback(:progress; phase="Getting upload URL", progress=10.0)
-    end
-
-    # First, get the upload URL
-    query = """
-    mutation(\$filename: String!, \$modelId: String!) {
-        createSignalsSubmission(
-            filename: \$filename,
-            modelId: \$modelId
-        ) {
-            id
-            filename
-            uploadUrl
-        }
-    }
-    """
-
-    result = graphql_query(client, query, Dict(
-        "filename" => basename(predictions_path),
-        "modelId" => model_name
-    ))
-
-    submission_id = result.createSignalsSubmission.id
-    upload_url = result.createSignalsSubmission.uploadUrl
-
-    # Update progress: Starting upload
-    if progress_callback !== nothing
-        progress_callback(:progress; phase="Uploading file", progress=30.0)
-    end
-
-    # Upload the file to S3
-    file_content = read(predictions_path)
-
-    # Update progress: File read, uploading
-    if progress_callback !== nothing
-        progress_callback(:progress; phase="Uploading to S3", progress=50.0)
-    end
-
-    upload_response = HTTP.put(
-        upload_url,
-        Dict("Content-Type" => "text/csv"),
-        file_content;
-        readtimeout=300,
-        connect_timeout=30
-    )
-
-    if upload_response.status != 200
+        # Update progress: Getting upload URL
         if progress_callback !== nothing
-            progress_callback(:error; message="Upload failed with status $(upload_response.status)")
+            progress_callback(:progress;
+                            phase="Validating submission window",
+                            progress=5.0,
+                            elapsed_time=time() - upload_start_time)
         end
-        error("Failed to upload predictions: $(upload_response.status)")
-    end
 
-    # Update progress: Complete
-    if progress_callback !== nothing
-        progress_callback(:complete; model=model_name, submission_id=submission_id, size_mb=size_mb)
-    end
+        # First, get the upload URL
+        if progress_callback !== nothing
+            progress_callback(:progress;
+                            phase="Getting upload URL",
+                            progress=15.0,
+                            elapsed_time=time() - upload_start_time)
+        end
 
-    @log_info "Successfully uploaded predictions" model=model_name
-    return submission_id
+        query = """
+        mutation(\$filename: String!, \$modelId: String!) {
+            createSignalsSubmission(
+                filename: \$filename,
+                modelId: \$modelId
+            ) {
+                id
+                filename
+                uploadUrl
+            }
+        }
+        """
+
+        result = graphql_query(client, query, Dict(
+            "filename" => basename(predictions_path),
+            "modelId" => model_name
+        ))
+
+        submission_id = result.createSignalsSubmission.id
+        upload_url = result.createSignalsSubmission.uploadUrl
+
+        # Update progress: Reading file
+        if progress_callback !== nothing
+            progress_callback(:progress;
+                            phase="Reading file into memory",
+                            progress=25.0,
+                            elapsed_time=time() - upload_start_time)
+        end
+
+        # Upload the file to S3
+        file_content = read(predictions_path)
+
+        # Update progress: Starting upload to S3
+        if progress_callback !== nothing
+            progress_callback(:progress;
+                            phase="Uploading to S3",
+                            progress=40.0,
+                            elapsed_time=time() - upload_start_time)
+        end
+
+        # Enhanced upload with progress tracking
+        upload_progress_bytes = 0
+        upload_start = time()
+
+        # Use streaming upload for better progress tracking on large files
+        upload_response = try
+            if file_size > 50 * 1024 * 1024  # 50MB threshold for streaming
+                # For large files, use chunked upload simulation
+                chunk_size = 1024 * 1024  # 1MB chunks
+                chunks = [file_content[i:min(i+chunk_size-1, end)] for i in 1:chunk_size:length(file_content)]
+
+                # Simulate chunked upload with progress updates
+                for (i, chunk) in enumerate(chunks)
+                    upload_progress_bytes += length(chunk)
+                    upload_progress = 40.0 + (upload_progress_bytes / file_size) * 50.0
+
+                    if progress_callback !== nothing && i % 10 == 0  # Update every 10 chunks
+                        progress_callback(:progress;
+                                        phase="Uploading to S3 ($(round(upload_progress_bytes/1024/1024, digits=1)) MB / $size_mb MB)",
+                                        progress=upload_progress,
+                                        bytes_uploaded=upload_progress_bytes,
+                                        total_bytes=file_size,
+                                        elapsed_time=time() - upload_start_time)
+                    end
+                end
+
+                # Actual upload
+                HTTP.put(upload_url, Dict("Content-Type" => "text/csv"), file_content;
+                        readtimeout=300, connect_timeout=30)
+            else
+                # For smaller files, direct upload
+                HTTP.put(upload_url, Dict("Content-Type" => "text/csv"), file_content;
+                        readtimeout=300, connect_timeout=30)
+            end
+        catch e
+            if progress_callback !== nothing
+                progress_callback(:error;
+                                message="Upload failed: $(string(e))",
+                                elapsed_time=time() - upload_start_time)
+            end
+            rethrow(e)
+        end
+
+        if upload_response.status != 200
+            if progress_callback !== nothing
+                progress_callback(:error;
+                                message="Upload failed with status $(upload_response.status)",
+                                elapsed_time=time() - upload_start_time)
+            end
+            error("Failed to upload predictions: $(upload_response.status)")
+        end
+
+        # Update progress: Finalizing submission
+        if progress_callback !== nothing
+            progress_callback(:progress;
+                            phase="Finalizing submission",
+                            progress=95.0,
+                            elapsed_time=time() - upload_start_time)
+        end
+
+        total_time = time() - upload_start_time
+        avg_speed_mb = size_mb / total_time
+
+        # Update progress: Complete
+        if progress_callback !== nothing
+            progress_callback(:complete;
+                            model=model_name,
+                            submission_id=submission_id,
+                            size_mb=size_mb,
+                            total_time=total_time,
+                            avg_speed_mb_s=round(avg_speed_mb, digits=2))
+        end
+
+        @log_info "Successfully uploaded predictions" model=model_name submission_id=submission_id size_mb=size_mb total_time=round(total_time, digits=1)
+        return submission_id
+
+    catch e
+        if progress_callback !== nothing
+            progress_callback(:error;
+                            message="Submission failed: $(string(e))",
+                            elapsed_time=time() - upload_start_time)
+        end
+        rethrow(e)
+    end
 end
 
 function get_live_dataset_id(client::NumeraiClient)

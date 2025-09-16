@@ -106,12 +106,14 @@ Returns a named tuple with:
 - used_pct: Percentage of disk used
 """
 function get_disk_space_info(path::String = pwd())
+    @debug "Getting disk space info for path: $path"
     try
         # Use df command to get disk space info on Unix systems
         if Sys.isunix()
             # Run df command with -k flag for KB output
             cmd = `df -k $path`
             output = read(cmd, String)
+            @debug "df command output: $output"
             lines = split(output, '\n')
 
             # Parse the output (second line has the data)
@@ -150,21 +152,24 @@ function get_disk_space_info(path::String = pwd())
                     free_gb = avail_kb / (1024 * 1024)
                     used_pct = total_gb > 0 ? (used_gb / total_gb * 100) : 0.0
 
-                    return (
+                    result = (
                         free_gb = free_gb,
                         total_gb = total_gb,
                         used_gb = used_gb,
                         used_pct = used_pct
                     )
+                    @debug "Successfully parsed disk space info" result
+                    return result
                 end
             end
         end
     catch e
         # If anything fails, return zeros
-        @debug "Failed to get disk space info" error=e
+        @warn "Failed to get disk space info" error=e path=path
     end
 
     # Return default values if we couldn't get disk info
+    @warn "Returning default disk space values - disk space parsing failed"
     return (
         free_gb = 0.0,
         total_gb = 0.0,

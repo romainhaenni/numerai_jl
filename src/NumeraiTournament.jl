@@ -96,6 +96,7 @@ include("tui/panels.jl")
 include("tui/enhanced_dashboard.jl")
 include("tui/tui_realtime.jl")  # Real-time TUI tracking module
 include("tui/dashboard.jl")
+include("tui/tui_fixed.jl")  # NEW FIXED TUI - Actually working implementation
 include("tui/tui_complete_fix.jl")  # Complete TUI fix with all issues resolved
 include("tui/tui_ultimate_fix.jl")  # Ultimate TUI fix with all features working
 include("scheduler/cron.jl")
@@ -145,6 +146,7 @@ using .TUIRealtime: RealTimeTracker, init_realtime_tracker,
                    update_training_progress!, update_prediction_progress!,
                    render_realtime_dashboard!, setup_instant_commands!,
                    enable_auto_training!
+using .TUIFixed: FixedDashboard, run_fixed_dashboard as run_truly_fixed_dashboard
 using .TUICompleteFix: apply_complete_tui_fix!, run_fixed_dashboard
 using .TUIUltimateFix: apply_ultimate_fix!, run_ultimate_dashboard
 using .Utils: utc_now, utc_now_datetime, is_weekend_round,

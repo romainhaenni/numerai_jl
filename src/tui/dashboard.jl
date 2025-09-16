@@ -280,17 +280,26 @@ end
 function run_dashboard(dashboard::TournamentDashboard)
     dashboard.running = true
     start_time = time()
-    
+
     # Clear screen using ANSI escape sequence
     print("\033[2J\033[H")
-    # Hide cursor using ANSI escape sequence  
+    # Hide cursor using ANSI escape sequence
     print("\033[?25l")
-    
+
     try
         add_event!(dashboard, :info, "Dashboard started")
 
-        # Apply the ULTIMATE TUI fix that resolves ALL issues
-        # Import the fix module if available (it's loaded in parent module)
+        # Use the new fixed TUI implementation that actually works
+        try
+            # Load and use the fixed TUI module
+            add_event!(dashboard, :info, "Starting fixed TUI dashboard with all features working...")
+            Main.NumeraiTournament.run_truly_fixed_dashboard(dashboard.config, dashboard.api_client)
+            return  # Exit after fixed dashboard completes
+        catch e
+            add_event!(dashboard, :warning, "Fixed TUI not available: $(sprint(showerror, e)), trying fallbacks...")
+        end
+
+        # Fallback attempts (keeping for compatibility)
         try
             # Try the ultimate fix first (newest and most comprehensive)
             TUIUltimateFix = @eval Main.NumeraiTournament.TUIUltimateFix

@@ -442,22 +442,24 @@ function start_download(dashboard::OperationalDashboard)
                 dashboard.operation_total = 100.0
                 dashboard.operation_start_time = time()
 
-                # Create progress callback
+                # Create progress callback matching API client signature
                 progress_callback = function(phase; kwargs...)
                     if phase == :start
-                        size_mb = get(kwargs, :size_mb, 0)
-                        dashboard.operation_description = "Downloading $dataset.parquet ($(round(size_mb, digits=1)) MB)"
+                        name = get(kwargs, :name, dataset)
+                        dashboard.operation_description = "Starting download of $name.parquet"
                     elseif phase == :progress
-                        bytes_downloaded = get(kwargs, :bytes_downloaded, 0)
-                        total_bytes = get(kwargs, :total_bytes, 1)
-                        dashboard.operation_progress = (bytes_downloaded / total_bytes) * 100.0
-                        mb_downloaded = bytes_downloaded / (1024^2)
-                        mb_total = total_bytes / (1024^2)
-                        dashboard.operation_description = @sprintf("Downloading %s: %.1f / %.1f MB",
-                                                                  dataset, mb_downloaded, mb_total)
+                        # API provides: progress (percentage), current_mb, total_mb
+                        progress_pct = get(kwargs, :progress, 0)
+                        current_mb = get(kwargs, :current_mb, 0)
+                        total_mb = get(kwargs, :total_mb, 0)
+                        dashboard.operation_progress = progress_pct
+                        dashboard.operation_total = 100.0
+                        dashboard.operation_description = @sprintf("Downloading %s: %.1f / %.1f MB (%.1f%%)",
+                                                                  dataset, current_mb, total_mb, progress_pct)
                     elseif phase == :complete
+                        size_mb = get(kwargs, :size_mb, 0)
                         push!(dashboard.downloads_completed, dataset)
-                        add_event!(dashboard, :success, "Downloaded $dataset successfully")
+                        add_event!(dashboard, :success, "Downloaded $dataset successfully ($(round(size_mb, digits=1)) MB)")
                     end
                 end
 
@@ -670,18 +672,27 @@ function start_submission(dashboard::OperationalDashboard)
             dashboard.operation_total = 100.0
             dashboard.operation_start_time = time()
 
-            # Create progress callback
+            # Create progress callback matching API client signature
             progress_callback = function(phase; kwargs...)
                 if phase == :start
                     size_mb = get(kwargs, :size_mb, 0)
-                    dashboard.operation_description = "Preparing upload ($(round(size_mb, digits=1)) MB)"
+                    model = get(kwargs, :model, "")
+                    dashboard.operation_description = "Preparing upload for $model ($(round(size_mb, digits=1)) MB)"
                 elseif phase == :progress
+                    # API provides: phase (description) and progress (percentage)
+                    upload_phase = get(kwargs, :phase, "Uploading")
                     progress_pct = get(kwargs, :progress, 0)
                     dashboard.operation_progress = Float64(progress_pct)
-                    dashboard.operation_description = "Uploading: $(Int(progress_pct))%"
+                    dashboard.operation_description = "$upload_phase: $(Int(progress_pct))%"
                 elseif phase == :complete
                     submission_id = get(kwargs, :submission_id, "")
-                    add_event!(dashboard, :success, "Submission successful! ID: $submission_id")
+                    model = get(kwargs, :model, "")
+                    size_mb = get(kwargs, :size_mb, 0)
+                    add_event!(dashboard, :success, "Submission successful for $model! ID: $submission_id ($(round(size_mb, digits=1)) MB)")
+                elseif phase == :error
+                    message = get(kwargs, :message, "Unknown error")
+                    add_event!(dashboard, :error, "Upload error: $message")
+                    dashboard.current_operation = :idle
                 end
             end
 

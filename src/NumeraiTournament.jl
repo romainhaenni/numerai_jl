@@ -787,6 +787,7 @@ end
 function run_tui_v1043(config::TournamentConfig)
     """Run the production TUI dashboard v0.10.47 with all reported issues fixed"""
     # Create API client with proper field names from TournamentConfig struct
+    api_client = nothing  # Declare variable in outer scope
     try
         if isempty(config.api_public_key) || isempty(config.api_secret_key)
             @log_error "API credentials are missing or empty"

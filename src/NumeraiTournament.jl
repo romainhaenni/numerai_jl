@@ -102,6 +102,7 @@ include("tui/tui_ultimate_fix.jl")  # Ultimate TUI fix with all features working
 include("tui/tui_working.jl")  # NEW: Actually working TUI implementation with all fixes
 include("tui/tui_real.jl")  # REAL: TUI with actual API/ML operations, not simulated
 include("tui/tui_operational.jl")  # OPERATIONAL: Fully working TUI with all features
+include("tui/tui_v10_34_fix.jl")  # v0.10.34: Complete fix with all TUI issues resolved
 include("scheduler/cron.jl")
 
 
@@ -111,6 +112,7 @@ export run_tournament, TournamentConfig, TournamentDashboard, run_dashboard, Tou
        TUICompleteFix, TUIUltimateFix, download_tournament_data,
        run_real_dashboard, RealDashboard,
        run_operational_dashboard, OperationalDashboard,
+       run_tui_v1034, TUIv1034Dashboard,
        # Dashboard command functions
        run_full_pipeline,
        XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel,
@@ -157,6 +159,7 @@ using .TUIUltimateFix: apply_ultimate_fix!, run_ultimate_dashboard
 using .TUIWorking: WorkingDashboard, run_working_dashboard, update_progress!, instant_command_handler
 using .TUIReal: RealDashboard, run_real_dashboard
 using .TUIOperational: OperationalDashboard, run_operational_dashboard
+using .TUIv1034Fix: TUIv1034Dashboard, run_tui_v1034
 using .Utils: utc_now, utc_now_datetime, is_weekend_round,
              calculate_submission_window_end, is_submission_window_open,
              get_submission_window_info, get_disk_space_info

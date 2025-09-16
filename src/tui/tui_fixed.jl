@@ -13,7 +13,7 @@ using ..Models
 using ..DataLoader
 using ..Logger: @log_info, @log_warn, @log_error
 using ..Utils
-using ..Models.Callbacks: TrainingCallback, CallbackInfo, CallbackResult, CONTINUE, STOP
+using ..Models.Callbacks: TrainingCallback, CallbackInfo, CallbackResult, CONTINUE
 
 export FixedDashboard, run_fixed_dashboard
 
@@ -391,22 +391,32 @@ struct ProgressCallback <: TrainingCallback
 end
 
 function (cb::ProgressCallback)(info::CallbackInfo)::CallbackResult
-    if info.stage == :epoch_end
+    # Update progress based on epoch
+    if info.epoch > 0 && info.total_epochs > 0
         progress = (info.epoch / info.total_epochs) * 100.0
         cb.dashboard.progress.training_progress = progress
         cb.dashboard.progress.message = "Epoch $(info.epoch)/$(info.total_epochs)"
 
-        # Add event
+        # Add event for milestones
         if info.epoch % 10 == 0 || info.epoch == info.total_epochs
-            metrics_str = join(["$k: $(@sprintf("%.4f", v))" for (k,v) in info.metrics], ", ")
-            add_event!(cb.dashboard, "Training epoch $(info.epoch): $metrics_str")
+            if !isempty(info.extra_metrics)
+                metrics_str = join(["$k: $(@sprintf("%.4f", v))" for (k,v) in info.extra_metrics], ", ")
+                add_event!(cb.dashboard, "Training epoch $(info.epoch): $metrics_str")
+            else
+                add_event!(cb.dashboard, "Training epoch $(info.epoch)")
+            end
         end
-    elseif info.stage == :training_start
-        cb.dashboard.progress.training_progress = 0.0
+    end
+
+    # Check if training just started
+    if info.epoch == 1 && cb.dashboard.progress.training_progress == 0.0
         cb.dashboard.progress.current_operation = "Training"
         cb.dashboard.progress.training_active = true
         add_event!(cb.dashboard, "Training started")
-    elseif info.stage == :training_end
+    end
+
+    # Check if training completed
+    if info.epoch == info.total_epochs && info.total_epochs > 0
         cb.dashboard.progress.training_progress = 100.0
         cb.dashboard.progress.training_active = false
         add_event!(cb.dashboard, "Training completed")
@@ -421,22 +431,34 @@ function download_with_progress(dashboard::FixedDashboard, dataset_type::String)
     dashboard.progress.download_progress[dataset_type] = 0.0
     add_event!(dashboard, "Starting download: $dataset_type")
 
-    # Create progress callback
-    progress_callback = (bytes_done, bytes_total) -> begin
-        if bytes_total > 0
-            progress = (bytes_done / bytes_total) * 100.0
-            dashboard.progress.download_progress[dataset_type] = progress
-            dashboard.progress.message = @sprintf("%.1f MB / %.1f MB",
-                                                 bytes_done/1_000_000,
-                                                 bytes_total/1_000_000)
+    # Create progress callback matching API's expected format
+    progress_callback = (stage, kwargs...) -> begin
+        if stage == :progress
+            # Extract progress info from kwargs
+            info = Dict(kwargs)
+            if haskey(info, :progress)
+                dashboard.progress.download_progress[dataset_type] = info[:progress]
+                if haskey(info, :current_mb) && haskey(info, :total_mb)
+                    dashboard.progress.message = @sprintf("%.1f MB / %.1f MB",
+                                                         info[:current_mb],
+                                                         info[:total_mb])
+                end
+            end
+        elseif stage == :start
+            dashboard.progress.download_progress[dataset_type] = 0.0
         end
     end
 
     try
+        # Determine output path
+        data_dir = get(dashboard.config, "data_dir", "data")
+        output_path = joinpath(data_dir, "$dataset_type.parquet")
+
         # Call API with progress callback
         result = API.download_dataset(
             dashboard.api_client,
             dataset_type,
+            output_path,
             progress_callback=progress_callback
         )
 
@@ -468,8 +490,9 @@ function train_with_progress(dashboard::FixedDashboard)
 
     try
         # Load data
-        train_df = DataLoader.load_training_data(dashboard.config["data_dir"])
-        val_df = DataLoader.load_validation_data(dashboard.config["data_dir"])
+        data_dir = get(dashboard.config, "data_dir", "data")
+        train_df = DataLoader.load_training_data(data_dir)
+        val_df = DataLoader.load_validation_data(data_dir)
 
         # Create pipeline
         model_config = get(dashboard.config, "model", Dict())
@@ -480,19 +503,48 @@ function train_with_progress(dashboard::FixedDashboard)
             target_cols=DataLoader.get_target_columns(train_df)
         )
 
+        # Since XGBoost/LightGBM don't provide easy epoch callbacks,
+        # simulate progress based on time
+        start_time = time()
+        expected_duration = 60.0  # Assume 60 seconds for training
+        dashboard.progress.training_active = true
+
+        # Start background progress updater
+        progress_task = @async begin
+            while dashboard.progress.training_active
+                elapsed = time() - start_time
+                progress = min(elapsed / expected_duration * 100.0, 95.0)
+                dashboard.progress.training_progress = progress
+                dashboard.progress.message = "Training in progress..."
+                sleep(0.5)
+            end
+        end
+
         # Create progress callback
         callbacks = [ProgressCallback(dashboard)]
 
-        # Train with callbacks
+        # Train with callbacks and data_dir for feature groups
         Pipeline.train!(pipeline, train_df, val_df,
                        verbose=false,
-                       callbacks=callbacks)
+                       callbacks=callbacks,
+                       data_dir=data_dir)
 
+        # Mark training as complete
+        dashboard.progress.training_active = false
         dashboard.progress.training_progress = 100.0
         dashboard.progress.current_operation = "Idle"
         add_event!(dashboard, "✓ Training completed successfully")
 
+        # Save the trained model
+        model_dir = get(dashboard.config, "model_dir", "models")
+        mkpath(model_dir)
+        model_path = joinpath(model_dir, "trained_model.jld2")
+        Pipeline.save_pipeline(pipeline, model_path)
+        add_event!(dashboard, "✓ Model saved to $model_path")
+
     catch e
+        dashboard.progress.training_active = false
+        dashboard.progress.training_progress = 0.0
         add_event!(dashboard, "✗ Training failed: $e")
         dashboard.progress.current_operation = "Idle"
     end

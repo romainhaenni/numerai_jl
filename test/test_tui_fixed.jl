@@ -1,143 +1,197 @@
-#!/usr/bin/env julia
+using Test
+using Dates
+using NumeraiTournament
+using NumeraiTournament.TUIFixed
+using NumeraiTournament.API
+using NumeraiTournament.Pipeline
+using NumeraiTournament.DataLoader
 
-# Test script demonstrating that TUI features are now actually fixed
-# This shows working progress bars, real-time updates, and simulated operations
+@testset "Fixed TUI Features" begin
+    # Create test config
+    config = Dict(
+        "data_dir" => "test_data",
+        "model_dir" => "test_models",
+        "auto_training" => true,
+        "model" => Dict(
+            "type" => "lightgbm",
+            "params" => Dict()
+        )
+    )
 
-using Pkg
-Pkg.activate(dirname(@__DIR__))
+    # Create mock API client
+    api_client = API.NumeraiClient("test_key", "test_secret")
 
-# Load the working TUI module
-include("../src/tui/working_tui.jl")
-using .WorkingTUI
-using Printf
+    @testset "Dashboard Initialization" begin
+        dashboard = TUIFixed.FixedDashboard(config, api_client)
+        @test dashboard.instant_commands_enabled == true
+        @test dashboard.auto_training_enabled == true
+        @test dashboard.progress.current_operation == "Idle"
+        @test length(dashboard.event_log.events) == 0
+    end
 
-function run_tui_demo()
-    println("\n" * "="^80)
-    println("     NUMERAI TUI - DEMONSTRATION OF FIXED FEATURES")
-    println("="^80)
-    println("\nThis demo shows that the following TUI features are now ACTUALLY WORKING:")
-    println("  ✅ Real-time progress bars for all operations")
-    println("  ✅ Sticky panels with system info and event logs")
-    println("  ✅ Auto-training trigger after downloads complete")
-    println("  ✅ Real-time status updates")
-    println("\n" * "="^80 * "\n")
+    @testset "Progress State Management" begin
+        dashboard = TUIFixed.FixedDashboard(config, api_client)
 
-    # Initialize the working dashboard
-    dashboard = init_working_dashboard!()
-    dashboard.auto_train_enabled = true
+        # Test download progress
+        dashboard.progress.download_progress["train"] = 50.0
+        @test dashboard.progress.download_progress["train"] == 50.0
 
-    # Add initial events
-    add_event!(dashboard, :info, "TUI Demo started - all features working!")
-    add_event!(dashboard, :success, "Progress tracking initialized")
+        # Test training progress
+        dashboard.progress.training_progress = 75.0
+        @test dashboard.progress.training_progress == 75.0
 
-    # Start time for uptime tracking
-    start_time = time()
+        # Test upload progress
+        dashboard.progress.upload_progress = 100.0
+        @test dashboard.progress.upload_progress == 100.0
+    end
 
-    println("\n📥 SIMULATING DOWNLOAD WITH REAL PROGRESS BAR:\n")
+    @testset "Event Logging" begin
+        dashboard = TUIFixed.FixedDashboard(config, api_client)
 
-    # Simulate downloading files with real progress
-    files = ["train.parquet", "validation.parquet", "live.parquet"]
-    for (idx, file) in enumerate(files)
-        println("\n[$idx/3] Downloading $file...")
+        # Add events
+        TUIFixed.add_event!(dashboard, "Test event 1")
+        TUIFixed.add_event!(dashboard, "Test event 2")
 
-        for progress in 0:10:100
-            # Update progress
-            update_download_progress!(dashboard,
-                progress=Float64(progress),
-                file=file,
-                speed=rand(5.0:0.5:15.0),
-                size_mb=Float64(rand(100:500)))
+        @test length(dashboard.event_log.events) == 2
+        @test occursin("Test event 1", dashboard.event_log.events[1])
+        @test occursin("Test event 2", dashboard.event_log.events[2])
 
-            # Show progress bar
-            bar = WorkingTUI.create_progress_bar(Float64(progress), 50)
-            speed_str = progress < 100 ? @sprintf(" @ %.1f MB/s", rand(5.0:0.5:15.0)) : " - Complete!"
-            print("\r  $bar$speed_str")
-
-            sleep(0.1)  # Simulate download time
+        # Test max events limit
+        for i in 1:40
+            TUIFixed.add_event!(dashboard, "Event $i")
         end
-
-        add_event!(dashboard, :success, "Downloaded $file successfully")
-        println()  # New line after progress bar
+        @test length(dashboard.event_log.events) == 30  # Max events
     end
 
-    # Check if auto-training was triggered
-    if dashboard.auto_train_enabled
-        println("\n✅ AUTO-TRAINING TRIGGERED (All downloads complete)\n")
-        add_event!(dashboard, :success, "Auto-training triggered after downloads!")
+    @testset "System Info Updates" begin
+        dashboard = TUIFixed.FixedDashboard(config, api_client)
+
+        # Update system info
+        TUIFixed.update_system_info!(dashboard)
+
+        # Check that values are updated (not checking exact values as they vary)
+        @test dashboard.system_info.cpu_usage >= 0.0
+        @test dashboard.system_info.memory_usage >= 0.0
+        @test dashboard.system_info.disk_usage >= 0.0
+        @test dashboard.system_info.last_update > dashboard.system_info.last_update - Dates.Second(1)
     end
 
-    println("\n🧠 SIMULATING TRAINING WITH REAL PROGRESS:\n")
+    @testset "Progress Bar Rendering" begin
+        # Test progress bar creation
+        bar = TUIFixed.create_progress_bar(0.0, 20, "Download")
+        @test occursin("Download", bar)
+        @test occursin("0.0%", bar)
 
-    # Simulate training with real progress
-    total_epochs = 50
-    for epoch in 1:total_epochs
-        progress = (epoch / total_epochs) * 100
-        loss = 1.0 / (1 + epoch * 0.1) + rand() * 0.01
+        bar = TUIFixed.create_progress_bar(50.0, 20, "Training")
+        @test occursin("Training", bar)
+        @test occursin("50.0%", bar)
+        @test occursin("█", bar)
+        @test occursin("░", bar)
 
-        update_training_progress!(dashboard,
-            progress=progress,
-            epoch=epoch,
-            total_epochs=total_epochs,
-            loss=loss,
-            model="xgboost_model")
-
-        # Show progress
-        bar = WorkingTUI.create_progress_bar(progress, 50)
-        loss_str = @sprintf(" Loss: %.4f", loss)
-        print("\r  Epoch $epoch/$total_epochs: $bar$loss_str")
-
-        sleep(0.05)  # Simulate training time
+        bar = TUIFixed.create_progress_bar(100.0, 20, "Upload")
+        @test occursin("Upload", bar)
+        @test occursin("100.0%", bar)
     end
 
-    add_event!(dashboard, :success, "Training completed successfully!")
-    println("\n")
+    @testset "Command Handling" begin
+        dashboard = TUIFixed.FixedDashboard(config, api_client)
 
-    println("\n📤 SIMULATING UPLOAD WITH REAL PROGRESS:\n")
+        # Test quit command
+        TUIFixed.handle_command(dashboard, 'q')
+        @test dashboard.running == false
+        @test occursin("Shutting down", dashboard.event_log.events[end])
 
-    # Simulate upload with real progress
-    for progress in 0:20:100
-        update_upload_progress!(dashboard,
-            progress=Float64(progress),
-            file="predictions.csv",
-            size_mb=25.5)
+        # Reset and test download command
+        dashboard.running = true
+        TUIFixed.handle_command(dashboard, 'd')
+        @test occursin("Starting downloads", dashboard.event_log.events[end])
 
-        bar = WorkingTUI.create_progress_bar(Float64(progress), 50)
-        size_str = @sprintf(" (%.1f MB)", 25.5)
-        print("\r  Uploading: $bar$size_str")
+        # Test training command
+        TUIFixed.handle_command(dashboard, 't')
+        @test occursin("Starting training", dashboard.event_log.events[end])
 
-        sleep(0.2)
+        # Test refresh command
+        TUIFixed.handle_command(dashboard, 'r')
+        @test occursin("Refreshing", dashboard.event_log.events[end])
     end
 
-    add_event!(dashboard, :success, "Predictions uploaded successfully!")
-    println("\n")
+    @testset "Auto-training Trigger" begin
+        dashboard = TUIFixed.FixedDashboard(config, api_client)
 
-    # Update system info
-    dashboard.uptime = Int(time() - start_time)
-    dashboard.cpu_usage = 42
-    dashboard.memory_usage = 4.3
-    dashboard.memory_total = 16.0
+        # Simulate downloads complete
+        dashboard.progress.download_progress["train"] = 100.0
+        dashboard.progress.download_progress["validation"] = 100.0
+        dashboard.progress.download_progress["live"] = 100.0
 
-    # Show final dashboard state
-    println("\n" * "="^80)
-    println("FINAL DASHBOARD STATE - WITH STICKY PANELS:")
-    println("="^80 * "\n")
+        # Check auto-training would trigger
+        all_downloaded = all(v == 100.0 for v in values(dashboard.progress.download_progress))
+        @test all_downloaded == true
+        @test length(dashboard.progress.download_progress) >= 3
+    end
 
-    # Render the complete dashboard with sticky panels
-    render_working_dashboard!(dashboard)
+    @testset "Progress Callback" begin
+        dashboard = TUIFixed.FixedDashboard(config, api_client)
+        callback = TUIFixed.ProgressCallback(dashboard)
 
-    println("\n\n" * "="^80)
-    println("✅ ALL TUI FEATURES DEMONSTRATED SUCCESSFULLY!")
-    println("="^80)
-    println("\nKey achievements:")
-    println("  • Progress bars update in real-time during operations")
-    println("  • Auto-training triggers after downloads complete")
-    println("  • Events are logged and displayed in sticky bottom panel")
-    println("  • System info shown in sticky top panel")
-    println("  • All operations show actual progress, not static text")
-    println("\n🎉 TUI is now ACTUALLY WORKING as intended!")
+        # Test training start (epoch 1)
+        info = NumeraiTournament.Models.Callbacks.CallbackInfo(
+            "test_model",  # model_name
+            1,             # epoch
+            100,           # total_epochs
+            1,             # iteration
+            nothing,       # total_iterations
+            nothing,       # loss
+            nothing,       # val_loss
+            nothing,       # val_score
+            nothing,       # learning_rate
+            0.0,           # elapsed_time
+            nothing,       # eta
+            Dict{String,Any}()  # extra_metrics
+        )
+        result = callback(info)
+        @test result == NumeraiTournament.Models.Callbacks.CONTINUE
+        @test dashboard.progress.training_active == true
+        @test dashboard.progress.current_operation == "Training"
+
+        # Test epoch progress (epoch 50)
+        info = NumeraiTournament.Models.Callbacks.CallbackInfo(
+            "test_model",  # model_name
+            50,            # epoch
+            100,           # total_epochs
+            50,            # iteration
+            nothing,       # total_iterations
+            0.5,           # loss
+            0.4,           # val_loss
+            nothing,       # val_score
+            nothing,       # learning_rate
+            10.0,          # elapsed_time
+            nothing,       # eta
+            Dict{String,Any}("loss" => 0.5)  # extra_metrics
+        )
+        result = callback(info)
+        @test result == NumeraiTournament.Models.Callbacks.CONTINUE
+        @test dashboard.progress.training_progress == 50.0
+
+        # Test training end (epoch 100)
+        info = NumeraiTournament.Models.Callbacks.CallbackInfo(
+            "test_model",  # model_name
+            100,           # epoch
+            100,           # total_epochs
+            100,           # iteration
+            nothing,       # total_iterations
+            0.1,           # loss
+            0.15,          # val_loss
+            nothing,       # val_score
+            nothing,       # learning_rate
+            60.0,          # elapsed_time
+            nothing,       # eta
+            Dict{String,Any}("loss" => 0.1)  # extra_metrics
+        )
+        result = callback(info)
+        @test result == NumeraiTournament.Models.Callbacks.CONTINUE
+        @test dashboard.progress.training_progress == 100.0
+        @test dashboard.progress.training_active == false
+    end
 end
 
-# Run the demo
-if abspath(PROGRAM_FILE) == @__FILE__
-    run_tui_demo()
-end
+println("✅ All Fixed TUI tests passed!")

@@ -836,9 +836,7 @@ function reset_error_tracking!(dashboard)
     add_event!(dashboard, :info, "Error tracking reset")
 end
 
-function utc_now_datetime()
-    return Dates.now(Dates.UTC)
-end
+# utc_now_datetime is already defined in dashboard.jl
 
 export execute_command, submit_predictions_command, stake_command, download_data_command,
        run_full_diagnostics_command, create_configuration_backup_command

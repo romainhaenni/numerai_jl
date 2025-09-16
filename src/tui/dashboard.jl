@@ -126,6 +126,8 @@ mutable struct TournamentDashboard
     # Real-time tracking and active operations
     realtime_tracker::Any  # Will be initialized as RealTimeTracker
     active_operations::Dict{Symbol, Bool}  # Track active operations
+    # Extra properties for TUI fixes
+    extra_properties::Dict{Symbol, Any}  # For dynamic properties
 end
 
 function TournamentDashboard(config)
@@ -207,7 +209,8 @@ function TournamentDashboard(config)
         error_counts, network_status, Vector{CategorizedError}(),  # error tracking fields
         EnhancedDashboard.ProgressTracker(),  # Initialize progress tracker
         Main.NumeraiTournament.TUIRealtime.init_realtime_tracker(),  # Initialize realtime tracker properly
-        active_operations  # active operations tracking
+        active_operations,  # active operations tracking
+        Dict{Symbol, Any}()  # extra_properties
     )
 end
 
@@ -286,11 +289,15 @@ function run_dashboard(dashboard::TournamentDashboard)
     try
         add_event!(dashboard, :info, "Dashboard started")
 
-        # Apply the complete working TUI fix
-        if isdefined(Main, :NumeraiTournament) && isdefined(Main.NumeraiTournament, :TUIWorkingFix)
-            Main.NumeraiTournament.TUIWorkingFix.apply_complete_fix!(dashboard)
+        # Apply the complete TUI fix that resolves all issues
+        if isdefined(Main, :NumeraiTournament) && isdefined(Main.NumeraiTournament, :TUICompleteFix)
+            add_event!(dashboard, :info, "Applying complete TUI fix with all enhancements...")
+            Main.NumeraiTournament.TUICompleteFix.apply_complete_tui_fix!(dashboard)
+            # Use the fixed dashboard runner
+            Main.NumeraiTournament.TUICompleteFix.run_fixed_dashboard(dashboard)
+            return  # Exit early as the complete fix handles the full dashboard lifecycle
         else
-            add_event!(dashboard, :warning, "TUI Working Fix not available")
+            add_event!(dashboard, :warning, "Complete TUI Fix not available, using fallback mode")
         end
 
         # Configure realtime tracker

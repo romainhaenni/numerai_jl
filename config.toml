@@ -21,6 +21,7 @@ model_dir = "models"
 # Automation settings
 auto_submit = true
 auto_train_after_download = true
+auto_start_pipeline = true
 stake_amount = 1.0
 
 # Feature set configuration

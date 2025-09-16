@@ -836,7 +836,7 @@ function start_training(dashboard::TUIv1036Dashboard)
             end
 
             # Training callback for real progress
-            training_callback = TrainingCallback() do info
+            training_callback = Callbacks.create_dashboard_callback(info -> begin
                 if !dashboard.running || dashboard.paused
                     return false  # Stop training
                 end
@@ -878,7 +878,7 @@ function start_training(dashboard::TUIv1036Dashboard)
 
                 dashboard.force_render = true
                 return true  # Continue training
-            end
+            end)
 
             # Train the model with real callbacks
             @log_info "Starting model training"
@@ -1119,7 +1119,7 @@ function run_tui_v1036(config)
             # Start download task in background
             @async begin
                 try
-                    download_data_internal(dashboard)
+                    start_download(dashboard)
                 catch e
                     add_event!(dashboard, :error, "Auto-start failed: $(e)")
                 end

@@ -290,14 +290,20 @@ function run_dashboard(dashboard::TournamentDashboard)
         add_event!(dashboard, :info, "Dashboard started")
 
         # Apply the complete TUI fix that resolves all issues
-        if isdefined(Main, :NumeraiTournament) && isdefined(Main.NumeraiTournament, :TUICompleteFix)
+        # Import the fix module if available (it's loaded in parent module)
+        try
+            # Since we're inside Dashboard module which is inside NumeraiTournament,
+            # we need to reference the parent module
+            TUICompleteFix = @eval Main.NumeraiTournament.TUICompleteFix
+
             add_event!(dashboard, :info, "Applying complete TUI fix with all enhancements...")
-            Main.NumeraiTournament.TUICompleteFix.apply_complete_tui_fix!(dashboard)
+            TUICompleteFix.apply_complete_tui_fix!(dashboard)
             # Use the fixed dashboard runner
-            Main.NumeraiTournament.TUICompleteFix.run_fixed_dashboard(dashboard)
+            TUICompleteFix.run_fixed_dashboard(dashboard)
             return  # Exit early as the complete fix handles the full dashboard lifecycle
-        else
-            add_event!(dashboard, :warning, "Complete TUI Fix not available, using fallback mode")
+        catch e
+            add_event!(dashboard, :warning, "TUI Fix not available: $(sprint(showerror, e)), using standard mode")
+            # Continue with standard dashboard
         end
 
         # Configure realtime tracker

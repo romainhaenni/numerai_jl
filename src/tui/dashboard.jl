@@ -289,21 +289,26 @@ function run_dashboard(dashboard::TournamentDashboard)
     try
         add_event!(dashboard, :info, "Dashboard started")
 
-        # Apply the complete TUI fix that resolves all issues
+        # Apply the ULTIMATE TUI fix that resolves ALL issues
         # Import the fix module if available (it's loaded in parent module)
         try
-            # Since we're inside Dashboard module which is inside NumeraiTournament,
-            # we need to reference the parent module
-            TUICompleteFix = @eval Main.NumeraiTournament.TUICompleteFix
-
-            add_event!(dashboard, :info, "Applying complete TUI fix with all enhancements...")
-            TUICompleteFix.apply_complete_tui_fix!(dashboard)
-            # Use the fixed dashboard runner
-            TUICompleteFix.run_fixed_dashboard(dashboard)
-            return  # Exit early as the complete fix handles the full dashboard lifecycle
-        catch e
-            add_event!(dashboard, :warning, "TUI Fix not available: $(sprint(showerror, e)), using standard mode")
-            # Continue with standard dashboard
+            # Try the ultimate fix first (newest and most comprehensive)
+            TUIUltimateFix = @eval Main.NumeraiTournament.TUIUltimateFix
+            add_event!(dashboard, :info, "Applying ULTIMATE TUI fix with ALL features working...")
+            TUIUltimateFix.run_ultimate_dashboard(dashboard)
+            return  # Exit early as the ultimate fix handles the full dashboard lifecycle
+        catch e1
+            # Fallback to complete fix if ultimate not available
+            try
+                TUICompleteFix = @eval Main.NumeraiTournament.TUICompleteFix
+                add_event!(dashboard, :info, "Applying complete TUI fix as fallback...")
+                TUICompleteFix.apply_complete_tui_fix!(dashboard)
+                TUICompleteFix.run_fixed_dashboard(dashboard)
+                return
+            catch e2
+                add_event!(dashboard, :warning, "TUI Fixes not available: $(sprint(showerror, e2)), using standard mode")
+                # Continue with standard dashboard
+            end
         end
 
         # Configure realtime tracker

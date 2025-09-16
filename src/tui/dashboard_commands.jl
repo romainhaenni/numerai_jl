@@ -247,6 +247,12 @@ end
 # Internal function for training models
 function train_models_internal(dashboard::TournamentDashboard)
     try
+        # Check if ultimate fix callbacks are available
+        if haskey(dashboard.extra_properties, :progress_callbacks)
+            training_cb = dashboard.extra_properties[:progress_callbacks][:training]
+            training_cb(:start, dashboard.model[:name], 0, 100, 0.0, 0.0)
+        end
+
         # Use the existing training functionality
         dashboard.training_info[:is_training] = true
         dashboard.training_info[:model_name] = dashboard.model[:name]
@@ -276,6 +282,15 @@ function train_models_internal(dashboard::TournamentDashboard)
         while dashboard.training_info[:is_training]
             # Update progress tracker with current epoch
             current_epoch = Int(round(dashboard.training_info[:progress]))
+
+            # Call ultimate fix callback if available
+            if haskey(dashboard.extra_properties, :progress_callbacks)
+                training_cb = dashboard.extra_properties[:progress_callbacks][:training]
+                training_cb(:epoch, dashboard.model[:name], current_epoch, 100,
+                           get(dashboard.training_info, :loss, 0.0),
+                           get(dashboard.training_info, :val_score, 0.0))
+            end
+
             EnhancedDashboard.update_progress_tracker!(
                 dashboard.progress_tracker, :training,
                 epoch=current_epoch,
@@ -302,6 +317,12 @@ function train_models_internal(dashboard::TournamentDashboard)
         EnhancedDashboard.update_progress_tracker!(
             dashboard.progress_tracker, :training, active=false
         )
+
+        # Call complete callback if available
+        if haskey(dashboard.extra_properties, :progress_callbacks)
+            training_cb = dashboard.extra_properties[:progress_callbacks][:training]
+            training_cb(:complete, dashboard.model[:name], 100, 100, 0.0, 0.0)
+        end
 
         return dashboard.training_info[:progress] >= 100
     catch e

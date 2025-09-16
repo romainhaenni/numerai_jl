@@ -97,13 +97,14 @@ include("tui/enhanced_dashboard.jl")
 include("tui/tui_realtime.jl")  # Real-time TUI tracking module
 include("tui/dashboard.jl")
 include("tui/tui_complete_fix.jl")  # Complete TUI fix with all issues resolved
+include("tui/tui_ultimate_fix.jl")  # Ultimate TUI fix with all features working
 include("scheduler/cron.jl")
 
 
 export run_tournament, TournamentConfig, TournamentDashboard, run_dashboard, TournamentScheduler, load_config,
        add_event!, start_training, update_system_info!, render_sticky_dashboard,
        render_top_sticky_panel, render_bottom_sticky_panel,
-       TUICompleteFix, download_tournament_data,
+       TUICompleteFix, TUIUltimateFix, download_tournament_data,
        # Dashboard command functions
        run_full_pipeline,
        XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel,
@@ -145,6 +146,7 @@ using .TUIRealtime: RealTimeTracker, init_realtime_tracker,
                    render_realtime_dashboard!, setup_instant_commands!,
                    enable_auto_training!
 using .TUICompleteFix: apply_complete_tui_fix!, run_fixed_dashboard
+using .TUIUltimateFix: apply_ultimate_fix!, run_ultimate_dashboard
 using .Utils: utc_now, utc_now_datetime, is_weekend_round,
              calculate_submission_window_end, is_submission_window_open,
              get_submission_window_info, get_disk_space_info

@@ -125,12 +125,12 @@ function create_dashboard(config::Any, api_client::Any)
         2.0
     end
 
-    # Log configuration values for debugging
-    @log_info "Dashboard Configuration:"
-    @log_info "  - Auto-start enabled: $auto_start_pipeline_val"
-    @log_info "  - Auto-start delay: $auto_start_delay_val seconds"
-    @log_info "  - Auto-train after download: $auto_train_after_download_val"
-    @log_info "  - System Info - CPU: $cpu_usage%, Memory: $(mem_info.used_gb)/$(mem_info.total_gb) GB, Disk: $(disk_info.free_gb)/$(disk_info.total_gb) GB"
+    # Log configuration values for debugging (using standard println for module isolation)
+    println("Dashboard Configuration:")
+    println("  - Auto-start enabled: $auto_start_pipeline_val")
+    println("  - Auto-start delay: $auto_start_delay_val seconds")
+    println("  - Auto-train after download: $auto_train_after_download_val")
+    println("  - System Info - CPU: $cpu_usage%, Memory: $(mem_info.used_gb)/$(mem_info.total_gb) GB, Disk: $(disk_info.free_gb)/$(disk_info.total_gb) GB")
 
     dashboard = ProductionDashboard(
         true,  # running
@@ -646,8 +646,8 @@ function render_dashboard(dashboard::ProductionDashboard)
             mem_info = Utils.get_memory_info()
             cpu_usage = Utils.get_cpu_usage()
 
-            # Log the values for debugging
-            @log_debug "System monitoring update - CPU: $cpu_usage%, Memory: $(mem_info.used_gb)/$(mem_info.total_gb) GB, Disk: $(disk_info.free_gb)/$(disk_info.total_gb) GB"
+            # Log the values for debugging (commented out to avoid macro issues)
+            # @debug "System monitoring update - CPU: $cpu_usage%, Memory: $(mem_info.used_gb)/$(mem_info.total_gb) GB, Disk: $(disk_info.free_gb)/$(disk_info.total_gb) GB"
 
             # Update dashboard values
             dashboard.cpu_usage = cpu_usage
@@ -658,7 +658,8 @@ function render_dashboard(dashboard::ProductionDashboard)
             dashboard.force_render = true
             dashboard.last_render_time = time()
         catch e
-            @log_error "Failed to update system stats: $e"
+            # Log error to events instead of using logger macro
+            add_event!(dashboard, :error, "Failed to update system stats: $e")
             # Keep previous values if update fails
         end
     end

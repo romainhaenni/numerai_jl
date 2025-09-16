@@ -106,7 +106,7 @@ export run_tournament, TournamentConfig, TournamentDashboard, run_dashboard, Tou
        add_event!, start_training, update_system_info!, render_sticky_dashboard,
        render_top_sticky_panel, render_bottom_sticky_panel,
        download_tournament_data,
-       run_tui_production,
+       run_tui_production, run_tui_v1043,
        # Dashboard command functions
        run_full_pipeline,
        XGBoostModel, LightGBMModel, EvoTreesModel, CatBoostModel,
@@ -813,7 +813,9 @@ function run_tui_v1043(config::TournamentConfig)
 
     # Run the v0.10.47 dashboard with all fixes for reported issues
     println("\n🚀 Starting TUI v0.10.47 with complete fixes...")
-    run_tui_v047(config, api_client)
+    # Create and run the dashboard using the TUIProductionV047 module directly
+    dashboard = TUIProductionV047.create_dashboard(config, api_client)
+    TUIProductionV047.run_dashboard(dashboard)
 end
 
 end

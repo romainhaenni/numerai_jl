@@ -20,7 +20,6 @@ using CSV
 using ..Utils
 using ..API
 using ..DataLoader
-import ..TournamentConfig
 
 # Import ML components
 using ..Models: create_model, train!, predict
